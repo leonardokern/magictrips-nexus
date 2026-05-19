@@ -2,7 +2,9 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 import type { Database } from "@/types/database.types"
 
-const PUBLIC_ROUTES = ["/login", "/alterar-senha"]
+// Apenas /login é totalmente pública. /alterar-senha exige sessão (o usuário
+// precisa estar logado pra trocar a própria senha).
+const PUBLIC_ROUTES = ["/login"]
 
 type CookieToSet = { name: string; value: string; options: CookieOptions }
 

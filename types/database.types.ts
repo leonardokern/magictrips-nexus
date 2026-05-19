@@ -7,8 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
@@ -1196,12 +1194,33 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      alterar_minha_senha: {
+        Args: { p_nova_senha: string; p_senha_atual: string }
+        Returns: undefined
+      }
       app_user_empresa_id: { Args: never; Returns: string }
       app_user_perfil_nome: { Args: never; Returns: string }
+      criar_usuario_admin: {
+        Args: {
+          p_comissao_percentual?: number
+          p_email: string
+          p_empresa_id: string
+          p_iniciais?: string
+          p_nome: string
+          p_perfil_id: string
+          p_senha: string
+        }
+        Returns: string
+      }
+      excluir_usuario_admin: { Args: { p_user_id: string }; Returns: undefined }
       is_administrador: { Args: never; Returns: boolean }
       is_agente: { Args: never; Returns: boolean }
       is_gerente: { Args: never; Returns: boolean }
       mesma_empresa: { Args: { p_empresa_id: string }; Returns: boolean }
+      resetar_senha_usuario: {
+        Args: { p_nova_senha: string; p_user_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
