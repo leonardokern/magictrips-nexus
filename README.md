@@ -77,6 +77,6 @@ Para regenerar os tipos TypeScript:
 
 | Usuário | Senha |
 |---|---|
-| `admin@magictrips.com.br` | `adminmagic` |
+| `adm@magictrips.com.br` | `adminmagic` |
 
 **Trocar a senha após o primeiro login em produção.**

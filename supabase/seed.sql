@@ -9,7 +9,7 @@
 -- =============================================================================
 
 -- Administrador Master (Marcelo)
--- Email: admin@magictrips.com.br
+-- Email: adm@magictrips.com.br
 -- Senha provisória: adminmagic (TROCAR APÓS PRIMEIRO LOGIN EM PRODUÇÃO)
 -- Hash: bcrypt 10 rounds via pgcrypto crypt() + gen_salt('bf', 10)
 -- Mesmo algoritmo usado internamente pelo Supabase Auth signUp.
@@ -20,8 +20,8 @@ DECLARE
   v_perfil_id uuid;
 BEGIN
   -- Skip se já existe
-  IF EXISTS (SELECT 1 FROM auth.users WHERE email = 'admin@magictrips.com.br') THEN
-    RAISE NOTICE 'Usuário admin@magictrips.com.br já existe — seed ignorado';
+  IF EXISTS (SELECT 1 FROM auth.users WHERE email = 'adm@magictrips.com.br') THEN
+    RAISE NOTICE 'Usuário adm@magictrips.com.br já existe — seed ignorado';
     RETURN;
   END IF;
 
@@ -38,7 +38,7 @@ BEGIN
     v_user_id,
     'authenticated',
     'authenticated',
-    'admin@magictrips.com.br',
+    'adm@magictrips.com.br',
     crypt('adminmagic', gen_salt('bf', 10)),
     now(),
     '{"provider":"email","providers":["email"]}'::jsonb,
@@ -57,7 +57,7 @@ BEGIN
     v_user_id::text,
     jsonb_build_object(
       'sub', v_user_id::text,
-      'email', 'admin@magictrips.com.br',
+      'email', 'adm@magictrips.com.br',
       'email_verified', true,
       'phone_verified', false
     ),
@@ -70,7 +70,7 @@ BEGIN
   INSERT INTO usuarios (
     id, nome, email, perfil_id, empresa_id, iniciais, ativo, force_password_change
   ) VALUES (
-    v_user_id, 'Marcelo', 'admin@magictrips.com.br', v_perfil_id, NULL, 'MM', true, false
+    v_user_id, 'Marcelo', 'adm@magictrips.com.br', v_perfil_id, NULL, 'MM', true, false
   );
 
   RAISE NOTICE 'Administrador criado: %', v_user_id;

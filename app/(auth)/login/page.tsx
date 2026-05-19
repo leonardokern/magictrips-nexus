@@ -38,7 +38,7 @@ export default async function LoginPage({ searchParams }: Props) {
           <div className="w-full rounded-2xl border border-white/10 bg-white/[0.04] p-8 shadow-2xl backdrop-blur-md">
             <div className="mb-6 space-y-1.5 text-center">
               <h1 className="text-xl font-semibold tracking-tight text-white">
-                Bem-vindo de volta
+                Bem-vindo(a)
               </h1>
               <p className="text-sm text-white/60">
                 Entre com suas credenciais para acessar o sistema.
@@ -51,9 +51,6 @@ export default async function LoginPage({ searchParams }: Props) {
 
         {/* Footer com logos das empresas */}
         <footer className="mt-8 flex w-full max-w-2xl flex-col items-center gap-5 pt-4">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">
-            Plataforma interna de
-          </p>
           <div className="flex items-center justify-center gap-4 md:gap-6">
             <Image
               src="/brand/magic-trips-white.png"
@@ -71,6 +68,9 @@ export default async function LoginPage({ searchParams }: Props) {
               className="h-32 w-auto select-none object-contain opacity-80 transition-opacity hover:opacity-100"
             />
           </div>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">
+            Plataforma interna
+          </p>
         </footer>
       </div>
     </BeamsBackground>
