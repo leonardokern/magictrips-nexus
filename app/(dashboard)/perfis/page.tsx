@@ -10,10 +10,7 @@ import {
 import { createClient } from "@/lib/supabase/server"
 import { requireCurrentUser } from "@/lib/hooks/use-current-user"
 import { can } from "@/lib/hooks/use-permissions"
-import {
-  PerfilAtivoBadge,
-  PerfilSistemaBadge,
-} from "@/components/perfis/perfil-badges"
+import { PerfilAtivoBadge } from "@/components/perfis/perfil-badges"
 import { NovoPerfilButton } from "@/components/perfis/novo-perfil-button"
 import { PerfilRowActions } from "@/components/perfis/perfil-row-actions"
 import type { PerfilTipo, PermissoesValue } from "@/lib/schemas/perfil"
@@ -49,7 +46,6 @@ export default async function PerfisPage() {
       .order("nome"),
   ])
 
-  const empresasMap = new Map((empresas ?? []).map((e) => [e.id, e.nome]))
   const perfilIds = (perfis ?? []).map((p) => p.id)
 
   // Batch: contagem de usuários + overrides de comissão para todos os perfis
@@ -113,8 +109,6 @@ export default async function PerfisPage() {
             <TableRow className="border-white/[0.06] hover:bg-transparent">
               <TableHead className="text-white/55">Nome</TableHead>
               <TableHead className="text-white/55">Tipo</TableHead>
-              <TableHead className="text-white/55">Empresa</TableHead>
-              <TableHead className="text-white/55">Origem</TableHead>
               <TableHead className="text-white/55">Status</TableHead>
               <TableHead className="text-white/55">Usuários</TableHead>
               <TableHead className="text-right text-white/55">Ações</TableHead>
@@ -124,7 +118,7 @@ export default async function PerfisPage() {
             {!perfis || perfis.length === 0 ? (
               <TableRow className="border-white/[0.06] hover:bg-transparent">
                 <TableCell
-                  colSpan={7}
+                  colSpan={5}
                   className="h-24 text-center text-sm text-white/45"
                 >
                   Nenhum perfil cadastrado.
@@ -153,20 +147,6 @@ export default async function PerfisPage() {
                         {tipoLabel}
                       </span>
                     </TableCell>
-                    <TableCell className="text-sm text-white/75">
-                      {p.empresa_id
-                        ? (empresasMap.get(p.empresa_id) ?? "—")
-                        : (
-                          <span className="text-white/55">Todas</span>
-                        )}
-                    </TableCell>
-                    <TableCell>
-                      {p.sistema ? (
-                        <PerfilSistemaBadge sistema />
-                      ) : (
-                        <span className="text-xs text-white/55">Customizado</span>
-                      )}
-                    </TableCell>
                     <TableCell>
                       <PerfilAtivoBadge ativo={p.ativo} />
                     </TableCell>
@@ -183,6 +163,7 @@ export default async function PerfisPage() {
                           permissoes:
                             (p.permissoes as PermissoesValue) ?? {},
                           ativo: p.ativo,
+                          sistema: p.sistema,
                           comissoes: overridesPorPerfil.get(p.id) ?? {},
                         }}
                         empresas={empresas ?? []}

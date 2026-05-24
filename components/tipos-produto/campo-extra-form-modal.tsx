@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { GripVertical, List, Plus, Tag, Trash2, Type } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { LoaderButton } from "@/components/ui/loader-button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -49,6 +50,8 @@ type ModeProps =
 type Props = ModeProps & {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Callback opcional disparado após criar/editar com sucesso (além do router.refresh). */
+  onSuccess?: () => void
 }
 
 type FormState = {
@@ -164,6 +167,7 @@ export function CampoExtraFormModal(props: Props) {
       toast.success(isCreate ? "Campo criado." : "Campo atualizado.")
       props.onOpenChange(false)
       router.refresh()
+      props.onSuccess?.()
     })
   }
 
@@ -318,17 +322,13 @@ export function CampoExtraFormModal(props: Props) {
             >
               Cancelar
             </Button>
-            <Button
+            <LoaderButton
               type="submit"
-              disabled={isPending}
+              loading={isPending}
               className="bg-nexus-bright text-white hover:bg-nexus-bright-soft"
             >
-              {isPending
-                ? "Salvando…"
-                : isCreate
-                  ? "Criar campo"
-                  : "Salvar"}
-            </Button>
+              {isCreate ? "Criar campo" : "Salvar"}
+            </LoaderButton>
           </DialogFooter>
         </form>
       </DialogContent>

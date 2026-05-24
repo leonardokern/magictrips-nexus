@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { Building2, MapPin, StickyNote, User } from "lucide-react"
+import { MapPin, StickyNote, User } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,18 +23,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { ORIGENS_CLIENTE, type ClienteFormValues } from "@/lib/schemas/cliente"
+import { type ClienteFormValues } from "@/lib/schemas/cliente"
 import {
   createCliente,
   updateCliente,
   lookupClientePorCpf,
+  lookupClientePorCnpj,
   type ActionResult,
 } from "@/app/(dashboard)/clientes/actions"
 import {
+  formatCep,
+  formatCnpj,
   formatCpf,
   formatTelefone,
   onlyDigits,
 } from "@/lib/utils/formatters"
+import { cnpjValido, cpfValido, emailValido } from "@/lib/utils/validators"
+import { DateInput } from "@/components/ui/date-input"
+import { buscarEnderecoPorCep } from "@/lib/utils/cep"
+import { ESTADOS_BR } from "@/lib/data/estados"
+import { CidadeCombobox } from "@/components/ui/cidade-combobox"
+import { Spinner } from "@/components/ui/spinner"
 
 type Empresa = { id: string; nome: string }
 
@@ -54,22 +63,32 @@ type Props = ModeProps & {
   defaultEmpresaId?: string
   /** Bloqueia o select de empresa (não-Admin). */
   lockEmpresa?: boolean
+  /** Modo leitura: desabilita todos os campos e esconde o botão Salvar. */
+  readOnly?: boolean
 }
 
 type FormState = ClienteFormValues
 
 const EMPTY: FormState = {
   empresa_id: "",
+  tipo_pessoa: "fisica",
+  // PF
   nome: "",
-  email: "",
-  telefone: "",
   cpf: "",
   data_nascimento: "",
+  // PJ
+  razao_social: "",
+  nome_fantasia: "",
+  cnpj: "",
+  responsavel: "",
+  // Comuns
+  email: "",
+  telefone: "",
   endereco: {},
   origem: "",
   tipo: "regular",
   dia_faturamento: undefined,
-  status: "lead",
+  status: "ativo",
   observacoes: "",
 }
 
@@ -82,13 +101,50 @@ export function ClienteFormModal(props: Props) {
     nome: string
   } | null>(null)
   const [v, setV] = useState<FormState>(EMPTY)
+  const [cepLoading, setCepLoading] = useState(false)
+  /** Quando true, rua/bairro/cidade/UF ficam editáveis manualmente.
+   *  Default: false (bloqueados). Liberado se ViaCEP não acha. */
+  const [enderecoManual, setEnderecoManual] = useState(false)
 
   const isCreate = props.mode === "create"
+
+  async function buscarCep() {
+    const cep = v.endereco?.cep ?? ""
+    const limpo = onlyDigits(cep)
+    if (limpo.length === 0) {
+      setErrors((e) => ({ ...e, cep: "" }))
+      return
+    }
+    if (limpo.length !== 8) {
+      setErrors((e) => ({ ...e, cep: "CEP inválido" }))
+      return
+    }
+    setErrors((e) => ({ ...e, cep: "" }))
+    setCepLoading(true)
+    const r = await buscarEnderecoPorCep(cep)
+    setCepLoading(false)
+    if (!r) {
+      toast.error("CEP não encontrado — preencha os campos manualmente.")
+      setEnderecoManual(true)
+      return
+    }
+    setEnderecoManual(false)
+    update("endereco", {
+      ...v.endereco,
+      cep,
+      rua: r.rua || v.endereco?.rua,
+      bairro: r.bairro || v.endereco?.bairro,
+      cidade: r.cidade,
+      estado: r.uf,
+    })
+  }
 
   useEffect(() => {
     if (!props.open) return
     setErrors({})
     setDuplicateAlert(null)
+    // Edit: endereço já existe, libera edição. Create: bloqueia, força CEP.
+    setEnderecoManual(props.mode === "edit")
     if (props.mode === "edit") {
       setV({
         ...EMPTY,
@@ -106,14 +162,40 @@ export function ClienteFormModal(props: Props) {
   }
 
   async function checkCpfDuplicado() {
-    if (!isCreate) return
-    if (!v.empresa_id) return
-    const cpfLimpo = onlyDigits(v.cpf)
-    if (cpfLimpo.length !== 11) {
+    if (!isCreate || v.tipo_pessoa !== "fisica") return
+    const cpfLimpo = onlyDigits(v.cpf ?? "")
+    if (cpfLimpo.length === 0) {
       setDuplicateAlert(null)
+      setErrors((e) => ({ ...e, cpf: "" }))
       return
     }
+    if (cpfLimpo.length !== 11 || !cpfValido(cpfLimpo)) {
+      setDuplicateAlert(null)
+      setErrors((e) => ({ ...e, cpf: "CPF inválido." }))
+      return
+    }
+    setErrors((e) => ({ ...e, cpf: "" }))
+    if (!v.empresa_id) return
     const found = await lookupClientePorCpf(v.empresa_id, cpfLimpo)
+    setDuplicateAlert(found)
+  }
+
+  async function checkCnpjDuplicado() {
+    if (v.tipo_pessoa !== "juridica") return
+    const cnpjLimpo = onlyDigits(v.cnpj ?? "")
+    if (cnpjLimpo.length === 0) {
+      setDuplicateAlert(null)
+      setErrors((e) => ({ ...e, cnpj: "" }))
+      return
+    }
+    if (!cnpjValido(cnpjLimpo)) {
+      setDuplicateAlert(null)
+      setErrors((e) => ({ ...e, cnpj: "CNPJ inválido." }))
+      return
+    }
+    setErrors((e) => ({ ...e, cnpj: "" }))
+    if (!isCreate || !v.empresa_id) return
+    const found = await lookupClientePorCnpj(v.empresa_id, cnpjLimpo)
     setDuplicateAlert(found)
   }
 
@@ -124,7 +206,8 @@ export function ClienteFormModal(props: Props) {
     startTransition(async () => {
       const payload = {
         ...v,
-        cpf: onlyDigits(v.cpf),
+        cpf: onlyDigits(v.cpf ?? ""),
+        cnpj: onlyDigits(v.cnpj ?? ""),
         telefone: onlyDigits(v.telefone),
         dia_faturamento:
           v.tipo === "faturado" && v.dia_faturamento
@@ -172,6 +255,7 @@ export function ClienteFormModal(props: Props) {
         </DialogHeader>
 
         <form onSubmit={onSubmit} className="space-y-6">
+          <fieldset disabled={props.readOnly} className="space-y-6 disabled:opacity-95">
           {/* Dados principais */}
           <Section icon={<User className="h-3.5 w-3.5" />} title="Dados principais">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -195,53 +279,146 @@ export function ClienteFormModal(props: Props) {
                 </Field>
               )}
 
-              <Field
-                label="Nome *"
-                error={errors.nome}
-                className="sm:col-span-2"
-              >
-                <Input
-                  value={v.nome}
-                  onChange={(e) => update("nome", e.target.value)}
-                  required
-                />
-              </Field>
+              {/* Radio Pessoa Física / Jurídica */}
+              <div className="sm:col-span-2">
+                <Label className="mb-2 block text-[11px] font-medium text-white/70">
+                  Tipo de pessoa *
+                </Label>
+                <div className="flex gap-2">
+                  {(["fisica", "juridica"] as const).map((opt) => {
+                    const ativo = v.tipo_pessoa === opt
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => update("tipo_pessoa", opt)}
+                        className={
+                          "flex-1 rounded-md border px-4 py-2 text-sm transition-colors " +
+                          (ativo
+                            ? "border-nexus-bright bg-nexus-bright/10 text-nexus-bright"
+                            : "border-white/10 bg-white/[0.02] text-white/70 hover:border-white/25 hover:bg-white/[0.06]")
+                        }
+                      >
+                        {opt === "fisica" ? "Pessoa física" : "Pessoa jurídica"}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
 
-              <Field label="CPF *" error={errors.cpf}>
-                <Input
-                  value={formatCpf(v.cpf)}
-                  onChange={(e) => update("cpf", e.target.value)}
-                  onBlur={checkCpfDuplicado}
-                  placeholder="000.000.000-00"
-                  maxLength={14}
-                  required
-                />
-                {duplicateAlert && isCreate && (
-                  <p className="mt-1 text-[11px] text-amber-300">
-                    Já existe cliente com este CPF:{" "}
-                    <a
-                      href={`/clientes/${duplicateAlert.id}`}
-                      className="font-medium underline"
-                    >
-                      {duplicateAlert.nome}
-                    </a>
-                  </p>
-                )}
-              </Field>
+              {v.tipo_pessoa === "fisica" ? (
+                <>
+                  <Field
+                    label="Nome *"
+                    error={errors.nome}
+                    className="sm:col-span-2"
+                  >
+                    <Input
+                      value={v.nome ?? ""}
+                      onChange={(e) => update("nome", e.target.value)}
+                      required
+                    />
+                  </Field>
 
-              <Field label="Data de nascimento" error={errors.data_nascimento}>
-                <Input
-                  type="date"
-                  value={v.data_nascimento ?? ""}
-                  onChange={(e) => update("data_nascimento", e.target.value)}
-                />
-              </Field>
+                  <Field label="CPF *" error={errors.cpf}>
+                    <Input
+                      value={formatCpf(v.cpf ?? "")}
+                      onChange={(e) => update("cpf", e.target.value)}
+                      onBlur={checkCpfDuplicado}
+                      placeholder="000.000.000-00"
+                      maxLength={14}
+                      required
+                    />
+                    {duplicateAlert && isCreate && (
+                      <p className="mt-1 text-[11px] text-amber-300">
+                        Já existe cliente com este CPF:{" "}
+                        <a
+                          href={`/clientes/${duplicateAlert.id}`}
+                          className="font-medium underline"
+                        >
+                          {duplicateAlert.nome}
+                        </a>
+                      </p>
+                    )}
+                  </Field>
+
+                  <Field label="Data de nascimento" error={errors.data_nascimento}>
+                    <DateInput
+                      value={v.data_nascimento ?? ""}
+                      onChange={(iso) => update("data_nascimento", iso)}
+                    />
+                  </Field>
+                </>
+              ) : (
+                <>
+                  <Field
+                    label="Razão social *"
+                    error={errors.razao_social}
+                    className="sm:col-span-2"
+                  >
+                    <Input
+                      value={v.razao_social ?? ""}
+                      onChange={(e) => update("razao_social", e.target.value)}
+                      required
+                    />
+                  </Field>
+
+                  <Field
+                    label="Nome fantasia"
+                    error={errors.nome_fantasia}
+                    className="sm:col-span-2"
+                  >
+                    <Input
+                      value={v.nome_fantasia ?? ""}
+                      onChange={(e) => update("nome_fantasia", e.target.value)}
+                    />
+                  </Field>
+
+                  <Field label="CNPJ *" error={errors.cnpj}>
+                    <Input
+                      value={formatCnpj(v.cnpj ?? "")}
+                      onChange={(e) => {
+                        update("cnpj", e.target.value)
+                        setDuplicateAlert(null)
+                      }}
+                      onBlur={checkCnpjDuplicado}
+                      placeholder="00.000.000/0000-00"
+                      maxLength={18}
+                      required
+                    />
+                    {duplicateAlert && isCreate && (
+                      <p className="mt-1 text-[11px] text-amber-300">
+                        Já existe cliente com este CNPJ:{" "}
+                        <a
+                          href={`/clientes/${duplicateAlert.id}`}
+                          className="font-medium underline"
+                        >
+                          {duplicateAlert.nome}
+                        </a>
+                      </p>
+                    )}
+                  </Field>
+
+                  <Field label="Nome do responsável" error={errors.responsavel}>
+                    <Input
+                      value={v.responsavel ?? ""}
+                      onChange={(e) => update("responsavel", e.target.value)}
+                    />
+                  </Field>
+                </>
+              )}
 
               <Field label="E-mail *" error={errors.email}>
                 <Input
                   type="email"
                   value={v.email}
-                  onChange={(e) => update("email", e.target.value)}
+                  onChange={(e) => update("email", e.target.value.replace(/\s/g, ""))}
+                  onBlur={() => {
+                    if (v.email && !emailValido(v.email)) {
+                      setErrors((e) => ({ ...e, email: "E-mail inválido" }))
+                    }
+                  }}
+                  placeholder="cliente@email.com.br"
                   required
                 />
               </Field>
@@ -258,128 +435,76 @@ export function ClienteFormModal(props: Props) {
             </div>
           </Section>
 
-          {/* Classificação */}
-          <Section icon={<Building2 className="h-3.5 w-3.5" />} title="Classificação">
+          {/* Endereço */}
+          <Section icon={<MapPin className="h-3.5 w-3.5" />} title="Endereço">
             <div className="grid gap-4 sm:grid-cols-3">
-              <Field label="Tipo *" error={errors.tipo}>
-                <Select
-                  value={v.tipo}
-                  onValueChange={(val) =>
-                    update("tipo", val as "regular" | "faturado")
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="regular">Regular</SelectItem>
-                    <SelectItem value="faturado">Faturado</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-
-              {v.tipo === "faturado" && (
-                <Field
-                  label="Dia de faturamento *"
-                  error={errors.dia_faturamento}
-                  hint="Dia do mês em que a fatura fecha"
-                >
+              <Field
+                label="CEP"
+                hint="Preenche o resto automaticamente"
+                error={errors.cep}
+              >
+                <div className="relative">
                   <Input
-                    type="number"
-                    min={1}
-                    max={31}
-                    value={(v.dia_faturamento as number | undefined) ?? ""}
+                    value={formatCep(v.endereco?.cep ?? "")}
                     onChange={(e) =>
-                      update(
-                        "dia_faturamento",
-                        e.target.value
-                          ? (Number(e.target.value) as never)
-                          : (undefined as never),
-                      )
+                      update("endereco", {
+                        ...v.endereco,
+                        cep: onlyDigits(e.target.value),
+                      })
                     }
-                    placeholder="20"
+                    onBlur={buscarCep}
+                    placeholder="00000-000"
+                    maxLength={9}
+                    inputMode="numeric"
+                    className="pr-9"
                   />
-                </Field>
-              )}
-
-              <Field label="Status *" error={errors.status}>
-                <Select
-                  value={v.status}
-                  onValueChange={(val) =>
-                    update("status", val as "lead" | "ativo" | "inativo")
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="lead">Lead</SelectItem>
-                    <SelectItem value="ativo">Ativo</SelectItem>
-                    <SelectItem value="inativo">Inativo</SelectItem>
-                  </SelectContent>
-                </Select>
+                  {cepLoading && (
+                    <Spinner
+                      size="sm"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-nexus-bright"
+                    />
+                  )}
+                </div>
               </Field>
-
-              <Field label="Origem" error={errors.origem}>
+              <Field label="UF">
                 <Select
-                  value={v.origem || undefined}
-                  onValueChange={(val) => update("origem", val)}
+                  value={v.endereco?.estado || undefined}
+                  disabled={!enderecoManual}
+                  onValueChange={(val) =>
+                    update("endereco", {
+                      ...v.endereco,
+                      estado: val,
+                      // Limpa cidade quando UF muda
+                      cidade: v.endereco?.estado === val ? v.endereco?.cidade : "",
+                    })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
                   <SelectContent>
-                    {ORIGENS_CLIENTE.map((o) => (
-                      <SelectItem key={o} value={o}>
-                        {o}
+                    {ESTADOS_BR.map((e) => (
+                      <SelectItem key={e.uf} value={e.uf}>
+                        {e.nome}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </Field>
-            </div>
-          </Section>
-
-          {/* Endereço */}
-          <Section icon={<MapPin className="h-3.5 w-3.5" />} title="Endereço">
-            <div className="grid gap-4 sm:grid-cols-3">
-              <Field label="CEP">
-                <Input
-                  value={v.endereco?.cep ?? ""}
-                  onChange={(e) =>
-                    update("endereco", { ...v.endereco, cep: e.target.value })
-                  }
-                  placeholder="00000-000"
-                  maxLength={9}
-                />
-              </Field>
               <Field label="Cidade">
-                <Input
+                <CidadeCombobox
+                  uf={v.endereco?.estado}
                   value={v.endereco?.cidade ?? ""}
-                  onChange={(e) =>
-                    update("endereco", {
-                      ...v.endereco,
-                      cidade: e.target.value,
-                    })
+                  onChange={(cidade) =>
+                    update("endereco", { ...v.endereco, cidade })
                   }
-                />
-              </Field>
-              <Field label="UF">
-                <Input
-                  value={v.endereco?.estado ?? ""}
-                  maxLength={2}
-                  onChange={(e) =>
-                    update("endereco", {
-                      ...v.endereco,
-                      estado: e.target.value.toUpperCase(),
-                    })
-                  }
-                  placeholder="SP"
+                  disabled={!enderecoManual}
                 />
               </Field>
               <Field label="Rua" className="sm:col-span-2">
                 <Input
                   value={v.endereco?.rua ?? ""}
+                  disabled={!enderecoManual}
                   onChange={(e) =>
                     update("endereco", { ...v.endereco, rua: e.target.value })
                   }
@@ -391,9 +516,11 @@ export function ClienteFormModal(props: Props) {
                   onChange={(e) =>
                     update("endereco", {
                       ...v.endereco,
-                      numero: e.target.value,
+                      numero: onlyDigits(e.target.value),
                     })
                   }
+                  inputMode="numeric"
+                  maxLength={10}
                 />
               </Field>
               <Field label="Complemento" className="sm:col-span-2">
@@ -410,6 +537,7 @@ export function ClienteFormModal(props: Props) {
               <Field label="Bairro">
                 <Input
                   value={v.endereco?.bairro ?? ""}
+                  disabled={!enderecoManual}
                   onChange={(e) =>
                     update("endereco", {
                       ...v.endereco,
@@ -419,6 +547,18 @@ export function ClienteFormModal(props: Props) {
                 />
               </Field>
             </div>
+            {!enderecoManual && (
+              <p className="mt-2 text-[11px] text-white/40">
+                Rua, Bairro, Cidade e UF são preenchidos via CEP.{" "}
+                <button
+                  type="button"
+                  onClick={() => setEnderecoManual(true)}
+                  className="underline hover:text-white/70"
+                >
+                  Editar manualmente
+                </button>
+              </p>
+            )}
           </Section>
 
           {/* Observações */}
@@ -430,6 +570,7 @@ export function ClienteFormModal(props: Props) {
               placeholder="Anotações internas, preferências, restrições..."
             />
           </Section>
+          </fieldset>
 
           <DialogFooter>
             <Button
@@ -438,15 +579,17 @@ export function ClienteFormModal(props: Props) {
               onClick={() => props.onOpenChange(false)}
               disabled={isPending}
             >
-              Cancelar
+              {props.readOnly ? "Fechar" : "Cancelar"}
             </Button>
-            <Button
-              type="submit"
-              disabled={isPending}
-              className="bg-nexus-bright text-white hover:bg-nexus-bright-soft"
-            >
-              {isPending ? "Salvando…" : isCreate ? "Criar cliente" : "Salvar"}
-            </Button>
+            {!props.readOnly && (
+              <Button
+                type="submit"
+                disabled={isPending}
+                className="bg-nexus-bright text-white hover:bg-nexus-bright-soft"
+              >
+                {isPending ? "Salvando…" : isCreate ? "Criar cliente" : "Salvar"}
+              </Button>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>

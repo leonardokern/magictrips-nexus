@@ -1,7 +1,5 @@
 import type { Metadata } from "next"
-import Link from "next/link"
-import { Plus, ShoppingCart, ShieldCheck, Users } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { ShoppingCart, ShieldCheck, Users } from "lucide-react"
 import {
   Table,
   TableBody,
@@ -14,23 +12,25 @@ import { createClient } from "@/lib/supabase/server"
 import { requireCurrentUser } from "@/lib/hooks/use-current-user"
 import { can } from "@/lib/hooks/use-permissions"
 import { formatBRL } from "@/lib/utils/sum-parser"
+import { NovaVendaButton } from "@/components/vendas/nova-venda-button"
+import { VendaRowActions } from "@/components/vendas/venda-row-actions"
 
 export const metadata: Metadata = { title: "Vendas" }
 
 const STATUS_LABEL: Record<string, string> = {
   rascunho: "Rascunho",
   pendente_validacao: "Aguardando aprovação",
-  aprovada: "Aprovada",
-  cancelada: "Cancelada",
-  devolvida: "Devolvida",
+  aprovado: "Aprovada",
+  cancelado: "Cancelada",
+  devolvido: "Devolvida",
 }
 
 const STATUS_CHIP: Record<string, string> = {
   rascunho: "border-white/15 bg-white/[0.04] text-white/55",
   pendente_validacao: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-  aprovada: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-  cancelada: "border-rose-500/30 bg-rose-500/10 text-rose-300",
-  devolvida: "border-violet-500/30 bg-violet-500/10 text-violet-300",
+  aprovado: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+  cancelado: "border-rose-500/30 bg-rose-500/10 text-rose-300",
+  devolvido: "border-violet-500/30 bg-violet-500/10 text-violet-300",
 }
 
 export default async function VendasPage() {
@@ -45,20 +45,23 @@ export default async function VendasPage() {
 
   const supabase = await createClient()
 
-  // Busca vendas + produtos pra somar valor + cliente + agente + empresa
   const { data: vendas } = await supabase
     .from("vendas")
     .select(
       `
-      id, data_venda, status, pax, indicacao_percentual, created_at,
+      id, identificador, data_venda, status, pax, created_at, usuario_id,
       empresa:empresas(nome, slug),
-      cliente:clientes(nome, cpf),
+      cliente:clientes(nome),
       agente:usuarios!vendas_usuario_id_fkey(nome),
       produtos:venda_produtos(valor_venda)
     `,
     )
     .order("created_at", { ascending: false })
     .limit(100)
+
+  const podeAprovar = can(user, "vendas", "aprovar")
+  const podeEditarGlobal = can(user, "vendas", "editar")
+  const mostraComissao = podeAprovar
 
   const linhas = (vendas ?? []).map((v) => ({
     ...v,
@@ -70,13 +73,14 @@ export default async function VendasPage() {
 
   // KPIs
   const pendentes = linhas.filter((v) => v.status === "pendente_validacao")
-  const aprovadas = linhas.filter((v) => v.status === "aprovada")
+  const aprovadas = linhas.filter((v) => v.status === "aprovado")
   const totalMes = linhas
     .filter((v) => {
       const d = new Date(v.data_venda)
       const hoje = new Date()
       return (
-        d.getMonth() === hoje.getMonth() && d.getFullYear() === hoje.getFullYear()
+        d.getMonth() === hoje.getMonth() &&
+        d.getFullYear() === hoje.getFullYear()
       )
     })
     .reduce((acc, v) => acc + v.total, 0)
@@ -94,17 +98,7 @@ export default async function VendasPage() {
           </p>
         </div>
 
-        {can(user, "vendas", "criar") && (
-          <Button
-            asChild
-            className="bg-nexus-bright text-white hover:bg-nexus-bright-soft"
-          >
-            <Link href="/vendas/nova">
-              <Plus className="mr-2 h-4 w-4" />
-              Nova venda
-            </Link>
-          </Button>
-        )}
+        {can(user, "vendas", "criar") && <NovaVendaButton />}
       </div>
 
       {/* KPIs */}
@@ -133,6 +127,7 @@ export default async function VendasPage() {
         <Table>
           <TableHeader>
             <TableRow className="border-white/[0.06] hover:bg-transparent">
+              <TableHead className="text-white/55">ID</TableHead>
               <TableHead className="text-white/55">Data</TableHead>
               <TableHead className="text-white/55">Cliente</TableHead>
               <TableHead className="text-white/55">Empresa</TableHead>
@@ -140,59 +135,80 @@ export default async function VendasPage() {
               <TableHead className="text-right text-white/55">PAX</TableHead>
               <TableHead className="text-right text-white/55">Valor</TableHead>
               <TableHead className="text-white/55">Status</TableHead>
+              <TableHead className="text-right text-white/55">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {linhas.length === 0 ? (
               <TableRow className="border-white/[0.06] hover:bg-transparent">
                 <TableCell
-                  colSpan={7}
+                  colSpan={9}
                   className="h-24 text-center text-sm text-white/45"
                 >
                   Nenhuma venda registrada ainda.
                 </TableCell>
               </TableRow>
             ) : (
-              linhas.map((v) => (
-                <TableRow
-                  key={v.id}
-                  className="border-white/[0.06] hover:bg-white/[0.025]"
-                >
-                  <TableCell className="text-sm text-white/85">
-                    <Link
-                      href={`/vendas/${v.id}`}
-                      className="hover:underline"
-                    >
+              linhas.map((v) => {
+                const podeEditarEsta =
+                  podeEditarGlobal || v.usuario_id === user.id
+                const clienteNome =
+                  (v.cliente as { nome: string } | null)?.nome ?? "—"
+
+                return (
+                  <TableRow
+                    key={v.id}
+                    className="border-white/[0.06] hover:bg-white/[0.025]"
+                  >
+                    <TableCell className="font-mono text-xs font-medium text-nexus-bright">
+                      {v.identificador}
+                    </TableCell>
+                    <TableCell className="text-sm text-white/85">
                       {formatDateBR(v.data_venda)}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="text-sm font-medium text-white">
-                    {v.cliente?.nome ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-white/75">
-                    {v.empresa?.nome ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-white/75">
-                    {v.agente?.nome ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-right text-sm tabular-nums text-white/75">
-                    {v.pax}
-                  </TableCell>
-                  <TableCell className="text-right text-sm tabular-nums text-white">
-                    {formatBRL(v.total)}
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={
-                        "rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider " +
-                        (STATUS_CHIP[v.status] ?? STATUS_CHIP.rascunho)
-                      }
-                    >
-                      {STATUS_LABEL[v.status] ?? v.status}
-                    </span>
-                  </TableCell>
-                </TableRow>
-              ))
+                    </TableCell>
+                    <TableCell className="text-sm font-medium text-white">
+                      {clienteNome}
+                    </TableCell>
+                    <TableCell className="text-sm text-white/75">
+                      {(v.empresa as { nome: string } | null)?.nome ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-white/75">
+                      {(v.agente as { nome: string } | null)?.nome ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums text-white/75">
+                      {v.pax}
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums text-white">
+                      {formatBRL(v.total)}
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={
+                          "rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider " +
+                          (STATUS_CHIP[v.status] ?? STATUS_CHIP.rascunho)
+                        }
+                      >
+                        {STATUS_LABEL[v.status] ?? v.status}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <VendaRowActions
+                        venda={{
+                          id: v.id,
+                          identificador: v.identificador,
+                          status: v.status,
+                          usuario_id: v.usuario_id,
+                          clienteNome,
+                          totalVenda: formatBRL(v.total),
+                        }}
+                        podeAprovar={podeAprovar}
+                        podeEditar={podeEditarEsta}
+                        mostraComissao={mostraComissao}
+                      />
+                    </TableCell>
+                  </TableRow>
+                )
+              })
             )}
           </TableBody>
         </Table>
@@ -200,6 +216,8 @@ export default async function VendasPage() {
     </div>
   )
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function Kpi({
   label,

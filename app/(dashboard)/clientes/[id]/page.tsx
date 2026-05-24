@@ -55,7 +55,7 @@ export default async function ClienteDetailPage({
   const { data: cliente } = await supabase
     .from("clientes")
     .select(
-      "id, nome, email, telefone, cpf, data_nascimento, endereco, origem, tipo, dia_faturamento, status, observacoes, created_at, updated_at, empresa_id",
+      "id, nome, email, telefone, cpf, data_nascimento, endereco, origem, tipo, dia_faturamento, status, observacoes, created_at, updated_at, empresa_id, tipo_pessoa, cnpj, razao_social, nome_fantasia, responsavel",
     )
     .eq("id", id)
     .maybeSingle()
@@ -107,11 +107,18 @@ export default async function ClienteDetailPage({
               id={cliente.id}
               initial={{
                 empresa_id: cliente.empresa_id,
+                tipo_pessoa: (cliente.tipo_pessoa === "juridica"
+                  ? "juridica"
+                  : "fisica") as "fisica" | "juridica",
                 nome: cliente.nome,
+                cpf: cliente.cpf ?? "",
+                data_nascimento: cliente.data_nascimento ?? "",
+                razao_social: cliente.razao_social ?? "",
+                nome_fantasia: cliente.nome_fantasia ?? "",
+                cnpj: cliente.cnpj ?? "",
+                responsavel: cliente.responsavel ?? "",
                 email: cliente.email,
                 telefone: cliente.telefone,
-                cpf: cliente.cpf,
-                data_nascimento: cliente.data_nascimento ?? "",
                 endereco: (cliente.endereco as ClienteFormValues["endereco"]) ?? {},
                 origem: cliente.origem ?? "",
                 tipo: cliente.tipo as TipoCliente,

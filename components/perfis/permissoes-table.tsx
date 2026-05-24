@@ -3,7 +3,6 @@
 import { Checkbox } from "@/components/ui/checkbox"
 import { MODULOS_PERMISSAO } from "@/lib/constants/permissoes"
 import type { PermissoesValue } from "@/lib/schemas/perfil"
-import { cn } from "@/lib/utils"
 
 type Props = {
   value: PermissoesValue
@@ -16,6 +15,7 @@ type Props = {
 // Colunas em ordem de exibição. Manter alinhado com o catálogo em
 // lib/constants/permissoes.ts — se aparecer ação nova, adicionar aqui.
 const ACOES_COLUNAS: { key: string; label: string }[] = [
+  { key: "ver", label: "Ver" },
   { key: "ler", label: "Ler" },
   { key: "criar", label: "Criar" },
   { key: "editar", label: "Editar" },
@@ -50,16 +50,22 @@ export function PermissoesTable({
 
   return (
     <div className="overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.02]">
-      <table className="w-full border-separate border-spacing-0 text-sm">
+      <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
+        <colgroup>
+          <col className="w-[30%]" />
+          {ACOES_COLUNAS.map((a) => (
+            <col key={a.key} className="w-[8.75%]" />
+          ))}
+        </colgroup>
         <thead>
           <tr>
-            <th className="sticky left-0 z-10 border-b border-white/[0.06] bg-white/[0.02] px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-white/55">
+            <th className="sticky left-0 top-0 z-20 border-b border-white/[0.06] bg-card/95 px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-white/55 backdrop-blur">
               Módulo
             </th>
             {ACOES_COLUNAS.map((acao) => (
               <th
                 key={acao.key}
-                className="border-b border-white/[0.06] px-3 py-3 text-center text-[11px] font-medium uppercase tracking-wider text-white/55"
+                className="sticky top-0 z-10 border-b border-white/[0.06] bg-card/95 py-3 text-center text-[11px] font-medium uppercase tracking-wider text-white/55 backdrop-blur"
               >
                 {acao.label}
               </th>
@@ -75,7 +81,7 @@ export function PermissoesTable({
                 key={mod.key}
                 className="group transition-colors hover:bg-white/[0.025]"
               >
-                <td className="sticky left-0 z-10 border-b border-white/[0.04] bg-card/95 px-4 py-2.5 align-middle group-hover:bg-white/[0.04]">
+                <td className="sticky left-0 z-10 border-b border-white/[0.04] bg-card/95 px-4 py-3 align-top group-hover:bg-white/[0.04]">
                   <button
                     type="button"
                     onClick={() => toggleLinhaInteira(mod.key, acoesDisponiveis)}
@@ -85,7 +91,7 @@ export function PermissoesTable({
                   >
                     {mod.label}
                   </button>
-                  <p className="mt-0.5 text-[11px] text-white/45">
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-white/45">
                     {mod.description}
                   </p>
                 </td>
@@ -96,7 +102,7 @@ export function PermissoesTable({
                     return (
                       <td
                         key={acao.key}
-                        className="border-b border-white/[0.04] px-3 py-2.5 text-center text-white/20"
+                        className="border-b border-white/[0.04] py-3 text-center align-middle text-white/20"
                       >
                         —
                       </td>
@@ -108,9 +114,7 @@ export function PermissoesTable({
                   return (
                     <td
                       key={acao.key}
-                      className={cn(
-                        "border-b border-white/[0.04] px-3 py-2.5 text-center align-middle",
-                      )}
+                      className="border-b border-white/[0.04] py-3 text-center align-middle"
                     >
                       <Checkbox
                         checked={checked}

@@ -31,6 +31,7 @@ type Props = {
     id: string
     nome: string
     ativo: boolean
+    icone: string | null
     campos: TipoProdutoVinculoCampo[]
   }
   camposDisponiveis: CampoExtra[]
@@ -121,7 +122,7 @@ export function TipoProdutoRowActions({
       <TipoProdutoFormModal
         mode="edit"
         id={tipo.id}
-        initial={{ nome: tipo.nome, campos: tipo.campos }}
+        initial={{ nome: tipo.nome, icone: tipo.icone, campos: tipo.campos }}
         open={editOpen}
         onOpenChange={setEditOpen}
         camposDisponiveis={camposDisponiveis}

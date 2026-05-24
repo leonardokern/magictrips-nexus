@@ -1,6 +1,7 @@
 import type { CurrentUser, Permissoes } from "./use-current-user"
 
 export type Modulo =
+  | "dashboard"
   | "clientes"
   | "vendas"
   | "financeiro"
@@ -15,6 +16,7 @@ export type Modulo =
 
 export type Acao =
   | "ler"
+  | "ver"
   | "criar"
   | "editar"
   | "excluir"

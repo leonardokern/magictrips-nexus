@@ -206,7 +206,7 @@ export default async function ComissoesPage() {
           <div className="mt-3 rounded-md border border-white/[0.06] bg-white/[0.03] p-3 text-xs">
             <strong className="text-white">Exceções administrativas:</strong>{" "}
             o gerente pode sobrescrever o percentual diretamente na venda no
-            momento da aprovação (campo "Comissão do vendedor"). A matriz aqui
+            momento da aprovação (campo &quot;Comissão do vendedor&quot;). A matriz aqui
             define apenas o padrão.
           </div>
         </CardContent>

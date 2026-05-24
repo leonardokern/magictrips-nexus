@@ -62,7 +62,7 @@ export function EmpresaSelector({
   }
 
   return (
-    <div className="grid grid-cols-2 gap-2.5">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       {empresas.map((empresa) => {
         const isOn = selecionadas.includes(empresa.id)
         const cfg = EMPRESA_LOGO[empresa.slug] ?? DEFAULT_LOGO
@@ -74,7 +74,7 @@ export function EmpresaSelector({
             disabled={disabled}
             aria-pressed={isOn}
             className={cn(
-              "group relative flex h-56 items-center justify-center overflow-hidden rounded-lg border bg-gradient-to-br transition-all",
+              "group relative flex h-20 items-center justify-center overflow-hidden rounded-lg border bg-gradient-to-br transition-all",
               isOn
                 ? `border-transparent ring-2 ${cfg.ring} ${cfg.bg} opacity-100`
                 : "border-white/10 bg-white/[0.02] opacity-50 hover:border-white/20 hover:opacity-80",
@@ -84,11 +84,11 @@ export function EmpresaSelector({
             <Image
               src={cfg.src}
               alt={empresa.nome}
-              width={800}
-              height={320}
+              width={400}
+              height={160}
               className={cn(
-                "h-56 w-auto select-none object-contain transition-transform",
-                isOn ? "scale-100" : "scale-95 grayscale",
+                "h-full w-full select-none object-contain transition-transform",
+                isOn ? "scale-150" : "scale-[1.42] grayscale",
               )}
             />
 
@@ -96,9 +96,9 @@ export function EmpresaSelector({
             {isOn && (
               <span
                 aria-hidden
-                className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow-lg"
+                className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-lg"
               >
-                <Check className="h-3.5 w-3.5 text-neutral-950" strokeWidth={3} />
+                <Check className="h-2.5 w-2.5 text-neutral-950" strokeWidth={3} />
               </span>
             )}
           </button>

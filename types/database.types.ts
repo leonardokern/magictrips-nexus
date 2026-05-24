@@ -7,6 +7,8 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
@@ -247,7 +249,8 @@ export type Database = {
       }
       clientes: {
         Row: {
-          cpf: string
+          cnpj: string | null
+          cpf: string | null
           created_at: string
           crm_id: string | null
           data_nascimento: string | null
@@ -257,15 +260,20 @@ export type Database = {
           endereco: Json | null
           id: string
           nome: string
+          nome_fantasia: string | null
           observacoes: string | null
           origem: string | null
+          razao_social: string | null
+          responsavel: string | null
           status: string
           telefone: string
           tipo: string
+          tipo_pessoa: string
           updated_at: string
         }
         Insert: {
-          cpf: string
+          cnpj?: string | null
+          cpf?: string | null
           created_at?: string
           crm_id?: string | null
           data_nascimento?: string | null
@@ -275,15 +283,20 @@ export type Database = {
           endereco?: Json | null
           id?: string
           nome: string
+          nome_fantasia?: string | null
           observacoes?: string | null
           origem?: string | null
+          razao_social?: string | null
+          responsavel?: string | null
           status?: string
           telefone: string
           tipo?: string
+          tipo_pessoa?: string
           updated_at?: string
         }
         Update: {
-          cpf?: string
+          cnpj?: string | null
+          cpf?: string | null
           created_at?: string
           crm_id?: string | null
           data_nascimento?: string | null
@@ -293,11 +306,15 @@ export type Database = {
           endereco?: Json | null
           id?: string
           nome?: string
+          nome_fantasia?: string | null
           observacoes?: string | null
           origem?: string | null
+          razao_social?: string | null
+          responsavel?: string | null
           status?: string
           telefone?: string
           tipo?: string
+          tipo_pessoa?: string
           updated_at?: string
         }
         Relationships: [
@@ -446,56 +463,44 @@ export type Database = {
           },
         ]
       }
-      origens_venda: {
-        Row: {
-          ativo: boolean
-          created_at: string
-          id: string
-          nome: string
-          ordem: number
-          updated_at: string
-        }
-        Insert: {
-          ativo?: boolean
-          created_at?: string
-          id?: string
-          nome: string
-          ordem?: number
-          updated_at?: string
-        }
-        Update: {
-          ativo?: boolean
-          created_at?: string
-          id?: string
-          nome?: string
-          ordem?: number
-          updated_at?: string
-        }
-        Relationships: []
-      }
       empresas: {
         Row: {
           ativo: boolean
           cnpj: string | null
+          cor_primaria: string | null
+          cor_secundaria: string | null
           created_at: string
           id: string
+          logo_path: string | null
           nome: string
+          prefixo_identificador: string
+          proximo_num_venda: number
           slug: string
         }
         Insert: {
           ativo?: boolean
           cnpj?: string | null
+          cor_primaria?: string | null
+          cor_secundaria?: string | null
           created_at?: string
           id?: string
+          logo_path?: string | null
           nome: string
+          prefixo_identificador?: string
+          proximo_num_venda?: number
           slug: string
         }
         Update: {
           ativo?: boolean
           cnpj?: string | null
+          cor_primaria?: string | null
+          cor_secundaria?: string | null
           created_at?: string
           id?: string
+          logo_path?: string | null
           nome?: string
+          prefixo_identificador?: string
+          proximo_num_venda?: number
           slug?: string
         }
         Relationships: []
@@ -630,6 +635,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      origens_venda: {
+        Row: {
+          ativo: boolean
+          comissao_percentual: number | null
+          created_at: string
+          id: string
+          nome: string
+          ordem: number
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          comissao_percentual?: number | null
+          created_at?: string
+          id?: string
+          nome: string
+          ordem?: number
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          comissao_percentual?: number | null
+          created_at?: string
+          id?: string
+          nome?: string
+          ordem?: number
+          updated_at?: string
+        }
+        Relationships: []
       }
       parcelas_pagar: {
         Row: {
@@ -902,18 +937,21 @@ export type Database = {
         Row: {
           ativo: boolean
           created_at: string
+          icone: string | null
           id: string
           nome: string
         }
         Insert: {
           ativo?: boolean
           created_at?: string
+          icone?: string | null
           id?: string
           nome: string
         }
         Update: {
           ativo?: boolean
           created_at?: string
+          icone?: string | null
           id?: string
           nome?: string
         }
@@ -961,6 +999,7 @@ export type Database = {
       usuarios: {
         Row: {
           ativo: boolean
+          comissao_percentual: number | null
           created_at: string
           email: string
           force_password_change: boolean
@@ -972,6 +1011,7 @@ export type Database = {
         }
         Insert: {
           ativo?: boolean
+          comissao_percentual?: number | null
           created_at?: string
           email: string
           force_password_change?: boolean
@@ -983,6 +1023,7 @@ export type Database = {
         }
         Update: {
           ativo?: boolean
+          comissao_percentual?: number | null
           created_at?: string
           email?: string
           force_password_change?: boolean
@@ -1237,6 +1278,7 @@ export type Database = {
           cancelado_por: string | null
           ciclo_faturamento_id: string | null
           cliente_id: string
+          comissao_percentual: number | null
           created_at: string
           data_aprovacao: string | null
           data_cancelamento: string | null
@@ -1244,8 +1286,10 @@ export type Database = {
           empresa_id: string
           flag_marketing: boolean
           id: string
+          identificador: string
           indicacao_percentual: number | null
           motivo_devolucao: string | null
+          motivo_revisao: string | null
           observacoes: string | null
           origem: string | null
           pax: number
@@ -1258,6 +1302,7 @@ export type Database = {
           cancelado_por?: string | null
           ciclo_faturamento_id?: string | null
           cliente_id: string
+          comissao_percentual?: number | null
           created_at?: string
           data_aprovacao?: string | null
           data_cancelamento?: string | null
@@ -1265,8 +1310,10 @@ export type Database = {
           empresa_id: string
           flag_marketing?: boolean
           id?: string
+          identificador: string
           indicacao_percentual?: number | null
           motivo_devolucao?: string | null
+          motivo_revisao?: string | null
           observacoes?: string | null
           origem?: string | null
           pax?: number
@@ -1279,6 +1326,7 @@ export type Database = {
           cancelado_por?: string | null
           ciclo_faturamento_id?: string | null
           cliente_id?: string
+          comissao_percentual?: number | null
           created_at?: string
           data_aprovacao?: string | null
           data_cancelamento?: string | null
@@ -1286,8 +1334,10 @@ export type Database = {
           empresa_id?: string
           flag_marketing?: boolean
           id?: string
+          identificador?: string
           indicacao_percentual?: number | null
           motivo_devolucao?: string | null
+          motivo_revisao?: string | null
           observacoes?: string | null
           origem?: string | null
           pax?: number
@@ -1340,6 +1390,54 @@ export type Database = {
           },
         ]
       }
+      vendas_rascunho: {
+        Row: {
+          created_at: string
+          dados: Json
+          empresa_id: string | null
+          id: string
+          step: number
+          titulo: string
+          updated_at: string
+          usuario_id: string
+        }
+        Insert: {
+          created_at?: string
+          dados?: Json
+          empresa_id?: string | null
+          id?: string
+          step?: number
+          titulo?: string
+          updated_at?: string
+          usuario_id: string
+        }
+        Update: {
+          created_at?: string
+          dados?: Json
+          empresa_id?: string | null
+          id?: string
+          step?: number
+          titulo?: string
+          updated_at?: string
+          usuario_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendas_rascunho_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendas_rascunho_usuario_id_fkey"
+            columns: ["usuario_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -1351,9 +1449,17 @@ export type Database = {
       }
       app_user_empresas: { Args: never; Returns: string[] }
       app_user_perfil_nome: { Args: never; Returns: string }
+      aprovar_venda: {
+        Args: { p_aprovador_id: string; p_venda_id: string }
+        Returns: undefined
+      }
       atualizar_empresas_usuario: {
         Args: { p_empresa_ids: string[]; p_user_id: string }
         Returns: undefined
+      }
+      comissao_efetiva_perfil: {
+        Args: { p_origem_id: string; p_perfil_id: string }
+        Returns: number
       }
       criar_usuario_admin: {
         Args: {
@@ -1368,6 +1474,10 @@ export type Database = {
         Returns: string
       }
       criar_venda_completa: { Args: { p_payload: Json }; Returns: string }
+      devolver_venda: {
+        Args: { p_motivo: string; p_revisor_id: string; p_venda_id: string }
+        Returns: undefined
+      }
       excluir_usuario_admin: { Args: { p_user_id: string }; Returns: undefined }
       is_administrador: { Args: never; Returns: boolean }
       is_agente: { Args: never; Returns: boolean }

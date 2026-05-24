@@ -3,35 +3,31 @@
  * Evita caracteres ambíguos (0/O, 1/l/I, etc.) para reduzir erros ao
  * comunicar a senha verbalmente ou copiar.
  */
-const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"        // sem I, O
-const LOWER    = "abcdefghjkmnpqrstuvwxyz"          // sem i, l, o
-const DIGITS   = "23456789"                          // sem 0, 1
-const SYMBOLS  = "!@#$%&*-+="
+const UPPER   = "ABCDEFGHJKLMNPQRSTUVWXYZ"        // sem I, O
+const LOWER   = "abcdefghjkmnpqrstuvwxyz"          // sem i, l, o
+const DIGITS  = "23456789"                          // sem 0, 1
+const SYMBOLS = "!@#$%&*-+="
 
-const PRIMARY = ALPHABET + LOWER + DIGITS
+const ALPHANUM = UPPER + LOWER + DIGITS
 
 /**
- * Gera senha de tamanho N (default 12) garantindo:
- *  - pelo menos 1 maiúscula
- *  - pelo menos 1 minúscula
- *  - pelo menos 1 dígito
- *  - pelo menos 1 símbolo
+ * Gera senha de tamanho N (default 8) garantindo:
+ *  - 1 maiúscula
+ *  - 1 símbolo
+ *  - restante = letras (maiúsculas/minúsculas) e dígitos
+ *
+ * O default mínimo (8 caracteres) é a regra do produto. Aceita `length`
+ * maior pra resets ocasionais sob demanda.
  */
-export function gerarSenhaProvisoria(length = 12): string {
+export function gerarSenhaProvisoria(length = 8): string {
   if (length < 8) throw new Error("Senha precisa de pelo menos 8 caracteres")
 
-  const required = [
-    pick(ALPHABET),
-    pick(LOWER),
-    pick(DIGITS),
-    pick(SYMBOLS),
-  ]
-
+  const required = [pick(UPPER), pick(SYMBOLS)]
   const remaining = Array.from({ length: length - required.length }, () =>
-    pick(PRIMARY + SYMBOLS),
+    pick(ALPHANUM),
   )
 
-  // embaralha
+  // embaralha (Fisher-Yates)
   const chars = [...required, ...remaining]
   for (let i = chars.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))

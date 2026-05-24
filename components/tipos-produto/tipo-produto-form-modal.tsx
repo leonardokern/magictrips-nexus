@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import { useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -31,6 +32,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  ICONES_TIPO_PRODUTO,
+  ICONE_LABEL,
   TIPO_CAMPO_LABEL,
   type TipoCampo,
   type TipoProdutoVinculoCampo,
@@ -53,6 +56,7 @@ type ModeProps =
       id: string
       initial: {
         nome: string
+        icone: string | null
         campos: TipoProdutoVinculoCampo[]
       }
     }
@@ -68,10 +72,11 @@ type Vinculo = TipoProdutoVinculoCampo & { _campo?: CampoExtra }
 
 type FormState = {
   nome: string
+  icone: string | null
   campos: Vinculo[]
 }
 
-const EMPTY = (): FormState => ({ nome: "", campos: [] })
+const EMPTY = (): FormState => ({ nome: "", icone: null, campos: [] })
 
 export function TipoProdutoFormModal(props: Props) {
   const router = useRouter()
@@ -99,7 +104,7 @@ export function TipoProdutoFormModal(props: Props) {
           ordem: i,
           _campo: mapaCampos.get(c.campo_id),
         }))
-      setV({ nome: props.initial.nome, campos: hidratados })
+      setV({ nome: props.initial.nome, icone: props.initial.icone, campos: hidratados })
     } else {
       setV(EMPTY())
     }
@@ -169,6 +174,7 @@ export function TipoProdutoFormModal(props: Props) {
 
     const payload = {
       nome: v.nome.trim(),
+      icone: v.icone,
       campos: v.campos.map((c, i) => ({
         campo_id: c.campo_id,
         obrigatorio: c.obrigatorio,
@@ -216,7 +222,7 @@ export function TipoProdutoFormModal(props: Props) {
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={onSubmit} className="space-y-5">
+        <form onSubmit={onSubmit} className="space-y-6">
           <Field
             label="Nome do tipo"
             icon={<Tag className="h-3.5 w-3.5" />}
@@ -231,6 +237,56 @@ export function TipoProdutoFormModal(props: Props) {
             />
           </Field>
 
+          {/* ── Picker de ícone ──────────────────────────────────────── */}
+          <div>
+            <Label className="mb-3 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-white/55">
+              Ícone do tipo
+            </Label>
+            <div className="grid grid-cols-6 gap-2 sm:grid-cols-7">
+              {ICONES_TIPO_PRODUTO.map((key) => {
+                const selected = v.icone === key
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    title={ICONE_LABEL[key]}
+                    aria-label={ICONE_LABEL[key]}
+                    onClick={() =>
+                      setV((s) => ({
+                        ...s,
+                        icone: s.icone === key ? null : key,
+                      }))
+                    }
+                    className={`flex items-center justify-center rounded-xl border p-2.5 transition-all ${
+                      selected
+                        ? "border-nexus-bright/60 bg-nexus-bright/15 ring-1 ring-nexus-bright/40"
+                        : "border-white/[0.08] bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]"
+                    }`}
+                  >
+                    <div className="relative h-8 w-8">
+                      <Image
+                        src={`/icons/tipos-produto/${key}.png`}
+                        alt={ICONE_LABEL[key]}
+                        fill
+                        className="object-contain"
+                        style={{
+                          filter: "brightness(0) invert(1)",
+                          opacity: selected ? 0.95 : 0.45,
+                        }}
+                      />
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+            {v.icone && (
+              <p className="mt-2 text-[10px] text-white/35">
+                Clique novamente no ícone para deselecionar.
+              </p>
+            )}
+          </div>
+
+          {/* ── Campos extras ────────────────────────────────────────── */}
           <div>
             <Label className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-white/55">
               <Layers className="h-3.5 w-3.5" />

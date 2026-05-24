@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Pencil, Power, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { LoaderButton } from "@/components/ui/loader-button"
 import {
   Dialog,
   DialogClose,
@@ -32,9 +33,16 @@ type Props = {
   }
   podeEditar: boolean
   podeExcluir: boolean
+  /** Callback após qualquer mutação (criar/editar/inativar/excluir). */
+  onSuccess?: () => void
 }
 
-export function CampoExtraRowActions({ campo, podeEditar, podeExcluir }: Props) {
+export function CampoExtraRowActions({
+  campo,
+  podeEditar,
+  podeExcluir,
+  onSuccess,
+}: Props) {
   const router = useRouter()
   const [editOpen, setEditOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -50,6 +58,7 @@ export function CampoExtraRowActions({ campo, podeEditar, podeExcluir }: Props) 
       }
       toast.success(novoAtivo ? "Campo ativado." : "Campo inativado.")
       router.refresh()
+      onSuccess?.()
     })
   }
 
@@ -63,6 +72,7 @@ export function CampoExtraRowActions({ campo, podeEditar, podeExcluir }: Props) 
       toast.success("Campo excluído.")
       setConfirmOpen(false)
       router.refresh()
+      onSuccess?.()
     })
   }
 
@@ -79,11 +89,11 @@ export function CampoExtraRowActions({ campo, podeEditar, podeExcluir }: Props) 
             <Pencil className="mr-1 h-3.5 w-3.5" />
             Editar
           </Button>
-          <Button
+          <LoaderButton
             size="sm"
             variant="ghost"
             onClick={onToggle}
-            disabled={isPending}
+            loading={isPending}
             className={
               "h-8 px-2 text-xs " +
               (campo.ativo
@@ -91,9 +101,9 @@ export function CampoExtraRowActions({ campo, podeEditar, podeExcluir }: Props) 
                 : "text-emerald-300/85 hover:bg-emerald-500/10 hover:text-emerald-200")
             }
           >
-            <Power className="mr-1 h-3.5 w-3.5" />
+            {!isPending && <Power className="mr-1 h-3.5 w-3.5" />}
             {campo.ativo ? "Inativar" : "Ativar"}
-          </Button>
+          </LoaderButton>
         </>
       )}
 
@@ -120,6 +130,7 @@ export function CampoExtraRowActions({ campo, podeEditar, podeExcluir }: Props) 
         }}
         open={editOpen}
         onOpenChange={setEditOpen}
+        onSuccess={onSuccess}
       />
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -137,13 +148,13 @@ export function CampoExtraRowActions({ campo, podeEditar, podeExcluir }: Props) 
                 Cancelar
               </Button>
             </DialogClose>
-            <Button
+            <LoaderButton
               variant="destructive"
               onClick={onDelete}
-              disabled={isPending}
+              loading={isPending}
             >
-              {isPending ? "Excluindo…" : "Excluir"}
-            </Button>
+              Excluir
+            </LoaderButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

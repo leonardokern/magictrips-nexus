@@ -32,8 +32,16 @@ export const usuarioCreateSchema = z.object({
   forcar_troca_senha: z.boolean().default(true),
 })
 
-export const usuarioUpdateSchema = usuarioCreateSchema.partial({
-  email: true, // email não é editável depois (mexer em auth.users.email é especial)
+/**
+ * Schema de atualização: todos os campos opcionais (PATCH semântico).
+ * `senha`/`forcar_troca_senha` ficam fora do update — senha só muda via
+ * `resetarSenha` ou `alterarMinhaSenha`. Email tampouco é editável aqui
+ * (mexer em `auth.users.email` exige fluxo especial).
+ */
+export const usuarioUpdateSchema = z.object({
+  nome: usuarioCreateSchema.shape.nome.optional(),
+  perfil_id: usuarioCreateSchema.shape.perfil_id.optional(),
+  empresa_ids: usuarioCreateSchema.shape.empresa_ids.optional(),
 })
 
 export const alterarSenhaSchema = z

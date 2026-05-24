@@ -48,25 +48,15 @@ export default async function LoginPage({ searchParams }: Props) {
           </div>
         </div>
 
-        {/* Footer com logos das empresas */}
+        {/* Footer com logo da empresa */}
         <footer className="mt-8 flex w-full max-w-2xl flex-col items-center gap-5 pt-4">
-          <div className="flex items-center justify-center gap-4 md:gap-6">
-            <Image
-              src="/brand/magic-trips-white.png"
-              alt="Magic Trips"
-              width={448}
-              height={168}
-              className="h-32 w-auto select-none object-contain opacity-80 transition-opacity hover:opacity-100"
-            />
-            <div className="h-20 w-px bg-white/15" aria-hidden />
-            <Image
-              src="/brand/del-mondo-white.png"
-              alt="Del Mondo"
-              width={448}
-              height={168}
-              className="h-32 w-auto select-none object-contain opacity-80 transition-opacity hover:opacity-100"
-            />
-          </div>
+          <Image
+            src="/brand/magic-trips-white.png"
+            alt="Magic Trips"
+            width={448}
+            height={168}
+            className="h-32 w-auto select-none object-contain opacity-80 transition-opacity hover:opacity-100"
+          />
           <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">
             Plataforma interna
           </p>

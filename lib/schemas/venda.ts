@@ -55,7 +55,7 @@ export const vendaProdutoSchema = z.object({
   ordem: z.number().int().min(1).default(1),
   tipo_produto_id: z.string().uuid("Tipo de produto inválido"),
   fornecedor_id: z.string().uuid().nullable().optional(),
-  fornecedor_nome: z.string().trim().min(1, "Fornecedor obrigatório").max(120),
+  fornecedor_nome: z.string().trim().max(120).default(""),
   localizador: z.string().trim().max(60).nullable().optional(),
   localizador_fornecedor: z.string().trim().max(60).nullable().optional(),
   destino: z.string().trim().max(120).nullable().optional(),
@@ -137,7 +137,7 @@ export type CobrancaInput = z.infer<typeof cobrancaSchema>
 
 export const passageiroSchema = z.object({
   ordem: z.number().int().min(1).default(1),
-  nome: z.string().trim().min(2, "Nome do passageiro").max(120),
+  nome: z.string().trim().min(0).max(120).default(""),
   cpf: z.string().trim().optional().nullable(),
   data_nascimento: z.string().nullable().optional(),
 })
@@ -157,6 +157,8 @@ export const vendaCreateSchema = z
     pax: z.number().int().min(1).default(1),
     origem: z.string().trim().max(120).nullable().optional(),
     indicacao_percentual: z.number().min(0).max(100).nullable().optional(),
+    /** Percentual de comissão do agente congelado no momento da venda. */
+    comissao_percentual: z.number().min(0).max(100).nullable().optional(),
     observacoes: z.string().trim().max(500).nullable().optional(),
     usuario_id: z.string().uuid().optional(),
 

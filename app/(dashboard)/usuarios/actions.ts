@@ -11,6 +11,10 @@ import {
   usuarioUpdateSchema,
 } from "@/lib/schemas/usuario"
 import { derivarIniciais, gerarSenhaProvisoria } from "@/lib/utils/password"
+import {
+  enviarEmailNovoUsuarioComSenhaProvisoria,
+  enviarEmailNovoUsuarioSenhaDefinitiva,
+} from "@/lib/email/send"
 import type { ActionResult } from "@/app/(dashboard)/clientes/actions"
 import type { TablesUpdate } from "@/types/database.types"
 
@@ -22,7 +26,15 @@ import type { TablesUpdate } from "@/types/database.types"
  */
 export async function createUsuario(
   raw: unknown,
-): Promise<ActionResult<{ id: string; senhaDefinida: string; forcouTroca: boolean }>> {
+): Promise<
+  ActionResult<{
+    id: string
+    senhaDefinida: string
+    forcouTroca: boolean
+    emailEnviado: boolean
+    emailErro?: string
+  }>
+> {
   const user = await requireCurrentUser()
   if (!can(user, "usuarios", "criar")) {
     return { ok: false, error: "Apenas o Administrador pode criar usuários." }
@@ -55,6 +67,22 @@ export async function createUsuario(
     return { ok: false, error: traduzirErroRpc(error.message) }
   }
 
+  // ── Email de boas-vindas (best-effort) ──────────────────────────────────
+  // Falha de envio NÃO bloqueia a criação. A senha continua disponível pro
+  // admin via SenhaProvisoriaDialog mesmo que o email falhe.
+  const r = values.forcar_troca_senha
+    ? await enviarEmailNovoUsuarioComSenhaProvisoria({
+        to: values.email,
+        nome: values.nome,
+        senhaProvisoria: values.senha,
+        criadoPor: user.nome,
+      })
+    : await enviarEmailNovoUsuarioSenhaDefinitiva({
+        to: values.email,
+        nome: values.nome,
+        criadoPor: user.nome,
+      })
+
   revalidatePath("/usuarios")
   return {
     ok: true,
@@ -62,6 +90,10 @@ export async function createUsuario(
       id: data as string,
       senhaDefinida: values.senha,
       forcouTroca: values.forcar_troca_senha,
+      emailEnviado: r.ok,
+      emailErro: r.ok ? undefined : r.reason === "disabled"
+        ? "Envio de e-mail desativado (RESEND_API_KEY não configurada)."
+        : r.error ?? "Falha desconhecida ao enviar e-mail.",
     },
   }
 }
@@ -217,7 +249,7 @@ export async function resetarSenha(
     return { ok: false, error: "Sem permissão." }
   }
 
-  const novaSenha = gerarSenhaProvisoria(12)
+  const novaSenha = gerarSenhaProvisoria()
   const supabase = await createClient()
   const { error } = await supabase.rpc("resetar_senha_usuario", {
     p_user_id: id,

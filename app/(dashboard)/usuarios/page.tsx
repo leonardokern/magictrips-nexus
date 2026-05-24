@@ -18,6 +18,7 @@ import {
   UsuarioAtivoBadge,
 } from "@/components/usuarios/usuario-badges"
 import { NovoUsuarioButton } from "@/components/usuarios/novo-usuario-button"
+import { UsuarioRowActions } from "@/components/usuarios/usuario-row-actions"
 
 export const metadata: Metadata = {
   title: "Usuários",
@@ -163,12 +164,13 @@ export default async function UsuariosPage({
               <TableHead className="text-white/55">Perfil</TableHead>
               <TableHead className="text-white/55">Empresa</TableHead>
               <TableHead className="text-white/55">Status</TableHead>
+              <TableHead className="text-right text-white/55">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {!usuarios || usuarios.length === 0 ? (
               <TableRow className="border-white/[0.06] hover:bg-transparent">
-                <TableCell colSpan={5} className="h-32 text-center text-sm text-white/45">
+                <TableCell colSpan={6} className="h-32 text-center text-sm text-white/45">
                   {q || perfilId || status
                     ? "Nenhum usuário encontrado com esses filtros."
                     : "Nenhum usuário cadastrado ainda."}
@@ -189,20 +191,17 @@ export default async function UsuariosPage({
                 return (
                   <TableRow
                     key={u.id}
-                    className="cursor-pointer border-white/[0.06] hover:bg-white/[0.025]"
+                    className="border-white/[0.06] hover:bg-white/[0.025]"
                   >
                     <TableCell>
-                      <Link
-                        href={`/usuarios/${u.id}`}
-                        className="flex items-center gap-3"
-                      >
+                      <div className="flex items-center gap-3">
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-xs font-medium text-white/80">
                           {u.iniciais ?? u.nome.charAt(0).toUpperCase()}
                         </div>
-                        <span className="font-medium text-white hover:underline">
+                        <span className="font-medium text-white">
                           {u.nome}
                         </span>
-                      </Link>
+                      </div>
                     </TableCell>
                     <TableCell className="text-sm text-white/55">{u.email}</TableCell>
                     <TableCell>
@@ -213,6 +212,23 @@ export default async function UsuariosPage({
                     </TableCell>
                     <TableCell>
                       <UsuarioAtivoBadge ativo={u.ativo} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <UsuarioRowActions
+                        usuario={{
+                          id: u.id,
+                          nome: u.nome,
+                          email: u.email,
+                          perfil_id: u.perfil_id,
+                          perfil_nome: perfilNome,
+                          empresa_ids: userEmpresaIds,
+                          ativo: u.ativo,
+                        }}
+                        perfis={perfis ?? []}
+                        empresas={empresasAtivas ?? []}
+                        podeEditar={can(user, "usuarios", "editar")}
+                        isSelf={u.id === user.id}
+                      />
                     </TableCell>
                   </TableRow>
                 )

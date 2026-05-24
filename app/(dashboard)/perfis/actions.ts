@@ -1,7 +1,6 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { requireCurrentUser } from "@/lib/hooks/use-current-user"
 import { can } from "@/lib/hooks/use-permissions"
@@ -267,9 +266,6 @@ export async function deletePerfil(id: string): Promise<ActionResult> {
     .single()
 
   if (!antes) return { ok: false, error: "Perfil não encontrado." }
-  if (antes.sistema) {
-    return { ok: false, error: "Perfis do sistema não podem ser excluídos." }
-  }
 
   const { count } = await supabase
     .from("usuarios")
@@ -289,7 +285,7 @@ export async function deletePerfil(id: string): Promise<ActionResult> {
   await logAudit(user.id, "excluir", id, antes, null)
 
   revalidatePath("/perfis")
-  redirect("/perfis")
+  return { ok: true }
 }
 
 export async function resetPermissoesAdmin() {

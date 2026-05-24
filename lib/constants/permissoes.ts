@@ -39,6 +39,13 @@ const CRUD_BASE: AcaoDef[] = [
 
 export const MODULOS_PERMISSAO: ModuloDef[] = [
   {
+    key: "dashboard",
+    label: "Dashboards",
+    description:
+      "Painéis e indicadores da home (contas a receber/pagar, fluxo de caixa, etc.). Sem essa permissão, o usuário vê só uma versão simplificada da tela inicial.",
+    acoes: [{ key: "ver", label: "Ver" }],
+  },
+  {
     key: "clientes",
     label: "Clientes",
     description: "Cadastro e gestão de clientes (regulares e faturados).",

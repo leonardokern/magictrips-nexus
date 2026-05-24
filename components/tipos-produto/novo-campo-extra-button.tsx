@@ -5,7 +5,11 @@ import { Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CampoExtraFormModal } from "./campo-extra-form-modal"
 
-export function NovoCampoExtraButton() {
+type Props = {
+  onSuccess?: () => void
+}
+
+export function NovoCampoExtraButton({ onSuccess }: Props) {
   const [open, setOpen] = useState(false)
   return (
     <>
@@ -16,7 +20,12 @@ export function NovoCampoExtraButton() {
         <Plus className="mr-2 h-4 w-4" />
         Novo campo
       </Button>
-      <CampoExtraFormModal mode="create" open={open} onOpenChange={setOpen} />
+      <CampoExtraFormModal
+        mode="create"
+        open={open}
+        onOpenChange={setOpen}
+        onSuccess={onSuccess}
+      />
     </>
   )
 }

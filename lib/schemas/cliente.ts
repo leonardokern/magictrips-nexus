@@ -1,14 +1,22 @@
 import { z } from "zod"
-import { cpfValido, emailValido, telefoneValido } from "@/lib/utils/validators"
+import {
+  cnpjValido,
+  cpfValido,
+  emailValido,
+  telefoneValido,
+} from "@/lib/utils/validators"
 import { onlyDigits } from "@/lib/utils/formatters"
 
 /**
  * Schema canônico de cliente — usado em criar/editar (Server Action + Form).
  *
  * Convenções:
- *  - CPF e telefone são SALVOS sem máscara (apenas dígitos)
+ *  - Documento (CPF/CNPJ) e telefone são SALVOS sem máscara
  *  - dia_faturamento só é exigido se tipo='faturado'
  *  - endereço é jsonb opcional com sub-campos opcionais
+ *  - tipo_pessoa controla o conjunto de campos exigidos:
+ *      fisica   → nome, cpf, data_nascimento (opcional)
+ *      juridica → razao_social, nome_fantasia (opcional), cnpj, responsavel (opcional)
  */
 
 const enderecoSchema = z
@@ -32,17 +40,31 @@ const enderecoSchema = z
   })
   .partial()
 
+export const tipoPessoaSchema = z.enum(["fisica", "juridica"])
 export const tipoClienteSchema = z.enum(["regular", "faturado"])
 export const statusClienteSchema = z.enum(["lead", "ativo", "inativo"])
 
 export const clienteBaseSchema = z
   .object({
     empresa_id: z.string().uuid("Empresa inválida"),
-    nome: z
+    tipo_pessoa: tipoPessoaSchema.default("fisica"),
+
+    // PF
+    nome: z.string().trim().max(200).optional().or(z.literal("")),
+    cpf: z.string().optional().or(z.literal("")),
+    data_nascimento: z
       .string()
-      .trim()
-      .min(2, "Nome muito curto")
-      .max(200, "Nome muito longo"),
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida")
+      .optional()
+      .or(z.literal("")),
+
+    // PJ
+    razao_social: z.string().trim().max(200).optional().or(z.literal("")),
+    nome_fantasia: z.string().trim().max(200).optional().or(z.literal("")),
+    cnpj: z.string().optional().or(z.literal("")),
+    responsavel: z.string().trim().max(200).optional().or(z.literal("")),
+
+    // Comuns
     email: z
       .string()
       .trim()
@@ -52,15 +74,6 @@ export const clienteBaseSchema = z
       .string()
       .transform((v) => onlyDigits(v))
       .refine(telefoneValido, "Telefone deve ter 10 ou 11 dígitos"),
-    cpf: z
-      .string()
-      .transform((v) => onlyDigits(v))
-      .refine(cpfValido, "CPF inválido"),
-    data_nascimento: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida")
-      .optional()
-      .or(z.literal("")),
     endereco: enderecoSchema.optional(),
     origem: z.string().trim().max(100).optional().or(z.literal("")),
     tipo: tipoClienteSchema.default("regular"),
@@ -71,24 +84,69 @@ export const clienteBaseSchema = z
       .max(31, "Máximo 31")
       .optional()
       .or(z.literal("").transform(() => undefined)),
-    status: statusClienteSchema.default("lead"),
+    status: statusClienteSchema.default("ativo"),
     observacoes: z.string().trim().max(2000).optional().or(z.literal("")),
   })
-  .refine(
-    (v) => v.tipo === "regular" || (v.dia_faturamento && v.dia_faturamento >= 1),
-    {
-      message: "Cliente faturado exige dia de faturamento",
-      path: ["dia_faturamento"],
-    },
-  )
+  .superRefine((v, ctx) => {
+    if (v.tipo_pessoa === "fisica") {
+      // PF exige nome + CPF válido. CNPJ e razão social NÃO entram.
+      if (!v.nome || v.nome.trim().length < 2) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["nome"],
+          message: "Nome muito curto",
+        })
+      }
+      const cpfNum = onlyDigits(v.cpf ?? "")
+      if (!cpfValido(cpfNum)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["cpf"],
+          message: "CPF inválido",
+        })
+      }
+    } else {
+      // PJ exige razão social + CNPJ válido.
+      if (!v.razao_social || v.razao_social.trim().length < 2) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["razao_social"],
+          message: "Razão social obrigatória",
+        })
+      }
+      const cnpjNum = onlyDigits(v.cnpj ?? "")
+      if (!cnpjValido(cnpjNum)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["cnpj"],
+          message: "CNPJ inválido",
+        })
+      }
+    }
+
+    // Cliente faturado exige dia_faturamento
+    if (v.tipo === "faturado" && (!v.dia_faturamento || v.dia_faturamento < 1)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dia_faturamento"],
+        message: "Cliente faturado exige dia de faturamento",
+      })
+    }
+  })
 
 export type ClienteFormValues = z.infer<typeof clienteBaseSchema>
+export type TipoPessoa = z.infer<typeof tipoPessoaSchema>
 export type TipoCliente = z.infer<typeof tipoClienteSchema>
 export type StatusCliente = z.infer<typeof statusClienteSchema>
 
 /**
  * Labels PT-BR pra exibir nas UIs.
  */
+export const TIPO_PESSOA_LABEL: Record<TipoPessoa, string> = {
+  fisica: "Pessoa física",
+  juridica: "Pessoa jurídica",
+}
+
 export const TIPO_CLIENTE_LABEL: Record<TipoCliente, string> = {
   regular: "Regular",
   faturado: "Faturado",

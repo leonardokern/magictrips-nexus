@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { LoaderButton } from "@/components/ui/loader-button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -284,8 +285,8 @@ export function PerfilFormModal(props: Props) {
         props.onOpenChange(o)
       }}
     >
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[92vh] w-[95vw] max-w-6xl flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="shrink-0 border-b border-white/[0.06] px-6 py-4 pr-14">
           <DialogTitle className="flex items-center gap-2 text-base">
             <ShieldCheck className="h-4 w-4 text-nexus-bright" />
             {props.readOnly
@@ -308,40 +309,48 @@ export function PerfilFormModal(props: Props) {
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={onSubmit} className="space-y-6">
-          {step === 1 && (
-            <Step1
-              nome={v.nome}
-              tipo={v.tipo}
-              empresaId={v.empresa_id}
-              empresas={props.empresas}
-              errors={errors}
-              onChangeNome={(val) => update("nome", val)}
-              onChangeTipo={(val) => update("tipo", val)}
-              onChangeEmpresa={(val) => update("empresa_id", val)}
-              readOnly={props.readOnly}
-            />
-          )}
-          {step === 2 && (
-            <Step2
-              permissoes={v.permissoes}
-              onChange={(val) => update("permissoes", val)}
-              disabled={isPending || props.readOnly}
-            />
-          )}
-          {step === 3 && (
-            <Step3
-              regras={regrasEmpresa}
-              valores={v.comissoes}
-              loading={loadingRegras}
-              empresa={props.empresas.find((e) => e.id === v.empresa_id)}
-              onChange={setComissao}
-              onReset={resetComissao}
-              disabled={isPending || props.readOnly}
-            />
-          )}
+        <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+            {/* Steps 1 e 3 são forms estreitos: constranger pra leitura.
+                Step 2 (permissões) usa a largura toda do modal. */}
+            {step === 1 && (
+              <div className="mx-auto max-w-2xl">
+                <Step1
+                  nome={v.nome}
+                  tipo={v.tipo}
+                  empresaId={v.empresa_id}
+                  empresas={props.empresas}
+                  errors={errors}
+                  onChangeNome={(val) => update("nome", val)}
+                  onChangeTipo={(val) => update("tipo", val)}
+                  onChangeEmpresa={(val) => update("empresa_id", val)}
+                  readOnly={props.readOnly}
+                />
+              </div>
+            )}
+            {step === 2 && (
+              <Step2
+                permissoes={v.permissoes}
+                onChange={(val) => update("permissoes", val)}
+                disabled={isPending || props.readOnly}
+              />
+            )}
+            {step === 3 && (
+              <div className="mx-auto max-w-3xl">
+                <Step3
+                  regras={regrasEmpresa}
+                  valores={v.comissoes}
+                  loading={loadingRegras}
+                  empresa={props.empresas.find((e) => e.id === v.empresa_id)}
+                  onChange={setComissao}
+                  onReset={resetComissao}
+                  disabled={isPending || props.readOnly}
+                />
+              </div>
+            )}
+          </div>
 
-          <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+          <DialogFooter className="shrink-0 flex-col-reverse gap-2 border-t border-white/[0.06] bg-card/95 px-6 py-3 backdrop-blur sm:flex-row sm:justify-between sm:space-x-0">
             <div>
               {step > 1 && (
                 <Button
@@ -376,17 +385,13 @@ export function PerfilFormModal(props: Props) {
                   <ChevronRight className="ml-1 h-4 w-4" />
                 </Button>
               ) : props.readOnly ? null : (
-                <Button
+                <LoaderButton
                   type="submit"
-                  disabled={isPending}
+                  loading={isPending}
                   className="bg-nexus-bright text-white hover:bg-nexus-bright-soft"
                 >
-                  {isPending
-                    ? "Salvando…"
-                    : isCreate
-                      ? "Criar perfil"
-                      : "Salvar"}
-                </Button>
+                  {isCreate ? "Criar perfil" : "Salvar"}
+                </LoaderButton>
               )}
             </div>
           </DialogFooter>
@@ -467,35 +472,38 @@ function Step1({
         </div>
       </div>
 
-      {/* Empresa */}
-      <div>
-        <Label className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-white/55">
-          <Building2 className="h-3.5 w-3.5" />
-          {tipo === "agente" ? "Empresa do agente" : "Empresa onde atua"}
-        </Label>
-        {tipo === "operacao" ? (
-          <div className="rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3 text-sm text-white/55">
-            Perfis de Operação são automaticamente cross-empresa. A escolha de
-            quais empresas o usuário acessa fica no cadastro do usuário.
-          </div>
-        ) : (
-          <>
-            <EmpresaSelector
-              empresas={empresas}
-              selecionadas={empresaId ? [empresaId] : []}
-              onChange={(ids) => onChangeEmpresa(ids[0] ?? null)}
-              singleSelect
-              disabled={readOnly}
-            />
-            <p className="mt-2 text-[11px] text-white/40">
-              Esta empresa define a tabela base de comissões usada no passo 3.
-            </p>
-          </>
-        )}
-        {errors.empresa_id && (
-          <p className="mt-1 text-[11px] text-destructive">{errors.empresa_id}</p>
-        )}
-      </div>
+      {/* Empresa — em modo single-empresa, escondemos o selector e
+          auto-vinculamos. Se voltar a ser multi-empresa, o selector reaparece. */}
+      {empresas.length > 1 && (
+        <div>
+          <Label className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-white/55">
+            <Building2 className="h-3.5 w-3.5" />
+            {tipo === "agente" ? "Empresa do agente" : "Empresa onde atua"}
+          </Label>
+          {tipo === "operacao" ? (
+            <div className="rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3 text-sm text-white/55">
+              Perfis de Operação são automaticamente cross-empresa. A escolha de
+              quais empresas o usuário acessa fica no cadastro do usuário.
+            </div>
+          ) : (
+            <>
+              <EmpresaSelector
+                empresas={empresas}
+                selecionadas={empresaId ? [empresaId] : []}
+                onChange={(ids) => onChangeEmpresa(ids[0] ?? null)}
+                singleSelect
+                disabled={readOnly}
+              />
+              <p className="mt-2 text-[11px] text-white/40">
+                Esta empresa define a tabela base de comissões usada no passo 3.
+              </p>
+            </>
+          )}
+          {errors.empresa_id && (
+            <p className="mt-1 text-[11px] text-destructive">{errors.empresa_id}</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

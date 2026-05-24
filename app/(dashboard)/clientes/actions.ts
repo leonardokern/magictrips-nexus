@@ -35,30 +35,22 @@ export async function createCliente(
 
   const values = parsed.data
   const supabase = await createClient()
+  const payload = montarPayloadCliente(values)
 
   // Dedup explícito (além do UNIQUE constraint) — pra UX melhor que erro 23505
-  const dup = await checkDuplicateCpfOrEmail(values.empresa_id, values.cpf, values.email)
+  const dup = await checkDuplicateDocOrEmail(
+    values.empresa_id,
+    payload.cpf,
+    payload.cnpj,
+    values.email,
+  )
   if (dup) {
     return { ok: false, error: dup.message, fieldErrors: dup.fieldErrors }
   }
 
   const { data: novo, error } = await supabase
     .from("clientes")
-    .insert({
-      empresa_id: values.empresa_id,
-      nome: values.nome,
-      email: values.email,
-      telefone: values.telefone,
-      cpf: values.cpf,
-      data_nascimento: values.data_nascimento || null,
-      endereco: sanitizeEndereco(values.endereco),
-      origem: values.origem || null,
-      tipo: values.tipo,
-      dia_faturamento:
-        values.tipo === "faturado" ? (values.dia_faturamento as number) : null,
-      status: values.status,
-      observacoes: values.observacoes || null,
-    })
+    .insert({ empresa_id: values.empresa_id, ...payload })
     .select("id")
     .single()
 
@@ -105,28 +97,23 @@ export async function updateCliente(
 
   if (!antes) return { ok: false, error: "Cliente não encontrado." }
 
+  const payload = montarPayloadCliente(values)
+
   // Dedup ignorando o próprio id
-  const dup = await checkDuplicateCpfOrEmail(values.empresa_id, values.cpf, values.email, id)
+  const dup = await checkDuplicateDocOrEmail(
+    values.empresa_id,
+    payload.cpf,
+    payload.cnpj,
+    values.email,
+    id,
+  )
   if (dup) {
     return { ok: false, error: dup.message, fieldErrors: dup.fieldErrors }
   }
 
   const { error } = await supabase
     .from("clientes")
-    .update({
-      nome: values.nome,
-      email: values.email,
-      telefone: values.telefone,
-      cpf: values.cpf,
-      data_nascimento: values.data_nascimento || null,
-      endereco: sanitizeEndereco(values.endereco),
-      origem: values.origem || null,
-      tipo: values.tipo,
-      dia_faturamento:
-        values.tipo === "faturado" ? (values.dia_faturamento as number) : null,
-      status: values.status,
-      observacoes: values.observacoes || null,
-    })
+    .update(payload)
     .eq("id", id)
 
   if (error) return { ok: false, error: error.message }
@@ -135,6 +122,28 @@ export async function updateCliente(
 
   revalidatePath("/clientes")
   revalidatePath(`/clientes/${id}`)
+  return { ok: true }
+}
+
+/**
+ * Alterna status do cliente entre `ativo` e `inativo`. Não toca em `lead`
+ * (lead vira ativo só pela 1ª venda fechada — fluxo separado).
+ */
+export async function toggleClienteAtivo(
+  id: string,
+  ativo: boolean,
+): Promise<ActionResult> {
+  const user = await requireCurrentUser()
+  if (!can(user, "clientes", "editar")) {
+    return { ok: false, error: "Sem permissão." }
+  }
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("clientes")
+    .update({ status: ativo ? "ativo" : "inativo" })
+    .eq("id", id)
+  if (error) return { ok: false, error: error.message }
+  revalidatePath("/clientes")
   return { ok: true }
 }
 
@@ -181,6 +190,114 @@ export async function deleteCliente(id: string): Promise<ActionResult> {
   redirect("/clientes")
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Overview de cliente (visualização agregada)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ClienteOverview = {
+  cliente: {
+    id: string
+    nome: string | null
+    cpf: string | null
+    data_nascimento: string | null
+    tipo_pessoa: string
+    razao_social: string | null
+    nome_fantasia: string | null
+    cnpj: string | null
+    responsavel: string | null
+    email: string
+    telefone: string
+    endereco: Record<string, unknown> | null
+    status: string
+    tipo: string
+    observacoes: string | null
+    created_at: string
+    empresa_nome: string | null
+  }
+  vendas: Array<{
+    id: string
+    status: string
+    data_venda: string
+    data_aprovacao: string | null
+    pax: number
+    receita: number
+  }>
+}
+
+/**
+ * Carrega cliente + lista de vendas (com totais somados a partir de
+ * venda_produtos). Usado pelo modal de visualização de cliente.
+ */
+export async function getClienteOverview(
+  id: string,
+): Promise<ActionResult<ClienteOverview>> {
+  const user = await requireCurrentUser()
+  if (!can(user, "clientes", "ler")) {
+    return { ok: false, error: "Sem permissão." }
+  }
+
+  const supabase = await createClient()
+
+  const { data: cliente, error: cErr } = await supabase
+    .from("clientes")
+    .select(
+      "id, nome, cpf, data_nascimento, tipo_pessoa, razao_social, nome_fantasia, cnpj, responsavel, email, telefone, endereco, status, tipo, observacoes, created_at, empresa:empresa_id(nome)",
+    )
+    .eq("id", id)
+    .single()
+
+  if (cErr || !cliente) {
+    return { ok: false, error: "Cliente não encontrado." }
+  }
+
+  const { data: vendasRaw } = await supabase
+    .from("vendas")
+    .select("id, status, data_venda, data_aprovacao, pax")
+    .eq("cliente_id", id)
+    .order("data_venda", { ascending: false })
+
+  const vendas = vendasRaw ?? []
+  const vendaIds = vendas.map((v) => v.id)
+
+  // Soma valor_venda por venda
+  const { data: produtos } =
+    vendaIds.length === 0
+      ? { data: [] }
+      : await supabase
+          .from("venda_produtos")
+          .select("venda_id, valor_venda")
+          .in("venda_id", vendaIds)
+
+  const receitaPorVenda = new Map<string, number>()
+  for (const p of produtos ?? []) {
+    receitaPorVenda.set(
+      p.venda_id,
+      (receitaPorVenda.get(p.venda_id) ?? 0) + Number(p.valor_venda ?? 0),
+    )
+  }
+
+  const empresa = cliente.empresa as { nome: string } | null
+
+  return {
+    ok: true,
+    data: {
+      cliente: {
+        ...cliente,
+        endereco: cliente.endereco as Record<string, unknown> | null,
+        empresa_nome: empresa?.nome ?? null,
+      },
+      vendas: vendas.map((v) => ({
+        id: v.id,
+        status: v.status,
+        data_venda: v.data_venda,
+        data_aprovacao: v.data_aprovacao,
+        pax: v.pax,
+        receita: receitaPorVenda.get(v.id) ?? 0,
+      })),
+    },
+  }
+}
+
 /**
  * Procura cliente por CPF dentro de uma empresa.
  * Usado pelo formulário para alertar duplicidade on-blur.
@@ -206,19 +323,79 @@ export async function lookupClientePorCpf(
   return data ?? null
 }
 
+/**
+ * Procura cliente por CNPJ dentro de uma empresa.
+ * Usado pelo formulário para alertar duplicidade on-blur.
+ */
+export async function lookupClientePorCnpj(
+  empresaId: string,
+  cnpj: string,
+): Promise<{ id: string; nome: string } | null> {
+  const user = await requireCurrentUser()
+  if (!can(user, "clientes", "ler")) return null
+
+  const cnpjLimpo = onlyDigits(cnpj)
+  if (cnpjLimpo.length !== 14) return null
+
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("clientes")
+    .select("id, nome")
+    .eq("empresa_id", empresaId)
+    .eq("cnpj", cnpjLimpo)
+    .maybeSingle()
+
+  return data ?? null
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers privados
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function checkDuplicateCpfOrEmail(
+/**
+ * Mapeia ClienteFormValues → row pronto pra insert/update no banco.
+ * Garante que CPF/CNPJ ficam mutuamente exclusivos e que `nome` (NOT NULL)
+ * recebe um valor sensato pra PJ (fantasia → razão social).
+ */
+function montarPayloadCliente(values: ClienteFormValues) {
+  const isPJ = values.tipo_pessoa === "juridica"
+  const cpf = isPJ ? null : onlyDigits(values.cpf ?? "")
+  const cnpj = isPJ ? onlyDigits(values.cnpj ?? "") : null
+  const nome = isPJ
+    ? (values.nome_fantasia?.trim() || values.razao_social?.trim() || "")
+    : (values.nome?.trim() ?? "")
+
+  return {
+    tipo_pessoa: values.tipo_pessoa,
+    nome,
+    razao_social: isPJ ? values.razao_social?.trim() || null : null,
+    nome_fantasia: isPJ ? values.nome_fantasia?.trim() || null : null,
+    responsavel: isPJ ? values.responsavel?.trim() || null : null,
+    cpf,
+    cnpj,
+    data_nascimento: isPJ ? null : values.data_nascimento || null,
+    email: values.email,
+    telefone: values.telefone,
+    endereco: sanitizeEndereco(values.endereco),
+    origem: values.origem || null,
+    tipo: values.tipo,
+    dia_faturamento:
+      values.tipo === "faturado" ? (values.dia_faturamento as number) : null,
+    status: values.status,
+    observacoes: values.observacoes || null,
+  }
+}
+
+async function checkDuplicateDocOrEmail(
   empresaId: string,
-  cpf: string,
+  cpf: string | null,
+  cnpj: string | null,
   email: string,
   exceptId?: string,
 ): Promise<{ message: string; fieldErrors: Record<string, string> } | null> {
   const supabase = await createClient()
 
-  const buildQuery = (col: "cpf" | "email", value: string) => {
+  const buildQuery = (col: "cpf" | "cnpj" | "email", value: string) => {
     let q = supabase
       .from("clientes")
       .select("id", { head: true, count: "exact" })
@@ -228,21 +405,21 @@ async function checkDuplicateCpfOrEmail(
     return q
   }
 
-  const [cpfQ, emailQ] = await Promise.all([
-    buildQuery("cpf", cpf),
-    buildQuery("email", email),
-  ])
+  const checks: Array<{ key: "cpf" | "cnpj" | "email"; value: string }> = []
+  if (cpf) checks.push({ key: "cpf", value: cpf })
+  if (cnpj) checks.push({ key: "cnpj", value: cnpj })
+  checks.push({ key: "email", value: email })
 
-  if ((cpfQ.count ?? 0) > 0) {
-    return {
-      message: "Já existe um cliente com este CPF nesta empresa.",
-      fieldErrors: { cpf: "CPF já cadastrado nesta empresa." },
-    }
-  }
-  if ((emailQ.count ?? 0) > 0) {
-    return {
-      message: "Já existe um cliente com este e-mail nesta empresa.",
-      fieldErrors: { email: "E-mail já cadastrado nesta empresa." },
+  const results = await Promise.all(checks.map((c) => buildQuery(c.key, c.value)))
+  for (let i = 0; i < checks.length; i++) {
+    if ((results[i]?.count ?? 0) > 0) {
+      const c = checks[i]!
+      const label =
+        c.key === "cpf" ? "CPF" : c.key === "cnpj" ? "CNPJ" : "E-mail"
+      return {
+        message: `Já existe um cliente com este ${label} nesta empresa.`,
+        fieldErrors: { [c.key]: `${label} já cadastrado nesta empresa.` },
+      }
     }
   }
   return null

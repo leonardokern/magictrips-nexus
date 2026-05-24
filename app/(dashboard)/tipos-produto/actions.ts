@@ -10,6 +10,7 @@ import {
   tipoProdutoCreateSchema,
   tipoProdutoUpdateSchema,
   type CampoOpcao,
+  type TipoCampo,
   type TipoProdutoVinculoCampo,
 } from "@/lib/schemas/tipo-produto"
 import type { ActionResult } from "@/app/(dashboard)/clientes/actions"
@@ -63,7 +64,7 @@ export async function createTipoProduto(
   const supabase = await createClient()
   const { data: novo, error } = await supabase
     .from("tipos_produto")
-    .insert({ nome: parsed.data.nome, ativo: true })
+    .insert({ nome: parsed.data.nome, ativo: true, icone: parsed.data.icone ?? null })
     .select("id")
     .single()
 
@@ -105,9 +106,10 @@ export async function updateTipoProduto(
   }
 
   const supabase = await createClient()
-  const updates: { nome?: string; ativo?: boolean } = {}
+  const updates: { nome?: string; ativo?: boolean; icone?: string | null } = {}
   if (parsed.data.nome !== undefined) updates.nome = parsed.data.nome
   if (parsed.data.ativo !== undefined) updates.ativo = parsed.data.ativo
+  if (parsed.data.icone !== undefined) updates.icone = parsed.data.icone ?? null
 
   if (Object.keys(updates).length > 0) {
     const { error } = await supabase
@@ -242,7 +244,7 @@ export async function createCampoExtra(
     await syncOpcoesCampo(novo.id, parsed.data.opcoes)
   }
 
-  revalidatePath("/tipos-produto/campos")
+  revalidatePath("/tipos-produto")
   return { ok: true, data: { id: novo.id } }
 }
 
@@ -310,7 +312,6 @@ export async function updateCampoExtra(
     await supa.from("campos_extra_opcoes").delete().eq("campo_id", id)
   }
 
-  revalidatePath("/tipos-produto/campos")
   revalidatePath("/tipos-produto")
   return { ok: true }
 }
@@ -329,7 +330,7 @@ export async function toggleCampoExtraAtivo(
     .update({ ativo })
     .eq("id", id)
   if (error) return { ok: false, error: error.message }
-  revalidatePath("/tipos-produto/campos")
+  revalidatePath("/tipos-produto")
   return { ok: true }
 }
 
@@ -355,6 +356,82 @@ export async function deleteCampoExtra(id: string): Promise<ActionResult> {
   await supabase.from("campos_extra_opcoes").delete().eq("campo_id", id)
   const { error } = await supabase.from("campos_extra").delete().eq("id", id)
   if (error) return { ok: false, error: error.message }
-  revalidatePath("/tipos-produto/campos")
+  revalidatePath("/tipos-produto")
   return { ok: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Listagem pro modal "Gerenciar campos"
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CampoExtraComUso = {
+  id: string
+  nome: string
+  tipo_campo: TipoCampo
+  placeholder: string | null
+  ativo: boolean
+  opcoes: CampoOpcao[]
+  /** Nomes dos tipos de produto que usam esse campo. */
+  tiposEmUso: string[]
+}
+
+/**
+ * Lê todos os campos extras (com opções e nomes dos tipos que usam) pra alimentar
+ * o modal "Gerenciar campos". É uma server action separada das listagens do page.tsx
+ * porque o modal carrega sob demanda — exibe loader enquanto espera.
+ */
+export async function listarCamposParaGerenciar(): Promise<
+  ActionResult<CampoExtraComUso[]>
+> {
+  const user = await requireCurrentUser()
+  if (!can(user, "tipos_produto", "ler")) {
+    return { ok: false, error: "Sem permissão." }
+  }
+  const supabase = await createClient()
+
+  const [{ data: campos, error: campErr }, { data: opcoes }, { data: vinculos }] =
+    await Promise.all([
+      supabase
+        .from("campos_extra")
+        .select("id, nome, tipo_campo, placeholder, ativo")
+        .order("nome"),
+      supabase
+        .from("campos_extra_opcoes")
+        .select("id, campo_id, valor, ordem")
+        .eq("ativo", true)
+        .order("ordem"),
+      supabase
+        .from("tipos_produto_campos")
+        .select("campo_id, tipos_produto(nome)"),
+    ])
+
+  if (campErr) return { ok: false, error: campErr.message }
+
+  const opcoesPorCampo = new Map<string, CampoOpcao[]>()
+  for (const o of opcoes ?? []) {
+    const arr = opcoesPorCampo.get(o.campo_id) ?? []
+    arr.push({ id: o.id, valor: o.valor, ordem: o.ordem })
+    opcoesPorCampo.set(o.campo_id, arr)
+  }
+
+  const tiposPorCampo = new Map<string, string[]>()
+  for (const v of vinculos ?? []) {
+    const nome = v.tipos_produto?.nome
+    if (!nome) continue
+    const arr = tiposPorCampo.get(v.campo_id) ?? []
+    arr.push(nome)
+    tiposPorCampo.set(v.campo_id, arr)
+  }
+
+  const result: CampoExtraComUso[] = (campos ?? []).map((c) => ({
+    id: c.id,
+    nome: c.nome,
+    tipo_campo: c.tipo_campo as TipoCampo,
+    placeholder: c.placeholder,
+    ativo: c.ativo,
+    opcoes: opcoesPorCampo.get(c.id) ?? [],
+    tiposEmUso: tiposPorCampo.get(c.id) ?? [],
+  }))
+
+  return { ok: true, data: result }
 }

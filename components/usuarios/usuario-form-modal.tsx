@@ -66,6 +66,8 @@ type Props = ModeProps & {
   empresas: Empresa[]
   /** Callback após sucesso (criar ou editar). */
   onSuccess?: (id: string) => void
+  /** Modo leitura: campos desabilitados, sem botão salvar, senha oculta. */
+  readOnly?: boolean
 }
 
 type FormState = {
@@ -91,7 +93,13 @@ export function UsuarioFormModal(props: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [senhaProv, setSenhaProv] = useState<{ senha: string; nome: string } | null>(null)
+  const [senhaProv, setSenhaProv] = useState<{
+    senha: string
+    nome: string
+    email: string
+    emailEnviado: boolean
+    emailErro?: string
+  } | null>(null)
   const [mostrarSenha, setMostrarSenha] = useState(false)
   const [v, setV] = useState<FormState>(EMPTY)
 
@@ -123,6 +131,9 @@ export function UsuarioFormModal(props: Props) {
         const perfilNovo = props.perfis.find((p) => p.id === (val as string))
         if (perfilNovo?.empresa_id) {
           next.empresa_ids = [perfilNovo.empresa_id]
+        } else if (props.empresas.length === 1 && next.empresa_ids.length === 0) {
+          // Single-empresa mode: auto-vincula a única empresa ativa
+          next.empresa_ids = [props.empresas[0]!.id]
         }
       }
       return next
@@ -170,7 +181,13 @@ export function UsuarioFormModal(props: Props) {
           return
         }
         if (r.data) {
-          setSenhaProv({ senha: r.data.senhaDefinida, nome: v.nome })
+          setSenhaProv({
+            senha: r.data.senhaDefinida,
+            nome: v.nome,
+            email: v.email,
+            emailEnviado: r.data.emailEnviado,
+            emailErro: r.data.emailErro,
+          })
           props.onSuccess?.(r.data.id)
         }
         return
@@ -210,12 +227,18 @@ export function UsuarioFormModal(props: Props) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <User2 className="h-4 w-4 text-nexus-bright" />
-              {isCreate ? "Novo usuário" : "Editar usuário"}
+              {props.readOnly
+                ? "Detalhes do usuário"
+                : isCreate
+                  ? "Novo usuário"
+                  : "Editar usuário"}
             </DialogTitle>
             <DialogDescription>
-              {isCreate
-                ? "Uma senha provisória será gerada após criar. O usuário trocará no primeiro acesso."
-                : "Atualize os dados de acesso. E-mail e senha são alterados separadamente."}
+              {props.readOnly
+                ? "Visualização das configurações deste usuário."
+                : isCreate
+                  ? "Uma senha provisória será gerada após criar. O usuário trocará no primeiro acesso."
+                  : "Atualize os dados de acesso. E-mail e senha são alterados separadamente."}
             </DialogDescription>
           </DialogHeader>
 
@@ -232,6 +255,7 @@ export function UsuarioFormModal(props: Props) {
                   placeholder="Nome completo"
                   className="border-white/10 bg-white/[0.04] placeholder:text-white/30"
                   required
+                  disabled={props.readOnly}
                 />
                 {errors.nome && (
                   <p className="text-xs text-destructive">{errors.nome}</p>
@@ -248,8 +272,8 @@ export function UsuarioFormModal(props: Props) {
               <Input
                 type="email"
                 value={v.email}
-                onChange={(e) => update("email", e.target.value)}
-                disabled={!isCreate}
+                onChange={(e) => update("email", e.target.value.replace(/\s/g, ""))}
+                disabled={!isCreate || props.readOnly}
                 placeholder="usuario@magictrips.com.br"
                 required
               />
@@ -269,6 +293,7 @@ export function UsuarioFormModal(props: Props) {
               <Select
                 value={v.perfil_id || undefined}
                 onValueChange={(val) => update("perfil_id", val)}
+                disabled={props.readOnly}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione um perfil" />
@@ -283,7 +308,10 @@ export function UsuarioFormModal(props: Props) {
               </Select>
             </Field>
 
-            {/* Empresas — multi (Admin/Gerente) ou empresa fixa (Agentes) */}
+            {/* Empresas — multi (Admin/Gerente) ou empresa fixa (Agentes).
+                Em modo single-empresa, escondemos o selector e auto-vinculamos
+                no useEffect lá em cima. Se voltar a ser multi, reaparece. */}
+            {props.empresas.length > 1 && (
             <Field
               label={permiteMultiEmpresa ? "Empresas com acesso" : "Empresa"}
               icon={<Building2 className="h-3.5 w-3.5" />}
@@ -304,13 +332,14 @@ export function UsuarioFormModal(props: Props) {
                 }
                 selecionadas={v.empresa_ids}
                 onChange={(ids) => update("empresa_ids", ids)}
-                disabled={isPending || !v.perfil_id || !permiteMultiEmpresa}
+                disabled={isPending || !v.perfil_id || !permiteMultiEmpresa || props.readOnly}
                 singleSelect={!permiteMultiEmpresa}
               />
             </Field>
+            )}
 
-            {/* Senha — só em create */}
-            {isCreate && (
+            {/* Senha — só em create e nunca em readOnly */}
+            {isCreate && !props.readOnly && (
               <div className="space-y-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
                 <Field
                   label="Senha"
@@ -345,7 +374,7 @@ export function UsuarioFormModal(props: Props) {
                       type="button"
                       variant="outline"
                       onClick={() => {
-                        update("senha", gerarSenhaProvisoria(12))
+                        update("senha", gerarSenhaProvisoria())
                         setMostrarSenha(true)
                       }}
                       className="border-white/10 bg-transparent text-white/75 hover:bg-white/[0.04] hover:text-white"
@@ -379,20 +408,22 @@ export function UsuarioFormModal(props: Props) {
             <DialogFooter>
               <DialogClose asChild>
                 <Button variant="ghost" type="button" disabled={isPending}>
-                  Cancelar
+                  {props.readOnly ? "Fechar" : "Cancelar"}
                 </Button>
               </DialogClose>
-              <Button
-                type="submit"
-                disabled={isPending}
-                className="bg-nexus-bright text-white hover:bg-nexus-bright-soft"
-              >
-                {isPending
-                  ? "Salvando..."
-                  : isCreate
-                    ? "Criar usuário"
-                    : "Salvar"}
-              </Button>
+              {!props.readOnly && (
+                <Button
+                  type="submit"
+                  disabled={isPending}
+                  className="bg-nexus-bright text-white hover:bg-nexus-bright-soft"
+                >
+                  {isPending
+                    ? "Salvando..."
+                    : isCreate
+                      ? "Criar usuário"
+                      : "Salvar"}
+                </Button>
+              )}
             </DialogFooter>
           </form>
         </DialogContent>
@@ -409,6 +440,9 @@ export function UsuarioFormModal(props: Props) {
           senha={senhaProv.senha}
           contexto="criar"
           nome={senhaProv.nome}
+          email={senhaProv.email}
+          emailEnviado={senhaProv.emailEnviado}
+          emailErro={senhaProv.emailErro}
         />
       )}
     </>

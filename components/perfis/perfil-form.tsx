@@ -46,6 +46,7 @@ export function PerfilForm(props: Props) {
   )
   const [ativo, setAtivo] = useState(isCreate ? true : props.ativo)
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function update<K extends string>(key: K, _value: unknown) {
     if (errors[key]) setErrors((e) => ({ ...e, [key]: "" }))
   }

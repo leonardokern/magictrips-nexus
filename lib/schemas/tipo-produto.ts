@@ -7,6 +7,7 @@ export const TIPOS_CAMPO = [
   "data",
   "dropdown",
   "sim_nao",
+  "fornecedor",
 ] as const
 export type TipoCampo = (typeof TIPOS_CAMPO)[number]
 
@@ -16,9 +17,45 @@ export const TIPO_CAMPO_LABEL: Record<TipoCampo, string> = {
   data: "Data",
   dropdown: "Lista (dropdown)",
   sim_nao: "Sim/Não",
+  fornecedor: "Fornecedor",
 }
 
 // ── Tipo de Produto ──────────────────────────────────────────────────────────
+
+/** Ícones disponíveis para tipos de produto (filename sem extensão). */
+export const ICONES_TIPO_PRODUTO = [
+  "001-aviao",
+  "002-hotel",
+  "003-seguro",
+  "004-van-de-campista",
+  "005-cruzeiro",
+  "006-passaporte",
+  "007-carros",
+  "008-carga-de-trem",
+  "009-ingressos-de-cinema",
+  "010-malas",
+  "011-cerca-do-parque",
+  "013-onibus",
+  "food-and-restaurant",
+  "brinde",
+] as const
+
+export const ICONE_LABEL: Record<(typeof ICONES_TIPO_PRODUTO)[number], string> = {
+  "001-aviao":              "Avião",
+  "002-hotel":              "Hotel",
+  "003-seguro":             "Seguro",
+  "004-van-de-campista":    "Van / Campista",
+  "005-cruzeiro":           "Cruzeiro",
+  "006-passaporte":         "Passaporte",
+  "007-carros":             "Carro",
+  "008-carga-de-trem":      "Trem",
+  "009-ingressos-de-cinema":"Ingressos",
+  "010-malas":              "Malas",
+  "011-cerca-do-parque":    "Parque",
+  "013-onibus":             "Ônibus",
+  "food-and-restaurant":    "Restaurante",
+  "brinde":                 "Brinde",
+}
 
 export const tipoProdutoVinculoCampoSchema = z.object({
   campo_id: z.string().uuid(),
@@ -28,12 +65,14 @@ export const tipoProdutoVinculoCampoSchema = z.object({
 
 export const tipoProdutoCreateSchema = z.object({
   nome: z.string().trim().min(2, "Nome muito curto").max(60, "Nome muito longo"),
+  icone: z.string().nullable().optional(),
   campos: z.array(tipoProdutoVinculoCampoSchema),
 })
 
 export const tipoProdutoUpdateSchema = z.object({
   nome: z.string().trim().min(2).max(60).optional(),
   ativo: z.boolean().optional(),
+  icone: z.string().nullable().optional(),
   campos: z.array(tipoProdutoVinculoCampoSchema).optional(),
 })
 

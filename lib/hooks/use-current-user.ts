@@ -25,6 +25,8 @@ export type CurrentUser = {
     id: string
     nome: string
     sistema: boolean
+    /** "agente" = perfil de venda (vê dashboard próprio). "operacao" = admin/gerente. */
+    tipo: "agente" | "operacao"
     permissoes: Permissoes
   }
 }
@@ -53,7 +55,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const [perfilRes, empresasRes, todasEmpresasRes] = await Promise.all([
     supabase
       .from("perfis_acesso")
-      .select("id, nome, sistema, permissoes")
+      .select("id, nome, sistema, permissoes, tipo")
       .eq("id", u.perfil_id)
       .single(),
     supabase
@@ -89,6 +91,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       id: perfilRes.data.id,
       nome: perfilRes.data.nome,
       sistema: perfilRes.data.sistema,
+      tipo: (perfilRes.data.tipo === "agente" ? "agente" : "operacao"),
       permissoes: (perfilRes.data.permissoes as Permissoes) ?? {},
     },
   }

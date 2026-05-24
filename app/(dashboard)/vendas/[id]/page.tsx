@@ -4,6 +4,7 @@ import { notFound } from "next/navigation"
 import {
   Building2,
   CalendarDays,
+  CheckCircle,
   ChevronLeft,
   CreditCard,
   ShoppingCart,
@@ -16,23 +17,22 @@ import { requireCurrentUser } from "@/lib/hooks/use-current-user"
 import { can } from "@/lib/hooks/use-permissions"
 import { formatBRL } from "@/lib/utils/sum-parser"
 import { formatCpf } from "@/lib/utils/formatters"
+import { AprovarVendaButton } from "@/components/vendas/aprovar-venda-button"
 
 export const metadata: Metadata = { title: "Venda" }
 
 const STATUS_LABEL: Record<string, string> = {
   rascunho: "Rascunho",
   pendente_validacao: "Aguardando aprovação",
-  aprovada: "Aprovada",
-  cancelada: "Cancelada",
-  devolvida: "Devolvida",
+  aprovado: "Aprovada",
+  cancelado: "Cancelada",
 }
 
 const STATUS_CHIP: Record<string, string> = {
   rascunho: "border-white/15 bg-white/[0.04] text-white/55",
   pendente_validacao: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-  aprovada: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-  cancelada: "border-rose-500/30 bg-rose-500/10 text-rose-300",
-  devolvida: "border-violet-500/30 bg-violet-500/10 text-violet-300",
+  aprovado: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+  cancelado: "border-rose-500/30 bg-rose-500/10 text-rose-300",
 }
 
 export default async function VendaDetailPage({
@@ -51,10 +51,11 @@ export default async function VendaDetailPage({
     .select(
       `
       id, data_venda, status, pax, indicacao_percentual, origem, observacoes,
-      empresa_id, created_at,
+      empresa_id, created_at, aprovado_por, data_aprovacao,
       empresa:empresas(nome, slug),
       cliente:clientes(id, nome, cpf, email, telefone, tipo),
-      agente:usuarios!vendas_usuario_id_fkey(nome, email)
+      agente:usuarios!vendas_usuario_id_fkey(nome, email),
+      aprovador:usuarios!vendas_aprovado_por_fkey(nome)
     `,
     )
     .eq("id", id)
@@ -119,22 +120,50 @@ export default async function VendaDetailPage({
         Vendas
       </Link>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-2xl font-semibold tracking-tight text-white">
-          Venda · {v.cliente?.nome ?? "—"}
-        </h2>
-        <span
-          className={
-            "rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider " +
-            (STATUS_CHIP[v.status] ?? STATUS_CHIP.rascunho)
-          }
-        >
-          {STATUS_LABEL[v.status] ?? v.status}
-        </span>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="text-2xl font-semibold tracking-tight text-white">
+            Venda · {v.cliente?.nome ?? "—"}
+          </h2>
+          <span
+            className={
+              "rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider " +
+              (STATUS_CHIP[v.status] ?? STATUS_CHIP.rascunho)
+            }
+          >
+            {STATUS_LABEL[v.status] ?? v.status}
+          </span>
+        </div>
+
+        {/* Botão de aprovação — só aparece para quem pode aprovar e a venda está pendente */}
+        {can(user, "vendas", "aprovar") && v.status === "pendente_validacao" && (
+          <AprovarVendaButton
+            vendaId={v.id}
+            clienteNome={v.cliente?.nome ?? "—"}
+            totalVenda={formatBRL(totalVenda)}
+          />
+        )}
       </div>
+
       <p className="text-sm text-white/55">
         Criada em {formatDateBR(v.data_venda)} · ID {v.id.slice(0, 8)}
       </p>
+
+      {/* Banner de aprovação */}
+      {v.status === "aprovado" && (
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-2.5 text-sm text-emerald-300">
+          <CheckCircle className="h-4 w-4 shrink-0" />
+          <span>
+            Aprovada por{" "}
+            <strong>
+              {(v.aprovador as { nome: string } | null)?.nome ?? "—"}
+            </strong>
+            {v.data_aprovacao && (
+              <> em {formatDateBR(v.data_aprovacao.slice(0, 10))}</>
+            )}
+          </span>
+        </div>
+      )}
 
       {/* Identificação */}
       <div className="grid gap-4 md:grid-cols-3">

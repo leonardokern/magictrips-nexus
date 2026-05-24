@@ -1,7 +1,9 @@
 "use client"
 
+import { useFormStatus } from "react-dom"
 import { LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { signOutAction } from "@/app/(dashboard)/actions"
 
 type Props = {
@@ -27,16 +29,29 @@ export function UserMenu({ nome, iniciais, email, perfil }: Props) {
       </div>
 
       <form action={signOutAction}>
-        <Button
-          type="submit"
-          variant="ghost"
-          size="icon"
-          title="Sair"
-          className="text-white/60 hover:bg-white/[0.06] hover:text-white"
-        >
-          <LogOut className="h-4 w-4" />
-        </Button>
+        <LogoutButton />
       </form>
     </div>
+  )
+}
+
+function LogoutButton() {
+  const { pending } = useFormStatus()
+  return (
+    <Button
+      type="submit"
+      variant="ghost"
+      size="icon"
+      disabled={pending}
+      title={pending ? "Saindo…" : "Sair"}
+      aria-label={pending ? "Saindo" : "Sair"}
+      className="text-white/60 hover:bg-white/[0.06] hover:text-white disabled:opacity-100"
+    >
+      {pending ? (
+        <Spinner className="text-nexus-bright" />
+      ) : (
+        <LogOut className="h-4 w-4" />
+      )}
+    </Button>
   )
 }

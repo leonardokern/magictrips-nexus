@@ -47,6 +47,16 @@ export function formatTelefone(tel: string | null | undefined): string {
 }
 
 /**
+ * "12345678" → "12345-678". Progressivo: aceita string parcial enquanto
+ * o usuário digita (5 dígitos → "12345"; 6+ dígitos → "12345-6...").
+ */
+export function formatCep(cep: string | null | undefined): string {
+  const d = onlyDigits(cep).slice(0, 8)
+  if (d.length <= 5) return d
+  return `${d.slice(0, 5)}-${d.slice(5)}`
+}
+
+/**
  * "2026-05-19" (ISO) → "19/05/2026"
  * Aceita date string ISO ou Date.
  */

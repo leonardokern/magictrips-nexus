@@ -1,7 +1,4 @@
 import type { Metadata } from "next"
-import Link from "next/link"
-import { Settings2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import {
   Table,
   TableBody,
@@ -14,7 +11,9 @@ import { createClient } from "@/lib/supabase/server"
 import { requireCurrentUser } from "@/lib/hooks/use-current-user"
 import { can } from "@/lib/hooks/use-permissions"
 import { NovoTipoProdutoButton } from "@/components/tipos-produto/novo-tipo-produto-button"
+import { GerenciarCamposButton } from "@/components/tipos-produto/gerenciar-campos-button"
 import { TipoProdutoRowActions } from "@/components/tipos-produto/tipo-produto-row-actions"
+import Image from "next/image"
 import {
   TIPO_CAMPO_LABEL,
   type TipoCampo,
@@ -40,7 +39,7 @@ export default async function TiposProdutoPage() {
     await Promise.all([
       supabase
         .from("tipos_produto")
-        .select("id, nome, ativo, created_at")
+        .select("id, nome, ativo, icone, created_at")
         .order("nome"),
       supabase
         .from("campos_extra")
@@ -93,17 +92,12 @@ export default async function TiposProdutoPage() {
         </div>
 
         <div className="flex gap-2">
-          {can(user, "tipos_produto", "editar") && (
-            <Button
-              asChild
-              variant="outline"
-              className="border-white/10 bg-transparent text-white/80 hover:bg-white/[0.04] hover:text-white"
-            >
-              <Link href="/tipos-produto/campos">
-                <Settings2 className="mr-2 h-4 w-4" />
-                Gerenciar campos
-              </Link>
-            </Button>
+          {can(user, "tipos_produto", "ler") && (
+            <GerenciarCamposButton
+              podeCriar={can(user, "tipos_produto", "criar")}
+              podeEditar={podeEditar}
+              podeExcluir={podeExcluir}
+            />
           )}
           {can(user, "tipos_produto", "criar") && (
             <NovoTipoProdutoButton camposDisponiveis={camposList} />
@@ -139,8 +133,23 @@ export default async function TiposProdutoPage() {
                     key={t.id}
                     className="border-white/[0.06] hover:bg-white/[0.025]"
                   >
-                    <TableCell className="font-medium text-white">
-                      {t.nome}
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        {t.icone ? (
+                          <div className="relative h-4 w-4 shrink-0">
+                            <Image
+                              src={`/icons/tipos-produto/${t.icone}.png`}
+                              alt={t.nome}
+                              fill
+                              className="object-contain"
+                              style={{ filter: "brightness(0) invert(1)", opacity: 0.55 }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="h-4 w-4 shrink-0" />
+                        )}
+                        <span className="font-medium text-white">{t.nome}</span>
+                      </div>
                     </TableCell>
                     <TableCell>
                       {vinc.length === 0 ? (
@@ -185,6 +194,7 @@ export default async function TiposProdutoPage() {
                           id: t.id,
                           nome: t.nome,
                           ativo: t.ativo,
+                          icone: t.icone ?? null,
                           campos: vinc,
                         }}
                         camposDisponiveis={camposList}
