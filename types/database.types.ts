@@ -1482,6 +1482,10 @@ export type Database = {
         Args: { p_motivo: string; p_revisor_id: string; p_venda_id: string }
         Returns: undefined
       }
+      resubmeter_venda: {
+        Args: { p_venda_id: string; p_payload: Json }
+        Returns: undefined
+      }
       excluir_usuario_admin: { Args: { p_user_id: string }; Returns: undefined }
       is_administrador: { Args: never; Returns: boolean }
       is_agente: { Args: never; Returns: boolean }

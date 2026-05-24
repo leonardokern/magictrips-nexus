@@ -19,18 +19,18 @@ export const metadata: Metadata = { title: "Vendas" }
 
 const STATUS_LABEL: Record<string, string> = {
   rascunho: "Rascunho",
+  em_revisao: "Em Revisão",
   pendente_validacao: "Aguardando aprovação",
   aprovado: "Aprovada",
   cancelado: "Cancelada",
-  devolvido: "Devolvida",
 }
 
 const STATUS_CHIP: Record<string, string> = {
   rascunho: "border-white/15 bg-white/[0.04] text-white/55",
+  em_revisao: "border-orange-400/40 bg-orange-400/10 text-orange-300",
   pendente_validacao: "border-amber-500/30 bg-amber-500/10 text-amber-300",
   aprovado: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
   cancelado: "border-rose-500/30 bg-rose-500/10 text-rose-300",
-  devolvido: "border-violet-500/30 bg-violet-500/10 text-violet-300",
 }
 
 export default async function VendasPage() {
@@ -150,15 +150,23 @@ export default async function VendasPage() {
               </TableRow>
             ) : (
               linhas.map((v) => {
+                // Gerente/Admin: edita qualquer venda. Agente: só rascunho e em_revisao próprias.
                 const podeEditarEsta =
-                  podeEditarGlobal || v.usuario_id === user.id
+                  podeEditarGlobal ||
+                  (v.usuario_id === user.id &&
+                    (v.status === "rascunho" || v.status === "em_revisao"))
                 const clienteNome =
                   (v.cliente as { nome: string } | null)?.nome ?? "—"
+                const emRevisao = v.status === "em_revisao"
 
                 return (
                   <TableRow
                     key={v.id}
-                    className="border-white/[0.06] hover:bg-white/[0.025]"
+                    className={
+                      emRevisao
+                        ? "border-white/[0.06] border-l-2 border-l-orange-400/50 bg-orange-400/[0.04] hover:bg-orange-400/[0.07]"
+                        : "border-white/[0.06] hover:bg-white/[0.025]"
+                    }
                   >
                     <TableCell className="font-mono text-xs font-medium text-nexus-bright">
                       {v.identificador}
@@ -204,6 +212,7 @@ export default async function VendasPage() {
                         podeAprovar={podeAprovar}
                         podeEditar={podeEditarEsta}
                         mostraComissao={mostraComissao}
+                        modoGerente={podeAprovar}
                       />
                     </TableCell>
                   </TableRow>

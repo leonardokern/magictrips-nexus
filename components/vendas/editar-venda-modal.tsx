@@ -18,9 +18,11 @@ type Props = {
   vendaId: string
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** true = Gerente/Admin (Validar Venda). false = Agente dono (Enviar para validação). */
+  modoGerente?: boolean
 }
 
-export function EditarVendaModal({ vendaId, open, onOpenChange }: Props) {
+export function EditarVendaModal({ vendaId, open, onOpenChange, modoGerente = true }: Props) {
   const [dados, setDados] = useState<DadosNovaVenda | null>(null)
   const [draft, setDraft] = useState<WizardDraftData | null>(null)
   const [loading, setLoading] = useState(false)
@@ -56,8 +58,9 @@ export function EditarVendaModal({ vendaId, open, onOpenChange }: Props) {
         <DialogHeader className="shrink-0 border-b border-white/[0.06] px-6 py-4 pr-14">
           <DialogTitle>Editar venda</DialogTitle>
           <DialogDescription>
-            Revise e edite qualquer campo. Ao concluir, clique em{" "}
-            <strong className="text-white">Validar Venda</strong> para aprovar.
+            {modoGerente
+              ? <>Revise e edite qualquer campo. Ao concluir, clique em <strong className="text-white">Validar Venda</strong> para aprovar.</>
+              : <>Corrija os pontos indicados. Ao concluir, clique em <strong className="text-white">Enviar para validação</strong>.</>}
           </DialogDescription>
         </DialogHeader>
 
@@ -127,7 +130,7 @@ export function EditarVendaModal({ vendaId, open, onOpenChange }: Props) {
               }))}
               initialDraft={draft}
               initialRascunhoId={null}
-              modoGerente={true}
+              modoGerente={modoGerente}
               vendaId={vendaId}
               onSuccessClose={() => onOpenChange(false)}
               step={wizardStep}

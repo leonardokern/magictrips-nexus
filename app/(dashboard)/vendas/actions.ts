@@ -993,11 +993,26 @@ export async function getVendaParaEditar(
   id: string,
 ): Promise<ActionResult<VendaParaEditar>> {
   const user = await requireCurrentUser()
-  if (!can(user, "vendas", "aprovar")) {
-    return { ok: false, error: "Sem permissão." }
-  }
+  const canApprove = can(user, "vendas", "aprovar")
 
   const supabase = await createClient()
+
+  // Carrega a venda para verificar propriedade/status antes das demais queries
+  const { data: vendaCheck } = await supabase
+    .from("vendas")
+    .select("usuario_id, status")
+    .eq("id", id)
+    .single()
+
+  if (!vendaCheck) return { ok: false, error: "Venda não encontrada." }
+
+  // Gerente/Admin com aprovar: acesso total. Agente: só a própria venda em_revisao.
+  const isOwnerEmRevisao =
+    vendaCheck.usuario_id === user.id && vendaCheck.status === "em_revisao"
+
+  if (!canApprove && !isOwnerEmRevisao) {
+    return { ok: false, error: "Sem permissão." }
+  }
 
   const [dadosRes, { data: v }, { data: produtos }, { data: passageiros }, { data: cobranca }] =
     await Promise.all([
@@ -1125,6 +1140,38 @@ export async function editarEAprovarVenda(
     p_venda_id: id,
     p_payload:  JSON.parse(JSON.stringify(parsed.data)),
     p_aprovar:  true,
+  })
+
+  if (error) return { ok: false, error: error.message }
+
+  revalidatePath("/vendas")
+  revalidatePath("/dashboard")
+  return { ok: true, data: { id } }
+}
+
+// ─────────────────────────���───────────────────────────��───────────────────────
+// Agente corrige venda em_revisao e resubmete para validação
+// ─────────────────────────────────────────────────────────────────────��───────
+
+export async function resubmeterVenda(
+  id: string,
+  raw: unknown,
+): Promise<ActionResult<{ id: string }>> {
+  const user = await requireCurrentUser()
+
+  const parsed = vendaCreateSchema.safeParse(raw)
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: "Verifique os campos.",
+      fieldErrors: flatten(parsed.error.flatten().fieldErrors),
+    }
+  }
+
+  const supabase = await createClient()
+  const { error } = await supabase.rpc("resubmeter_venda", {
+    p_venda_id: id,
+    p_payload:  JSON.parse(JSON.stringify(parsed.data)),
   })
 
   if (error) return { ok: false, error: error.message }

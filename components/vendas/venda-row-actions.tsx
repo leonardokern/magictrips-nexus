@@ -42,10 +42,12 @@ type Props = {
   venda: VendaListItem
   /** Usuário pode aprovar/devolver — exibe botões de ação no modal. */
   podeAprovar: boolean
-  /** Usuário pode editar (gerente/admin com permissão ou agente dono). */
+  /** Usuário pode editar (gerente/admin com permissão ou agente dono em_revisao). */
   podeEditar: boolean
   /** Exibe coluna de comissão no painel (Admin/Gerente). */
   mostraComissao: boolean
+  /** true = Gerente/Admin (Validar Venda). false = Agente dono (resubmeter). */
+  modoGerente: boolean
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -55,6 +57,7 @@ export function VendaRowActions({
   podeAprovar,
   podeEditar,
   mostraComissao,
+  modoGerente,
 }: Props) {
   const router = useRouter()
 
@@ -155,10 +158,11 @@ export function VendaRowActions({
         )}
       </div>
 
-      {/* ── Modal de edição (Gerente/Admin) ───────────────────── */}
+      {/* ── Modal de edição ──────────────────────────────────── */}
       <EditarVendaModal
         vendaId={venda.id}
         open={editarOpen}
+        modoGerente={modoGerente}
         onOpenChange={(o) => {
           setEditarOpen(o)
           if (!o) router.refresh()
@@ -311,6 +315,7 @@ export function VendaRowActions({
 
 const STATUS_LABEL: Record<string, string> = {
   rascunho: "Rascunho",
+  em_revisao: "Em Revisão",
   pendente_validacao: "Aguardando aprovação",
   aprovado: "Aprovada",
   cancelado: "Cancelada",
@@ -318,6 +323,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 const STATUS_CHIP: Record<string, string> = {
   rascunho: "border-white/15 bg-white/[0.04] text-white/55",
+  em_revisao: "border-orange-400/40 bg-orange-400/10 text-orange-300",
   pendente_validacao: "border-amber-500/30 bg-amber-500/10 text-amber-300",
   aprovado: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
   cancelado: "border-rose-500/30 bg-rose-500/10 text-rose-300",

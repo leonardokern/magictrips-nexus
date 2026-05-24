@@ -44,7 +44,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { ClienteCombobox, type ClienteOption } from "./cliente-combobox"
-import { criarVenda, editarEAprovarVenda } from "@/app/(dashboard)/vendas/actions"
+import { criarVenda, editarEAprovarVenda, resubmeterVenda } from "@/app/(dashboard)/vendas/actions"
 import { salvarRascunho, descartarRascunho } from "@/app/(dashboard)/vendas/rascunho-actions"
 import {
   COBRANCA_TIPO_LABEL,
@@ -602,6 +602,30 @@ export function VendaWizard(props: Props) {
     })
   }
 
+  // ── Agente resubmete venda em_revisao ─────────────────────────────────────
+
+  function onSubmitAgente() {
+    const errs = { ...validarStep1(), ...asyncErrors, ...validarStep2(), ...validarStep3(), ...validarStep4() }
+    if (Object.keys(errs).length > 0) {
+      setErrors(errs)
+      const first = Object.values(errs)[0]
+      if (first) toast.error(first)
+      return
+    }
+    if (!props.vendaId) return
+    const payload = construirPayload()
+    startTransition(async () => {
+      const r = await resubmeterVenda(props.vendaId!, payload)
+      if (!r.ok) {
+        toast.error(r.error)
+        return
+      }
+      toast.success("Venda enviada para validação.")
+      props.onSuccessClose?.()
+      router.refresh()
+    })
+  }
+
   // ── Salvar rascunho ───────────────────────────────────────────────────────
 
   function coletarEstadoAtual(): WizardDraftData {
@@ -1008,8 +1032,8 @@ export function VendaWizard(props: Props) {
         </Button>
 
         <div className="flex items-center gap-2">
-          {/* Salvar rascunho — oculto em modoGerente */}
-          {!props.modoGerente && (
+          {/* Salvar rascunho — só em nova venda (agente, sem vendaId) */}
+          {!props.modoGerente && !props.vendaId && (
             <Button
               type="button"
               variant="ghost"
@@ -1028,6 +1052,7 @@ export function VendaWizard(props: Props) {
 
           {step < 5 ? (
             props.modoGerente ? (
+              // Gerente: pula direto para revisão
               <Button
                 type="button"
                 onClick={avancarParaRevisao}
@@ -1038,6 +1063,7 @@ export function VendaWizard(props: Props) {
                 <ChevronRight className="ml-1 h-4 w-4" />
               </Button>
             ) : (
+              // Agente (nova ou em_revisao): avança normalmente
               <Button
                 type="button"
                 onClick={avancar}
@@ -1049,6 +1075,7 @@ export function VendaWizard(props: Props) {
               </Button>
             )
           ) : props.modoGerente ? (
+            // Step 5 · Gerente: aprovar diretamente
             <Button
               type="button"
               onClick={onSubmitGerente}
@@ -1058,7 +1085,19 @@ export function VendaWizard(props: Props) {
               {isPending ? "Validando…" : "Validar Venda"}
               <CheckCircle2 className="ml-1 h-4 w-4" />
             </Button>
+          ) : props.vendaId ? (
+            // Step 5 · Agente editando em_revisao: resubmete
+            <Button
+              type="button"
+              onClick={onSubmitAgente}
+              disabled={isPending}
+              className="bg-nexus-bright text-white hover:bg-nexus-bright-soft"
+            >
+              {isPending ? "Enviando…" : "Enviar para validação"}
+              <Check className="ml-1 h-4 w-4" />
+            </Button>
           ) : (
+            // Step 5 · Agente criando nova venda
             <Button
               type="button"
               onClick={onSubmit}
