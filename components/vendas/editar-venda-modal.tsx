@@ -72,13 +72,17 @@ export function EditarVendaModal({ vendaId, open, onOpenChange, modoGerente = tr
                 const Icon = s.icon
                 const ativo = wizardStep === s.num
                 const passado = wizardStep > s.num
+                // Em modoGerente, todos os steps 1-4 são navegáveis pelo header
+                const clicavel = modoGerente ? (s.num <= 4 && !ativo) : passado
                 const base =
                   "flex flex-1 items-center gap-2 rounded-lg px-3 py-2 text-xs uppercase tracking-wider transition-colors"
                 const color = ativo
                   ? "bg-nexus-bright/15 text-nexus-bright"
                   : passado
                     ? "text-emerald-300/80 hover:bg-emerald-400/10 hover:text-emerald-300 cursor-pointer"
-                    : "text-white/35 cursor-default"
+                    : clicavel
+                      ? "text-white/50 hover:bg-white/[0.06] hover:text-white cursor-pointer"
+                      : "text-white/25 cursor-default"
                 const inner = (
                   <>
                     {passado ? (
@@ -91,13 +95,13 @@ export function EditarVendaModal({ vendaId, open, onOpenChange, modoGerente = tr
                     </span>
                   </>
                 )
-                return passado ? (
+                return clicavel ? (
                   <li key={s.num} className={`${base} ${color}`}>
                     <button
                       type="button"
                       className="flex w-full items-center gap-2"
                       onClick={() => setWizardStep(s.num as 1 | 2 | 3 | 4 | 5)}
-                      title={`Voltar para ${s.label}`}
+                      title={`Ir para ${s.label}`}
                     >
                       {inner}
                     </button>

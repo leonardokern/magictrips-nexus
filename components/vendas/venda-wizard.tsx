@@ -1051,8 +1051,9 @@ export function VendaWizard(props: Props) {
           )}
 
           {step < 5 ? (
-            props.modoGerente && step === 4 ? (
-              // Gerente no step 4: "Salvar e Revisar" vai para revisão
+            props.modoGerente ? (
+              // Gerente: todos os steps 1-4 têm "Salvar e Revisar" → vai direto ao step 5
+              // Navegação entre 1-4 é feita clicando nas abas do cabeçalho
               <Button
                 type="button"
                 onClick={avancarParaRevisao}
@@ -1063,7 +1064,7 @@ export function VendaWizard(props: Props) {
                 <ChevronRight className="ml-1 h-4 w-4" />
               </Button>
             ) : (
-              // Steps 1-3 (gerente ou agente) e agente em todos os steps: avança normalmente
+              // Agente (nova venda ou em_revisao): avança step a step normalmente
               <Button
                 type="button"
                 onClick={avancar}
