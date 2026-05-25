@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { ShoppingCart, ShieldCheck, Users } from "lucide-react"
+import { cn } from "@/lib/utils"
 import {
   Table,
   TableBody,
@@ -123,7 +124,7 @@ export default async function VendasPage() {
         />
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
+      <div className="hidden md:block overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
         <Table>
           <TableHeader>
             <TableRow className="border-white/[0.06] hover:bg-transparent">
@@ -221,6 +222,92 @@ export default async function VendasPage() {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* ── Mobile: cards de venda ─────────────────────────────── */}
+      <div className="flex flex-col gap-3 md:hidden">
+        {linhas.length === 0 ? (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] py-12 text-center text-sm text-white/45">
+            Nenhuma venda registrada ainda.
+          </div>
+        ) : (
+          linhas.map((v) => {
+            const podeEditarEsta =
+              podeEditarGlobal ||
+              (v.usuario_id === user.id &&
+                (v.status === "rascunho" || v.status === "em_revisao"))
+            const clienteNome =
+              (v.cliente as { nome: string } | null)?.nome ?? "—"
+            const emRevisao = v.status === "em_revisao"
+
+            return (
+              <div
+                key={v.id}
+                className={cn(
+                  "rounded-xl border bg-white/[0.02] p-4",
+                  emRevisao
+                    ? "border-l-2 border-orange-400/50 border-white/[0.06] bg-orange-400/[0.04]"
+                    : "border-white/[0.06]",
+                )}
+              >
+                {/* Linha 1: ID + status */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs font-semibold text-nexus-bright">
+                    {v.identificador}
+                  </span>
+                  <span
+                    className={
+                      "rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider " +
+                      (STATUS_CHIP[v.status] ?? STATUS_CHIP.rascunho)
+                    }
+                  >
+                    {STATUS_LABEL[v.status] ?? v.status}
+                  </span>
+                </div>
+
+                {/* Linha 2: cliente + valor */}
+                <div className="mt-2 flex items-baseline justify-between gap-2">
+                  <p className="text-sm font-semibold text-white">{clienteNome}</p>
+                  <p className="shrink-0 text-sm font-semibold tabular-nums text-white">
+                    {formatBRL(v.total)}
+                  </p>
+                </div>
+
+                {/* Linha 3: meta */}
+                <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-white/50">
+                  <span>{formatDateBR(v.data_venda)}</span>
+                  <span>·</span>
+                  <span>{(v.empresa as { nome: string } | null)?.nome ?? "—"}</span>
+                  <span>·</span>
+                  <span>{v.pax} PAX</span>
+                </div>
+                {(v.agente as { nome: string } | null)?.nome && (
+                  <p className="mt-1 text-xs text-white/40">
+                    {(v.agente as { nome: string }).nome}
+                  </p>
+                )}
+
+                {/* Ações */}
+                <div className="mt-3 flex justify-end border-t border-white/[0.04] pt-3">
+                  <VendaRowActions
+                    venda={{
+                      id: v.id,
+                      identificador: v.identificador,
+                      status: v.status,
+                      usuario_id: v.usuario_id,
+                      clienteNome,
+                      totalVenda: formatBRL(v.total),
+                    }}
+                    podeAprovar={podeAprovar}
+                    podeEditar={podeEditarEsta}
+                    mostraComissao={mostraComissao}
+                    modoGerente={podeAprovar}
+                  />
+                </div>
+              </div>
+            )
+          })
+        )}
       </div>
     </div>
   )

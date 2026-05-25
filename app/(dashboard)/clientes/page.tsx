@@ -150,7 +150,7 @@ export default async function ClientesPage({
         showEmpresaFilter={isAdminMaster}
       />
 
-      <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
+      <div className="hidden md:block overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
         <Table>
           <TableHeader>
             <TableRow className="border-white/[0.06] hover:bg-transparent">
@@ -287,6 +287,107 @@ export default async function ClientesPage({
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* ── Mobile: cards de cliente ──────────────────────────── */}
+      <div className="flex flex-col gap-3 md:hidden">
+        {!clientes || clientes.length === 0 ? (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] py-12 text-center text-sm text-white/45">
+            {q || tipo || status
+              ? "Nenhum cliente encontrado com esses filtros."
+              : "Nenhum cliente cadastrado ainda."}
+          </div>
+        ) : (
+          clientes.map((c) => {
+            const isPJ = c.tipo_pessoa === "juridica"
+            const linhaPrincipal = isPJ ? c.razao_social ?? c.nome : c.nome
+            const linhaSecundaria = isPJ
+              ? c.responsavel ?? formatCnpj(c.cnpj)
+              : formatCpf(c.cpf)
+
+            const end = (c.endereco ?? {}) as {
+              rua?: string
+              numero?: string
+              complemento?: string
+              bairro?: string
+              cidade?: string
+              estado?: string
+              cep?: string
+            }
+
+            return (
+              <div
+                key={c.id}
+                className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4"
+              >
+                {/* Linha 1: nome + status */}
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-semibold text-white leading-tight">
+                    {linhaPrincipal}
+                  </p>
+                  <div className="shrink-0">
+                    <StatusClienteBadge status={c.status as StatusCliente} />
+                  </div>
+                </div>
+
+                {/* Linha 2: CPF / CNPJ */}
+                {linhaSecundaria && (
+                  <p className="mt-1 font-mono text-[11px] text-white/50">
+                    {linhaSecundaria}
+                  </p>
+                )}
+
+                {/* Linha 3: email */}
+                {c.email && (
+                  <p className="mt-1.5 text-xs text-white/60">{c.email}</p>
+                )}
+
+                {/* Linha 4: telefone */}
+                {c.telefone && (
+                  <p className="mt-0.5 text-xs text-white/55">
+                    {formatTelefone(c.telefone)}
+                  </p>
+                )}
+
+                {/* Ações */}
+                <div className="mt-3 flex justify-end border-t border-white/[0.04] pt-3">
+                  <ClienteRowActions
+                    cliente={{
+                      id: c.id,
+                      nome_display: linhaPrincipal ?? "",
+                      status: c.status as "lead" | "ativo" | "inativo",
+                      initial: {
+                        empresa_id: c.empresa_id,
+                        tipo_pessoa: (c.tipo_pessoa ?? "fisica") as
+                          | "fisica"
+                          | "juridica",
+                        nome: c.nome ?? "",
+                        cpf: c.cpf ?? "",
+                        data_nascimento: c.data_nascimento ?? "",
+                        razao_social: c.razao_social ?? "",
+                        nome_fantasia: c.nome_fantasia ?? "",
+                        cnpj: c.cnpj ?? "",
+                        responsavel: c.responsavel ?? "",
+                        email: c.email,
+                        telefone: c.telefone,
+                        endereco: end,
+                        origem: c.origem ?? "",
+                        tipo: c.tipo as TipoCliente,
+                        dia_faturamento: c.dia_faturamento ?? undefined,
+                        status: c.status as StatusCliente,
+                        observacoes: c.observacoes ?? "",
+                      } as Partial<ClienteFormValues>,
+                    }}
+                    empresas={empresasParaModal}
+                    defaultEmpresaId={defaultEmpresaIdModal}
+                    lockEmpresa={lockEmpresaModal}
+                    podeEditar={can(user, "clientes", "editar")}
+                  />
+                </div>
+              </div>
+            )
+          })
+        )}
       </div>
 
       {totalPages > 1 && (

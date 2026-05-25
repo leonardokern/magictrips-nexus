@@ -7,6 +7,7 @@ import { LogOut } from "lucide-react"
 import { SidebarNav, type NavItem, type NavSection } from "@/components/dashboard/sidebar-nav"
 import { UserMenu } from "@/components/dashboard/user-menu"
 import { NotificationsButton } from "@/components/dashboard/notifications-button"
+import { MobileNav } from "@/components/dashboard/mobile-nav"
 import { APP_VERSION } from "@/lib/version"
 import { signOutAction } from "@/app/(dashboard)/actions"
 import { createClient } from "@/lib/supabase/server"
@@ -193,8 +194,33 @@ export default async function DashboardLayout({
         {/* Coluna direita */}
         <div className="flex flex-1 flex-col">
           {/* Header */}
-          <header className="sticky top-0 z-20 flex h-16 items-center justify-end border-b border-white/[0.06] bg-background/70 px-6 backdrop-blur-md md:px-8">
-            <div className="flex items-center gap-3">
+          <header className="sticky top-0 z-20 flex h-16 items-center border-b border-white/[0.06] bg-background/70 px-4 backdrop-blur-md md:justify-end md:px-8">
+
+            {/* ── Mobile: hamburguer (esquerda) ────────────────── */}
+            <div className="md:hidden">
+              <MobileNav
+                sections={sections}
+                version={APP_VERSION}
+                signOut={signOutAction}
+              />
+            </div>
+
+            {/* ── Mobile: logo centralizada ────────────────────── */}
+            <div className="flex flex-1 justify-center md:hidden">
+              <Link href="/dashboard">
+                <Image
+                  src="/brand/nexus-logo-nome-transparent.png"
+                  alt="Nexus Magic Trips"
+                  width={110}
+                  height={55}
+                  className="h-8 w-auto select-none"
+                  priority
+                />
+              </Link>
+            </div>
+
+            {/* ── Direita: notificações + usuário (sempre) ─────── */}
+            <div className="flex items-center gap-2 md:gap-3">
               <NotificationsButton lembretes={lembretes ?? []} />
               <UserMenu
                 nome={user.nome}
@@ -205,7 +231,7 @@ export default async function DashboardLayout({
             </div>
           </header>
 
-          <main className="flex-1 overflow-y-auto px-6 py-8 md:px-8">
+          <main className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">
             {children}
           </main>
         </div>

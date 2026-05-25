@@ -105,7 +105,7 @@ export default async function FornecedoresPage({
 
       <FornecedoresFilters q={q} tipo={tipo} status={status} />
 
-      <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
+      <div className="hidden overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] md:block">
         <Table>
           <TableHeader>
             <TableRow className="border-white/[0.06] hover:bg-transparent">
@@ -149,6 +149,41 @@ export default async function FornecedoresPage({
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Mobile card view */}
+      <div className="md:hidden">
+        {!fornecedores || fornecedores.length === 0 ? (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-8 text-center text-sm text-white/45">
+            {q || tipo || status
+              ? "Nenhum fornecedor encontrado com esses filtros."
+              : "Nenhum fornecedor cadastrado ainda."}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {fornecedores.map((f) => (
+              <Link
+                key={f.id}
+                href={`/fornecedores/${f.id}`}
+                className="block rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 transition-colors hover:bg-white/[0.04]"
+              >
+                {/* Row 1: nome + status badge */}
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-medium text-nexus-bright">{f.nome}</span>
+                  <FornecedorAtivoBadge ativo={f.ativo} />
+                </div>
+                {/* Row 2: CNPJ */}
+                <p className="mt-1.5 font-mono text-xs text-white/55">
+                  {formatCnpj(f.cnpj)}
+                </p>
+                {/* Row 3: tipo badge */}
+                <div className="mt-1.5">
+                  <TipoFornecedorBadge tipo={f.tipo as TipoFornecedor | null} />
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       {totalPages > 1 && (

@@ -103,7 +103,7 @@ export default async function PerfisPage() {
         )}
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
+      <div className="hidden overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] md:block">
         <Table>
           <TableHeader>
             <TableRow className="border-white/[0.06] hover:bg-transparent">
@@ -177,6 +177,67 @@ export default async function PerfisPage() {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Mobile card view */}
+      <div className="md:hidden">
+        {!perfis || perfis.length === 0 ? (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-8 text-center text-sm text-white/45">
+            Nenhum perfil cadastrado.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {perfis.map((p) => {
+              const tipoLabel = p.tipo === "agente" ? "Agente" : "Operação"
+              const tipoChip =
+                p.tipo === "agente"
+                  ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                  : "border-nexus-bright/30 bg-nexus-bright/10 text-nexus-bright"
+              const usuariosCount = usuariosPorPerfil.get(p.id) ?? 0
+              return (
+                <div
+                  key={p.id}
+                  className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
+                >
+                  {/* Row 1: nome + tipo badge */}
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-medium text-white">{p.nome}</span>
+                    <span
+                      className={`rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${tipoChip}`}
+                    >
+                      {tipoLabel}
+                    </span>
+                  </div>
+                  {/* Row 2: status + usuarios count */}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <PerfilAtivoBadge ativo={p.ativo} />
+                    <span className="text-xs text-white/55">
+                      {usuariosCount === 1 ? "1 usuário" : `${usuariosCount} usuários`}
+                    </span>
+                  </div>
+                  {/* Actions row */}
+                  <div className="mt-3 flex items-center justify-end border-t border-white/[0.06] pt-3">
+                    <PerfilRowActions
+                      perfil={{
+                        id: p.id,
+                        nome: p.nome,
+                        tipo: p.tipo as PerfilTipo,
+                        empresa_id: p.empresa_id,
+                        permissoes: (p.permissoes as PermissoesValue) ?? {},
+                        ativo: p.ativo,
+                        sistema: p.sistema,
+                        comissoes: overridesPorPerfil.get(p.id) ?? {},
+                      }}
+                      empresas={empresas ?? []}
+                      usuariosCount={usuariosCount}
+                      podeEditar={podeEditar}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

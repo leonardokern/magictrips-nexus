@@ -155,7 +155,7 @@ export default async function UsuariosPage({
         showEmpresaFilter={isAdminMaster}
       />
 
-      <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
+      <div className="hidden overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] md:block">
         <Table>
           <TableHeader>
             <TableRow className="border-white/[0.06] hover:bg-transparent">
@@ -236,6 +236,74 @@ export default async function UsuariosPage({
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Mobile card view */}
+      <div className="md:hidden">
+        {!usuarios || usuarios.length === 0 ? (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-8 text-center text-sm text-white/45">
+            {q || perfilId || status
+              ? "Nenhum usuário encontrado com esses filtros."
+              : "Nenhum usuário cadastrado ainda."}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {usuarios.map((u) => {
+              const perfilNome = perfisMap.get(u.perfil_id) ?? "—"
+              const userEmpresaIds = empresasPorUsuario.get(u.id) ?? []
+              const empresaNome =
+                userEmpresaIds.length === 0
+                  ? "—"
+                  : userEmpresaIds.length >= totalEmpresasAtivas
+                    ? "Todas"
+                    : userEmpresaIds
+                        .map((id) => empresasMap.get(id) ?? "?")
+                        .join(" · ")
+              return (
+                <div
+                  key={u.id}
+                  className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
+                >
+                  {/* Row 1: avatar + nome + status */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-xs font-medium text-white/80">
+                      {u.iniciais ?? u.nome.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="flex-1 font-medium text-white">
+                      {u.nome}
+                    </span>
+                    <UsuarioAtivoBadge ativo={u.ativo} />
+                  </div>
+                  {/* Row 2: email */}
+                  <p className="mt-1.5 pl-12 text-xs text-white/55">{u.email}</p>
+                  {/* Row 3: perfil + empresa */}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-12">
+                    <PerfilUsuarioBadge nome={perfilNome} />
+                    <span className="text-xs text-white/55">{empresaNome}</span>
+                  </div>
+                  {/* Actions row */}
+                  <div className="mt-3 flex items-center justify-end border-t border-white/[0.06] pt-3">
+                    <UsuarioRowActions
+                      usuario={{
+                        id: u.id,
+                        nome: u.nome,
+                        email: u.email,
+                        perfil_id: u.perfil_id,
+                        perfil_nome: perfilNome,
+                        empresa_ids: userEmpresaIds,
+                        ativo: u.ativo,
+                      }}
+                      perfis={perfis ?? []}
+                      empresas={empresasAtivas ?? []}
+                      podeEditar={can(user, "usuarios", "editar")}
+                      isSelf={u.id === user.id}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {totalPages > 1 && (
