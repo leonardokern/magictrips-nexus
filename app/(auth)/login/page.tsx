@@ -29,7 +29,7 @@ export default async function LoginPage({ searchParams }: Props) {
               width={512}
               height={512}
               priority
-              className="h-72 w-72 select-none object-contain [filter:brightness(0)_invert(1)_drop-shadow(0_8px_40px_rgba(20,152,213,0.35))]"
+              className="h-44 w-44 select-none object-contain [filter:brightness(0)_invert(1)_drop-shadow(0_8px_40px_rgba(20,152,213,0.35))] md:h-72 md:w-72"
             />
           </div>
 

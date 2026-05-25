@@ -88,8 +88,8 @@ export function NovaVendaModal({ open, onOpenChange }: Props) {
     let cancel = false
     setView({ kind: "loading" })
 
-    Promise.all([getDadosNovaVenda(), listarRascunhos()]).then(
-      ([dadosRes, rascunhosRes]) => {
+    Promise.all([getDadosNovaVenda(), listarRascunhos()])
+      .then(([dadosRes, rascunhosRes]) => {
         if (cancel) return
 
         if (!dadosRes.ok) {
@@ -107,8 +107,17 @@ export function NovaVendaModal({ open, onOpenChange }: Props) {
         } else {
           setView({ kind: "wizard", rascunhoId: null, initialDraft: null })
         }
-      },
-    )
+      })
+      .catch((err) => {
+        if (cancel) return
+        console.error("[NovaVendaModal] erro ao carregar dados:", err)
+        toast.error(
+          err instanceof Error
+            ? `Erro ao carregar dados da venda: ${err.message}`
+            : "Erro ao carregar dados da venda.",
+        )
+        onOpenChange(false)
+      })
 
     return () => {
       cancel = true

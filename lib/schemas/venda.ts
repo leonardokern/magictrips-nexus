@@ -70,6 +70,7 @@ export const vendaProdutoSchema = z.object({
   rav_extra_cliente: z.number().min(0).default(0),
   rav_extra_fornecedor: z.number().min(0).default(0),
   comissao_vendedor: z.number().min(0).nullable().optional(),
+  pgto_modo: z.enum(["comissionado", "net"]).default("comissionado"),
   pgto_forma: z.enum(PGTO_FORMAS).nullable().optional(),
   pgto_cartao_id: z.string().uuid().nullable().optional(),
   pgto_valor_total: z.number().min(0).nullable().optional(),

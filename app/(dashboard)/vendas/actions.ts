@@ -1000,6 +1000,7 @@ export type VendaParaEditar = {
       rav_extra_cliente_str: string; rav_extra_fornecedor_str: string
       comissao_vendedor_str: string
       valores_extras: Record<string, string>
+      pgto_modo: "comissionado" | "net"
       pgto_forma: string; pgto_cartao_id: string
       pgto_valor_total_str: string; pgto_entrada_str: string
       pgto_num_parcelas: number
@@ -1050,7 +1051,7 @@ export async function getVendaParaEditar(
         .maybeSingle(),
       supabase
         .from("venda_produtos")
-        .select("tipo_produto_id, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, comissao_vendedor, valores_extras, pgto_forma, pgto_cartao_id, pgto_valor_total, pgto_entrada, pgto_num_parcelas, pgto_valor_parcela, pgto_data_debito, data_inicio_viagem, data_fim_viagem")
+        .select("tipo_produto_id, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, comissao_vendedor, valores_extras, pgto_modo, pgto_forma, pgto_cartao_id, pgto_valor_total, pgto_entrada, pgto_num_parcelas, pgto_valor_parcela, pgto_data_debito, data_inicio_viagem, data_fim_viagem")
         .eq("venda_id", id)
         .order("ordem"),
       supabase
@@ -1109,6 +1110,7 @@ export async function getVendaParaEditar(
       rav_extra_fornecedor_str: numStr(p.rav_extra_fornecedor),
       comissao_vendedor_str:    numStr(p.comissao_vendedor),
       valores_extras:           (p.valores_extras as Record<string, string> | null) ?? {},
+      pgto_modo:                (p.pgto_modo as "comissionado" | "net") ?? "comissionado",
       pgto_forma:               p.pgto_forma ?? "cartao",
       pgto_cartao_id:           p.pgto_cartao_id ?? "",
       pgto_valor_total_str:     numStr(p.pgto_valor_total),

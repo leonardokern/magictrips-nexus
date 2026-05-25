@@ -8,7 +8,23 @@ export const metadata: Metadata = {
     default: "Nexus",
     template: "Nexus",
   },
-  description: "Plataforma interna de gestão da Magic Trips e Del Mondo.",
+  description: "Plataforma interna da Magic Trips Brasil",
+  openGraph: {
+    title: "Nexus",
+    description: "Plataforma interna da Magic Trips Brasil",
+    url: "https://nexus.magictrips.com.br",
+    siteName: "Nexus",
+    images: [
+      {
+        url: "/brand/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "Nexus — Magic Trips",
+      },
+    ],
+    locale: "pt_BR",
+    type: "website",
+  },
 }
 
 export default function RootLayout({

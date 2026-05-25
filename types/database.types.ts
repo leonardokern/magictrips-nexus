@@ -1164,6 +1164,7 @@ export type Database = {
           pgto_data_debito: string | null
           pgto_entrada: number | null
           pgto_forma: string | null
+          pgto_modo: string
           pgto_num_parcelas: number | null
           pgto_status: string
           pgto_valor_parcela: number | null
@@ -1195,6 +1196,7 @@ export type Database = {
           pgto_data_debito?: string | null
           pgto_entrada?: number | null
           pgto_forma?: string | null
+          pgto_modo?: string
           pgto_num_parcelas?: number | null
           pgto_status?: string
           pgto_valor_parcela?: number | null
@@ -1226,6 +1228,7 @@ export type Database = {
           pgto_data_debito?: string | null
           pgto_entrada?: number | null
           pgto_forma?: string | null
+          pgto_modo?: string
           pgto_num_parcelas?: number | null
           pgto_status?: string
           pgto_valor_parcela?: number | null

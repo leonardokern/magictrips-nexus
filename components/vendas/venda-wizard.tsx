@@ -166,6 +166,9 @@ type ProdutoState = {
   rav_extra_fornecedor_str: string
   comissao_vendedor_str: string
   valores_extras: Record<string, string>
+  /** "comissionado" (default): pgto fornecedor = custo.
+   *  "net": pgto fornecedor = custo − RAV extra fornecedor. */
+  pgto_modo: "comissionado" | "net"
   pgto_forma: PgtoForma | ""
   pgto_cartao_id: string
   pgto_valor_total_str: string
@@ -232,6 +235,7 @@ function novoProduto(): ProdutoState {
     rav_extra_fornecedor_str: "",
     comissao_vendedor_str: "",
     valores_extras: {},
+    pgto_modo: "comissionado",
     pgto_forma: "cartao",
     pgto_cartao_id: "",
     pgto_valor_total_str: "",
@@ -441,6 +445,7 @@ export function VendaWizard(props: Props) {
       if (!clienteNovo.telefone) e.novo_telefone = "Telefone obrigatório."
     }
     if (pax < 1) e.pax = "PAX precisa ser ≥ 1."
+    if (!origem) e.origem = "Selecione a origem do lead."
     return e
   }
 
@@ -745,23 +750,26 @@ export function VendaWizard(props: Props) {
       comissao_vendedor: p.comissao_vendedor_str
         ? parseValorComSoma(p.comissao_vendedor_str)
         : null,
+      pgto_modo: p.pgto_modo,
       pgto_forma: p.pgto_forma || null,
       pgto_cartao_id: p.pgto_cartao_id || null,
       pgto_valor_total: (() => {
         const userVal = parseValorComSoma(p.pgto_valor_total_str)
         if (userVal > 0) return userVal
-        const t =
-          parseValorComSoma(p.valor_custo_str) +
-          parseValorComSoma(p.rav_extra_fornecedor_str)
+        const custo = parseValorComSoma(p.valor_custo_str)
+        const ravForn = parseValorComSoma(p.rav_extra_fornecedor_str)
+        const t = p.pgto_modo === "net" ? Math.max(0, custo - ravForn) : custo
         return t > 0 ? t : null
       })(),
       pgto_entrada: p.pgto_forma === "pix" ? 0 : parseValorComSoma(p.pgto_entrada_str) || 0,
       pgto_num_parcelas: p.pgto_forma === "pix" ? 1 : p.pgto_num_parcelas,
       pgto_valor_parcela: p.pgto_forma === "pix" ? null : (() => {
         const userVal = parseValorComSoma(p.pgto_valor_total_str)
+        const custo = parseValorComSoma(p.valor_custo_str)
+        const ravForn = parseValorComSoma(p.rav_extra_fornecedor_str)
         const total = userVal > 0
           ? userVal
-          : parseValorComSoma(p.valor_custo_str) + parseValorComSoma(p.rav_extra_fornecedor_str)
+          : (p.pgto_modo === "net" ? Math.max(0, custo - ravForn) : custo)
         const entrada = parseValorComSoma(p.pgto_entrada_str) || 0
         const n = p.pgto_num_parcelas || 1
         const v = (total - entrada) / n
@@ -994,9 +1002,6 @@ export function VendaWizard(props: Props) {
                   ? parseValorComSoma(p.comissao_vendedor_str)
                   : 0,
                 rav: p.rav_str ? parseValorComSoma(p.rav_str) : 0,
-                ravExtraCliente: p.rav_extra_cliente_str
-                  ? parseValorComSoma(p.rav_extra_cliente_str)
-                  : 0,
                 ravExtraFornecedor: p.rav_extra_fornecedor_str
                   ? parseValorComSoma(p.rav_extra_fornecedor_str)
                   : 0,
@@ -1014,7 +1019,10 @@ export function VendaWizard(props: Props) {
               dataNascimento: p.data_nascimento,
               usandoDadosCliente: p.usandoDadosCliente ?? false,
             }))}
-            mostraComissao={!props.modoGerente && props.podeTrocarAgente}
+            // Revisão é sempre minimalista — sem painéis de "Comissão do
+            // vendedor", "Lucro bruto" ou "Margem do vendedor". A comissão
+            // do responsável aparece num único bloco compacto à direita.
+            mostraComissao={false}
             comissaoPercentual={comissaoDoAgente}
           />
         )}
@@ -1504,7 +1512,7 @@ function Step1(props: {
       )}
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Field label="Origem do lead">
+        <Field label="Origem do lead *" error={props.errors.origem}>
           <Select
             value={props.origem || undefined}
             onValueChange={props.setOrigem}
@@ -1631,9 +1639,13 @@ function Step2Produtos(props: {
       const ravStr = Number.isFinite(diff) && diff !== 0
         ? diff.toFixed(2).replace(".", ",")
         : ""
-      // Auto-sugestão: Valor Total = custo + RAV extra fornecedor
-      const ravExtra = parseValorComSoma(prev.rav_extra_fornecedor_str)
-      const pgtoTotal = custo + ravExtra
+      // Pagamento ao fornecedor depende do modo:
+      //   comissionado → custo
+      //   net          → custo − RAV extra fornecedor
+      const ravExtraForn = parseValorComSoma(prev.rav_extra_fornecedor_str)
+      const pgtoTotal = prev.pgto_modo === "net"
+        ? Math.max(0, custo - ravExtraForn)
+        : custo
       const pgtoTotalStr = pgtoTotal > 0
         ? new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pgtoTotal)
         : ""
@@ -1686,11 +1698,12 @@ function Step2Produtos(props: {
         }
         if (p.pgto_forma !== "pix" && p.pgto_num_parcelas > 0) {
           const userTotal = parseValorComSoma(p.pgto_valor_total_str)
+          const custo = parseValorComSoma(p.valor_custo_str)
+          const ravForn = parseValorComSoma(p.rav_extra_fornecedor_str)
           const pgtoTotal =
             userTotal > 0
               ? userTotal
-              : parseValorComSoma(p.valor_custo_str) +
-                parseValorComSoma(p.rav_extra_fornecedor_str)
+              : (p.pgto_modo === "net" ? Math.max(0, custo - ravForn) : custo)
           const entrada = parseValorComSoma(p.pgto_entrada_str) || 0
           const n = p.pgto_num_parcelas || 1
           const parcela = (pgtoTotal - entrada) / n
@@ -1981,12 +1994,12 @@ function Step2Produtos(props: {
               <p className="mb-2.5 text-[11px] uppercase tracking-wider text-white/40">
                 Valores
               </p>
-              {/* Linha 1: Venda | Custo | RAV (auto) */}
+              {/* Linha única: Venda | Custo | RAV (auto) | RAV extra fornecedor */}
               <div className="grid grid-cols-12 gap-3">
                 <Field
                   label="Valor de venda"
                   error={props.errors[`produto_${i}_valor_venda`]}
-                  className="col-span-12 sm:col-span-5"
+                  className="col-span-12 sm:col-span-3"
                 >
                   <CurrencyInput
                     value={p.valor_venda_str}
@@ -1997,7 +2010,7 @@ function Step2Produtos(props: {
                 <Field
                   label="Valor de custo"
                   error={props.errors[`produto_${i}_valor_custo`]}
-                  className="col-span-12 sm:col-span-5"
+                  className="col-span-12 sm:col-span-3"
                 >
                   <CurrencyInput
                     value={p.valor_custo_str}
@@ -2006,7 +2019,7 @@ function Step2Produtos(props: {
                 </Field>
 
                 {/* RAV — display compacto, não é input editável */}
-                <div className="col-span-12 sm:col-span-2">
+                <div className="col-span-12 sm:col-span-3">
                   <Label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-white/55">
                     RAV
                   </Label>
@@ -2018,51 +2031,35 @@ function Step2Produtos(props: {
                   <p className="mt-1 text-[10px] text-white/35">venda − custo</p>
                 </div>
 
-                {/* Linha 2: RAV extra cliente | RAV extra fornecedor | Comissão (Admin) */}
-                <Field
-                  label="RAV extra (cliente)"
-                  className="col-span-12 sm:col-span-5"
-                >
-                  <CurrencyInput
-                    value={p.rav_extra_cliente_str}
-                    onChange={(v) => patch(p.id, () => ({ rav_extra_cliente_str: v }))}
-                  />
-                </Field>
-
                 <Field
                   label="RAV extra (fornecedor)"
-                  className="col-span-12 sm:col-span-5"
+                  className="col-span-12 sm:col-span-3"
                 >
                   <CurrencyInput
                     value={p.rav_extra_fornecedor_str}
                     onChange={(v) =>
                       patch(p.id, (prev) => {
+                        // Em modo NET, recalcula o pgto_valor_total
+                        // (custo − RAV extra fornecedor). Em modo
+                        // comissionado, mantém o que estiver.
+                        if (prev.pgto_modo !== "net") {
+                          return { rav_extra_fornecedor_str: v }
+                        }
                         const custo = parseValorComSoma(prev.valor_custo_str)
-                        const ravExtra = parseValorComSoma(v)
-                        const pgtoTotal = custo + ravExtra
+                        const ravForn = parseValorComSoma(v)
+                        const pgtoTotal = Math.max(0, custo - ravForn)
                         const pgtoTotalStr = pgtoTotal > 0
                           ? new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pgtoTotal)
                           : ""
-                        return { rav_extra_fornecedor_str: v, pgto_valor_total_str: pgtoTotalStr }
+                        return {
+                          rav_extra_fornecedor_str: v,
+                          pgto_valor_total_str: pgtoTotalStr,
+                        }
                       })
                     }
                   />
                 </Field>
 
-                {props.mostraComissao && (
-                  <Field
-                    label="Comissão vendedor"
-                    hint="Valor pago ao agente"
-                    className="col-span-12 sm:col-span-5"
-                  >
-                    <CurrencyInput
-                      value={p.comissao_vendedor_str}
-                      onChange={(v) =>
-                        patch(p.id, () => ({ comissao_vendedor_str: v }))
-                      }
-                    />
-                  </Field>
-                )}
               </div>
             </div>
 
@@ -2072,7 +2069,42 @@ function Step2Produtos(props: {
                 Pagamento ao fornecedor
               </p>
               <div className="grid grid-cols-12 gap-3">
-                {/* Linha 1: Forma | Cartão (condicional) | Valor total */}
+                {/* Linha 1: Modo | Forma | Cartão (condicional) | Valor total */}
+                <Field
+                  label="Modo de pagamento"
+                  hint={
+                    p.pgto_modo === "net"
+                      ? "Líquido = custo − RAV extra fornecedor"
+                      : "Comissionado = custo cheio"
+                  }
+                  className="col-span-12 sm:col-span-3"
+                >
+                  <Select
+                    value={p.pgto_modo}
+                    onValueChange={(v) =>
+                      patch(p.id, (prev) => {
+                        const novoModo = v as "comissionado" | "net"
+                        const custo = parseValorComSoma(prev.valor_custo_str)
+                        const ravForn = parseValorComSoma(prev.rav_extra_fornecedor_str)
+                        const pgtoTotal =
+                          novoModo === "net"
+                            ? Math.max(0, custo - ravForn)
+                            : custo
+                        const pgtoTotalStr = pgtoTotal > 0
+                          ? new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pgtoTotal)
+                          : ""
+                        return { pgto_modo: novoModo, pgto_valor_total_str: pgtoTotalStr }
+                      })
+                    }
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="comissionado">Comissionado</SelectItem>
+                      <SelectItem value="net">NET (Líquido)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+
                 <Field
                   label="Forma de pagamento"
                   error={props.errors[`produto_${i}_pgto_forma`]}
@@ -2113,11 +2145,15 @@ function Step2Produtos(props: {
                   </Field>
                 )}
 
-                {/* Valor total — calculado automaticamente */}
+                {/* Valor total — calculado conforme modo de pagamento */}
                 <Field
                   label="Valor total"
-                  hint="Custo + RAV extra fornecedor"
-                  className="col-span-12 sm:col-span-4"
+                  hint={
+                    p.pgto_modo === "net"
+                      ? "Custo − RAV extra fornecedor"
+                      : "Valor de custo"
+                  }
+                  className="col-span-12 sm:col-span-3"
                 >
                   <CurrencyInput
                     value={p.pgto_valor_total_str}
@@ -2581,7 +2617,6 @@ function ProdutosRevisao(props: {
     valorCusto: number
     comissao: number
     rav: number
-    ravExtraCliente: number
     ravExtraFornecedor: number
     camposExtras: { nome: string; valor: string }[]
   }[]
@@ -2619,9 +2654,8 @@ function ProdutosRevisao(props: {
         <tbody>
           {props.produtos.map((p, i) => {
             const aberto = abertos[i] ?? false
-            const temRavExtras =
-              p.ravExtraCliente > 0 || p.ravExtraFornecedor > 0
-            const temDetalhes = p.camposExtras.length > 0 || temRavExtras
+            const temDetalhes =
+              p.camposExtras.length > 0 || p.ravExtraFornecedor > 0
             return (
               <Fragment key={i}>
                 <tr
@@ -2685,16 +2719,6 @@ function ProdutosRevisao(props: {
                             <span className="text-white/85">{c.valor}</span>
                           </div>
                         ))}
-                        {p.ravExtraCliente > 0 && (
-                          <div className="flex items-baseline gap-2 text-[12px]">
-                            <span className="text-white/40">
-                              RAV extra cliente:
-                            </span>
-                            <span className="tabular-nums text-nexus-bright">
-                              {formatBRL(p.ravExtraCliente)}
-                            </span>
-                          </div>
-                        )}
                         {p.ravExtraFornecedor > 0 && (
                           <div className="flex items-baseline gap-2 text-[12px]">
                             <span className="text-white/40">
@@ -2753,7 +2777,6 @@ function Step5Revisao(props: {
     valorCusto: number
     comissao: number
     rav: number
-    ravExtraCliente: number
     ravExtraFornecedor: number
     camposExtras: { nome: string; valor: string }[]
   }[]
@@ -2773,7 +2796,13 @@ function Step5Revisao(props: {
   const totalVenda = props.produtos.reduce((a, p) => a + p.valorVenda, 0)
   const totalCusto = props.produtos.reduce((a, p) => a + p.valorCusto, 0)
   const totalComissao = props.produtos.reduce((a, p) => a + p.comissao, 0)
-  const totalRav = props.produtos.reduce((a, p) => a + p.rav, 0)
+  // RAV total = RAV base (venda - custo) + RAV extra fornecedor
+  const totalRavBase = props.produtos.reduce((a, p) => a + p.rav, 0)
+  const totalRavExtraFornecedor = props.produtos.reduce(
+    (a, p) => a + p.ravExtraFornecedor,
+    0,
+  )
+  const totalRav = totalRavBase + totalRavExtraFornecedor
   const lucroBruto = totalVenda - totalCusto - totalComissao
   const totalCobranca = props.cobranca.reduce((a, c) => a + c.valor, 0)
 
@@ -2922,6 +2951,25 @@ function Step5Revisao(props: {
                 {formatBRL(totalRav) || "—"}
               </span>
             </div>
+            {/* Breakdown do RAV — só mostra se RAV extra fornecedor > 0 */}
+            {totalRavExtraFornecedor > 0 && (
+              <div className="space-y-1 border-l border-white/[0.05] pl-3">
+                {totalRavBase > 0 && (
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-white/40">RAV</span>
+                    <span className="tabular-nums text-white/55">
+                      {formatBRL(totalRavBase)}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-white/40">RAV extra fornecedor</span>
+                  <span className="tabular-nums text-white/55">
+                    {formatBRL(totalRavExtraFornecedor)}
+                  </span>
+                </div>
+              </div>
+            )}
             <div className="flex items-center justify-between text-sm">
               <span className="text-white/55">Margem RAV</span>
               <span className="tabular-nums text-white/70">
@@ -3037,15 +3085,15 @@ function Step5Revisao(props: {
           </div>
         )}
 
-        {/* ── Comissão estimada do agente ──────────────────────── */}
+        {/* ── Comissão do responsável ─────────────────────────── */}
         {props.comissaoPercentual != null && (
           <div className="space-y-4 rounded-xl border border-white/[0.08] bg-white/[0.03] p-5">
             <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
-              Sua comissão estimada
+              Comissão do responsável
             </p>
 
             <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.07] px-4 py-3">
-              <p className="mb-0.5 text-[11px] text-white/45">Valor estimado</p>
+              <p className="mb-0.5 text-[11px] text-white/45">Valor calculado</p>
               <p className="text-2xl font-bold tabular-nums text-amber-300">
                 {totalRav > 0
                   ? formatBRL((totalRav * props.comissaoPercentual) / 100)
@@ -3059,10 +3107,6 @@ function Step5Revisao(props: {
                 {props.comissaoPercentual}%
               </span>
             </div>
-
-            <p className="text-[10px] leading-relaxed text-white/30">
-              Estimativa sujeita à aprovação do gerente.
-            </p>
           </div>
         )}
         </div>

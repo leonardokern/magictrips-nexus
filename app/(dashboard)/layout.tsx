@@ -3,8 +3,8 @@ import Image from "next/image"
 import Link from "next/link"
 import { getCurrentUser } from "@/lib/hooks/use-current-user"
 import { buildPermissions } from "@/lib/hooks/use-permissions"
-import { LogOut } from "lucide-react"
 import { SidebarNav, type NavItem, type NavSection } from "@/components/dashboard/sidebar-nav"
+import { LogoutButton } from "@/components/dashboard/logout-button"
 import { UserMenu } from "@/components/dashboard/user-menu"
 import { NotificationsButton } from "@/components/dashboard/notifications-button"
 import { MobileNav } from "@/components/dashboard/mobile-nav"
@@ -183,13 +183,7 @@ export default async function DashboardLayout({
             {/* Footer — botão de logout */}
             <div className="border-t border-white/[0.06] p-3">
               <form action={signOutAction}>
-                <button
-                  type="submit"
-                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-white/70 transition-colors hover:bg-white/[0.04] hover:text-white"
-                >
-                  <LogOut className="h-4 w-4" />
-                  Sair
-                </button>
+                <LogoutButton />
               </form>
             </div>
           </aside>

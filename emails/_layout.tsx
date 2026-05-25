@@ -4,6 +4,7 @@ import {
   Head,
   Hr,
   Html,
+  Img,
   Preview,
   Section,
   Tailwind,
@@ -43,9 +44,13 @@ export function EmailLayout({ preview, children }: Props) {
           <Container className="mx-auto max-w-[560px] rounded-2xl border border-white/10 bg-[#111c33] p-8">
             {/* Header: marca */}
             <Section className="mb-6 text-center">
-              <Text className="m-0 text-xs uppercase tracking-[0.32em] text-[#46B1E0]">
-                Nexus · Magic Trips
-              </Text>
+              <Img
+                src="https://nexus.magictrips.com.br/brand/logo.png"
+                alt="Nexus — Magic Trips"
+                width={120}
+                height={120}
+                className="mx-auto"
+              />
             </Section>
 
             <Hr className="my-0 border-white/[0.08]" />

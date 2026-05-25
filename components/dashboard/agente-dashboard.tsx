@@ -101,7 +101,7 @@ export async function AgenteDashboard({
       ? { data: [] }
       : await supabase
           .from("venda_produtos")
-          .select("venda_id, valor_venda, valor_custo, rav")
+          .select("venda_id, valor_venda, valor_custo, rav, rav_extra_fornecedor")
           .in("venda_id", vendaIds)
 
   type ProdutoRow = {
@@ -109,12 +109,12 @@ export async function AgenteDashboard({
     valor_venda: number
     valor_custo: number
     rav: number | null
+    rav_extra_fornecedor: number | null
   }
   const produtos = (produtosRaw ?? []) as ProdutoRow[]
 
-  // Agrega por venda. A comissão do agente é RAV × comissao_percentual / 100
-  // (congelada no momento da venda; nada vem do venda_produtos.comissao_vendedor,
-  // que é a comissão paga PARA a agência pelo fornecedor — conceito diferente).
+  // Agrega por venda. RAV total = RAV base + RAV extra fornecedor.
+  // Comissão do agente = RAV total × vendas.comissao_percentual (congelada na criação).
   const totaisPorVenda = new Map<
     string,
     { receita: number; custo: number; rav: number; comissao: number }
@@ -128,7 +128,7 @@ export async function AgenteDashboard({
     }
     cur.receita += Number(p.valor_venda ?? 0)
     cur.custo += Number(p.valor_custo ?? 0)
-    cur.rav += Number(p.rav ?? 0)
+    cur.rav += Number(p.rav ?? 0) + Number(p.rav_extra_fornecedor ?? 0)
     totaisPorVenda.set(p.venda_id, cur)
   }
   // Aplica % de comissão (por venda) sobre o RAV agregado

@@ -62,7 +62,6 @@ function ProdutoRow({ p }: { p: Produto }) {
     !!p.localizador ||
     !!p.localizadorFornecedor ||
     !!p.destino ||
-    p.ravExtraCliente > 0 ||
     p.ravExtraFornecedor > 0 ||
     !!p.pgtoForma
 
@@ -148,14 +147,7 @@ function ProdutoRow({ p }: { p: Produto }) {
                   />
                 )}
 
-                {/* RAV extras */}
-                {p.ravExtraCliente > 0 && (
-                  <MiniStat
-                    label="RAV Extra Cliente"
-                    value={formatBRL(p.ravExtraCliente)}
-                    accent="bright"
-                  />
-                )}
+                {/* RAV extra fornecedor */}
                 {p.ravExtraFornecedor > 0 && (
                   <MiniStat
                     label="RAV Extra Fornecedor"
@@ -269,7 +261,13 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
   const totalVenda = d.produtos.reduce((a, p) => a + p.valorVenda, 0)
   const totalCusto = d.produtos.reduce((a, p) => a + p.valorCusto, 0)
   const totalComissao = d.produtos.reduce((a, p) => a + p.comissao, 0)
-  const totalRav = d.produtos.reduce((a, p) => a + p.rav, 0)
+  // RAV total = RAV base (venda - custo) + RAV extra fornecedor
+  const totalRavBase = d.produtos.reduce((a, p) => a + p.rav, 0)
+  const totalRavExtraFornecedor = d.produtos.reduce(
+    (a, p) => a + p.ravExtraFornecedor,
+    0,
+  )
+  const totalRav = totalRavBase + totalRavExtraFornecedor
   const totalCobranca = d.cobranca.reduce((a, c) => a + c.valor, 0)
   const margemRav =
     totalVenda > 0 ? ((totalRav / totalVenda) * 100).toFixed(1) : null
@@ -436,6 +434,25 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
                   {formatBRL(totalRav) || "—"}
                 </span>
               </div>
+              {/* Breakdown do RAV — só mostra se RAV extra fornecedor > 0 */}
+              {totalRavExtraFornecedor > 0 && (
+                <div className="space-y-1 border-l border-white/[0.05] pl-3">
+                  {totalRavBase > 0 && (
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-white/40">RAV</span>
+                      <span className="tabular-nums text-white/55">
+                        {formatBRL(totalRavBase)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-white/40">RAV extra fornecedor</span>
+                    <span className="tabular-nums text-white/55">
+                      {formatBRL(totalRavExtraFornecedor)}
+                    </span>
+                  </div>
+                </div>
+              )}
               <div className="flex items-center justify-between text-sm">
                 <span className="text-white/55">Margem RAV</span>
                 <span className="tabular-nums text-white/70">

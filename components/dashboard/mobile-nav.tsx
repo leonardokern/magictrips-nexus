@@ -4,9 +4,10 @@ import { useEffect, useState } from "react"
 import { usePathname } from "next/navigation"
 import Image from "next/image"
 import Link from "next/link"
-import { LogOut, Menu, X } from "lucide-react"
+import { Menu, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { SidebarNav, type NavSection } from "./sidebar-nav"
+import { LogoutButton } from "./logout-button"
 
 type Props = {
   sections: NavSection[]
@@ -89,13 +90,7 @@ export function MobileNav({ sections, version, signOut }: Props) {
         <div className="shrink-0 border-t border-white/[0.06] p-3">
           <p className="mb-1.5 px-3 font-mono text-[10px] text-white/25">v{version}</p>
           <form action={signOut}>
-            <button
-              type="submit"
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-white/70 transition-colors hover:bg-white/[0.04] hover:text-white"
-            >
-              <LogOut className="h-4 w-4" />
-              Sair
-            </button>
+            <LogoutButton />
           </form>
         </div>
       </aside>
