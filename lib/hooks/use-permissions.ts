@@ -7,6 +7,7 @@ export type Modulo =
   | "financeiro"
   | "cartoes"
   | "fornecedores"
+  | "agenda"
   | "tipos_produto"
   | "usuarios"
   | "perfis"

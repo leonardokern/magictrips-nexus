@@ -22,10 +22,29 @@ export function formatCpf(cpf: string | null | undefined): string {
 
 /**
  * Formata CNPJ: "12345678000199" → "12.345.678/0001-99"
+ * Só aplica a máscara completa com 14 dígitos.
  */
 export function formatCnpj(cnpj: string | null | undefined): string {
   const d = onlyDigits(cnpj)
   if (d.length !== 14) return cnpj ?? ""
+  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`
+}
+
+/**
+ * Formata CNPJ progressivamente enquanto o usuário digita.
+ * Sempre aceita apenas dígitos e aplica os separadores conforme o comprimento.
+ * "12"          → "12"
+ * "12345"       → "12.345"
+ * "12345678"    → "12.345.678"
+ * "123456780001"→ "12.345.678/0001"
+ * "12345678000199" → "12.345.678/0001-99"
+ */
+export function formatCnpjPartial(raw: string): string {
+  const d = onlyDigits(raw).slice(0, 14)
+  if (d.length <= 2)  return d
+  if (d.length <= 5)  return `${d.slice(0, 2)}.${d.slice(2)}`
+  if (d.length <= 8)  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5)}`
+  if (d.length <= 12) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8)}`
   return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`
 }
 

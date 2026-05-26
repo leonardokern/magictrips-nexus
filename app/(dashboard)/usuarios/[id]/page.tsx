@@ -39,13 +39,14 @@ export default async function UsuarioDetailPage({
   }
 
   const supabase = await createClient()
-  const { data: u } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: u } = await (supabase as any)
     .from("usuarios")
     .select(
-      "id, nome, email, iniciais, ativo, force_password_change, perfil_id, created_at",
+      "id, nome, email, iniciais, foto_url, ativo, force_password_change, perfil_id, created_at",
     )
     .eq("id", id)
-    .maybeSingle()
+    .maybeSingle() as { data: { id: string; nome: string; email: string; iniciais: string | null; foto_url: string | null; ativo: boolean; force_password_change: boolean; perfil_id: string; created_at: string } | null }
 
   if (!u) notFound()
 
@@ -91,6 +92,7 @@ export default async function UsuarioDetailPage({
               email: u.email,
               perfil_id: u.perfil_id,
               empresa_ids: empresaIds,
+              foto_url: u.foto_url,
             }}
             perfis={perfisRes.data ?? []}
             empresas={empresasRes.data ?? []}
@@ -100,8 +102,13 @@ export default async function UsuarioDetailPage({
 
       {/* Cabeçalho do perfil */}
       <div className="flex items-start gap-5">
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-lg font-semibold text-white">
-          {u.iniciais ?? u.nome.charAt(0).toUpperCase()}
+        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] text-lg font-semibold text-white">
+          {u.foto_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={u.foto_url} alt={u.nome} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+          ) : (
+            u.iniciais ?? u.nome.charAt(0).toUpperCase()
+          )}
         </div>
         <div className="flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-3">

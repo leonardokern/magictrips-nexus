@@ -83,6 +83,12 @@ export const MODULOS_PERMISSAO: ModuloDef[] = [
     acoes: CRUD_BASE,
   },
   {
+    key: "agenda",
+    label: "Agenda",
+    description: "Calendário unificado: contas a receber, cartões, viagens, lembretes e notas manuais.",
+    acoes: CRUD_BASE,
+  },
+  {
     key: "tipos_produto",
     label: "Tipos de produto",
     description: "Tipos (Aéreo, Hotel, etc.) e campos dinâmicos por tipo.",

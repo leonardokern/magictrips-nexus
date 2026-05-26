@@ -70,7 +70,15 @@ import { Checkbox } from "@/components/ui/checkbox"
 
 type Empresa = { id: string; nome: string; slug: string }
 type Usuario = { id: string; nome: string; perfil_id: string; comissao_percentual: number | null }
-type Fornecedor = { id: string; nome: string }
+type Fornecedor = {
+  id: string
+  nome: string
+  tipos_produto_ids: string[]
+  /** Aceita modo comissionado */
+  modo_comissionado: boolean
+  /** Aceita modo NET */
+  modo_net: boolean
+}
 type Cartao = {
   id: string
   nome: string
@@ -158,6 +166,10 @@ export type WizardDraftData = {
 type ProdutoState = {
   id: string // local uuid pra key
   tipo_produto_id: string
+  /** Fornecedor selecionado via junction table (id do fornecedor, "outro" ou ""). */
+  fornecedor_id: string
+  /** Nome livre quando fornecedor_id === "outro". */
+  fornecedor_outro_nome: string
   /** input livre, parseado no submit */
   valor_venda_str: string
   valor_custo_str: string
@@ -166,6 +178,9 @@ type ProdutoState = {
   rav_extra_fornecedor_str: string
   comissao_vendedor_str: string
   valores_extras: Record<string, string>
+  /** Data de emissão do produto (ex: data de emissão do bilhete aéreo).
+   *  Conferência operacional — não tem efeito em cálculos. ISO YYYY-MM-DD. */
+  data_emissao_str: string
   /** "comissionado" (default): pgto fornecedor = custo.
    *  "net": pgto fornecedor = custo − RAV extra fornecedor. */
   pgto_modo: "comissionado" | "net"
@@ -228,6 +243,8 @@ function novoProduto(): ProdutoState {
   return {
     id: crypto.randomUUID(),
     tipo_produto_id: "",
+    fornecedor_id: "",
+    fornecedor_outro_nome: "",
     valor_venda_str: "",
     valor_custo_str: "",
     rav_str: "",
@@ -235,6 +252,7 @@ function novoProduto(): ProdutoState {
     rav_extra_fornecedor_str: "",
     comissao_vendedor_str: "",
     valores_extras: {},
+    data_emissao_str: "",
     pgto_modo: "comissionado",
     pgto_forma: "cartao",
     pgto_cartao_id: "",
@@ -375,10 +393,17 @@ export function VendaWizard(props: Props) {
     () => d?.observacoesGerais ?? "",
   )
 
-  // Produtos
-  const [produtos, setProdutos] = useState<ProdutoState[]>(
-    () => d?.produtos ?? [novoProduto()],
-  )
+  // Produtos — normaliza rascunhos antigos que não têm os campos de fornecedor
+  const [produtos, setProdutos] = useState<ProdutoState[]>(() => {
+    const raw = d?.produtos
+    if (!raw) return [novoProduto()]
+    return raw.map((p) => ({
+      ...novoProduto(),
+      ...p,
+      fornecedor_id: (p as ProdutoState).fornecedor_id ?? "",
+      fornecedor_outro_nome: (p as ProdutoState).fornecedor_outro_nome ?? "",
+    }))
+  })
 
   // Cobrança
   const [cobrancaItens, setCobrancaItens] = useState<CobrancaItemState[]>(
@@ -714,11 +739,22 @@ export function VendaWizard(props: Props) {
 
   function construirPayload() {
     const produtosPayload = produtos.map((p, i) => {
-      // Extrai fornecedor do campo dinâmico de tipo 'fornecedor', se existir
+      // Extrai fornecedor: primeiro usa o seletor dedicado (junction table),
+      // com fallback para campos dinâmicos de tipo 'fornecedor' (legado).
       const tp = props.tiposProduto.find((t) => t.id === p.tipo_produto_id)
       let fornecedor_id: string | null = null
       let fornecedor_nome = ""
-      if (tp) {
+
+      if (p.fornecedor_id && p.fornecedor_id !== "outro") {
+        // Fornecedor selecionado via junction table
+        fornecedor_id = p.fornecedor_id
+        fornecedor_nome = props.fornecedores.find((f) => f.id === p.fornecedor_id)?.nome ?? ""
+      } else if (p.fornecedor_id === "outro" && p.fornecedor_outro_nome.trim()) {
+        // "Outro" — fornecedor não cadastrado
+        fornecedor_id = null
+        fornecedor_nome = p.fornecedor_outro_nome.trim()
+      } else if (tp) {
+        // Fallback legado: campo dinâmico de tipo 'fornecedor'
         for (const vinculo of tp.campos) {
           const ce = props.camposExtra.find((c) => c.id === vinculo.campo_id)
           if (ce?.tipo_campo === "fornecedor") {
@@ -739,6 +775,7 @@ export function VendaWizard(props: Props) {
       localizador: null,
       localizador_fornecedor: null,
       destino: null,
+      data_emissao: p.data_emissao_str || null,
       data_inicio_viagem: dataInicioViagem || null,
       data_fim_viagem: dataFimViagem || null,
       valores_extras: p.valores_extras,
@@ -779,7 +816,10 @@ export function VendaWizard(props: Props) {
       }
     })
 
-    const semParcelas = (tipo: CobrancaTipo) => tipo === "pix" || tipo === "outro"
+    // "outro" não tem parcelamento (cliente paga direto ao fornecedor/etc).
+    // PIX e boleto podem ser parcelados — gera N parcelas mensais a partir
+    // da data_primeiro_recebimento, mesmo dia todo mês.
+    const semParcelas = (tipo: CobrancaTipo) => tipo === "outro"
     const itensCobranca = cobrancaItens.map((it) => ({
       tipo: it.tipo,
       valor_total: parseValorComSoma(it.valor_total_str),
@@ -996,6 +1036,7 @@ export function VendaWizard(props: Props) {
               return {
                 tipoNome: tp?.nome ?? "—",
                 icone: tp?.icone ?? null,
+                dataEmissao: p.data_emissao_str || null,
                 valorVenda: parseValorComSoma(p.valor_venda_str),
                 valorCusto: parseValorComSoma(p.valor_custo_str),
                 comissao: p.comissao_vendedor_str
@@ -1834,6 +1875,8 @@ function Step2Produtos(props: {
                     patch(p.id, () => ({
                       tipo_produto_id: v,
                       valores_extras: {},
+                      fornecedor_id: "",
+                      fornecedor_outro_nome: "",
                     }))
                   }
                 >
@@ -1879,6 +1922,87 @@ function Step2Produtos(props: {
                   </SelectContent>
                 </Select>
               </Field>
+
+              {/* Data de emissão — referência operacional (ex: data do bilhete) */}
+              <Field
+                label="Data de emissão"
+                icon={<CalendarDays className="h-3.5 w-3.5" />}
+                hint="Conferência (não é a data da venda)"
+                className="col-span-12 sm:col-span-4"
+              >
+                <DateInput
+                  value={p.data_emissao_str}
+                  onChange={(iso) =>
+                    patch(p.id, () => ({ data_emissao_str: iso }))
+                  }
+                />
+              </Field>
+
+              {/* Fornecedor — aparece quando há fornecedores vinculados ao tipo de produto */}
+              {(() => {
+                const fornecedoresDoTipo = props.fornecedores.filter(
+                  (f) => tp && f.tipos_produto_ids.includes(tp.id),
+                )
+                if (!tp || fornecedoresDoTipo.length === 0) return null
+
+                return (
+                  <>
+                    <Field
+                      label="Fornecedor"
+                      className="col-span-12 sm:col-span-4"
+                    >
+                      <Select
+                        value={p.fornecedor_id || undefined}
+                        onValueChange={(v) =>
+                          patch(p.id, (prev) => {
+                            // Ajusta pgto_modo se o fornecedor não aceitar o modo atual
+                            const forn = props.fornecedores.find((f) => f.id === v)
+                            const temRestricao = forn && (forn.modo_comissionado || forn.modo_net)
+                            let pgto_modo = prev.pgto_modo
+                            if (temRestricao && forn) {
+                              if (pgto_modo === "comissionado" && !forn.modo_comissionado) {
+                                pgto_modo = "net"
+                              } else if (pgto_modo === "net" && !forn.modo_net) {
+                                pgto_modo = "comissionado"
+                              }
+                            }
+                            return { fornecedor_id: v, fornecedor_outro_nome: "", pgto_modo }
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione (opcional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {fornecedoresDoTipo.map((f) => (
+                            <SelectItem key={f.id} value={f.id}>
+                              {f.nome}
+                            </SelectItem>
+                          ))}
+                          <SelectItem value="outro">Outro…</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    {p.fornecedor_id === "outro" && (
+                      <Field
+                        label="Qual fornecedor?"
+                        className="col-span-12 sm:col-span-4"
+                      >
+                        <Input
+                          value={p.fornecedor_outro_nome}
+                          onChange={(e) =>
+                            patch(p.id, () => ({
+                              fornecedor_outro_nome: e.target.value,
+                            }))
+                          }
+                          placeholder="Nome do fornecedor"
+                        />
+                      </Field>
+                    )}
+                  </>
+                )
+              })()}
 
               {/* Campos dinâmicos — largura adaptada ao tipo */}
               {camposDoTipo.map(({ vinculo, campo }) => {
@@ -2070,40 +2194,57 @@ function Step2Produtos(props: {
               </p>
               <div className="grid grid-cols-12 gap-3">
                 {/* Linha 1: Modo | Forma | Cartão (condicional) | Valor total */}
-                <Field
-                  label="Modo de pagamento"
-                  hint={
-                    p.pgto_modo === "net"
-                      ? "Líquido = custo − RAV extra fornecedor"
-                      : "Comissionado = custo cheio"
-                  }
-                  className="col-span-12 sm:col-span-3"
-                >
-                  <Select
-                    value={p.pgto_modo}
-                    onValueChange={(v) =>
-                      patch(p.id, (prev) => {
-                        const novoModo = v as "comissionado" | "net"
-                        const custo = parseValorComSoma(prev.valor_custo_str)
-                        const ravForn = parseValorComSoma(prev.rav_extra_fornecedor_str)
-                        const pgtoTotal =
-                          novoModo === "net"
-                            ? Math.max(0, custo - ravForn)
-                            : custo
-                        const pgtoTotalStr = pgtoTotal > 0
-                          ? new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pgtoTotal)
-                          : ""
-                        return { pgto_modo: novoModo, pgto_valor_total_str: pgtoTotalStr }
-                      })
-                    }
-                  >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="comissionado">Comissionado</SelectItem>
-                      <SelectItem value="net">NET (Líquido)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
+                {/* Modo de pagamento — filtrado pelos modos que o fornecedor aceita */}
+                {(() => {
+                  const fornSelecionado = p.fornecedor_id && p.fornecedor_id !== "outro"
+                    ? props.fornecedores.find((f) => f.id === p.fornecedor_id)
+                    : null
+                  // Se o fornecedor tem restrição de modo, mostrar apenas os permitidos
+                  const temRestricao = fornSelecionado && (fornSelecionado.modo_comissionado || fornSelecionado.modo_net)
+                  const mostraComissionado = !temRestricao || (fornSelecionado?.modo_comissionado ?? true)
+                  const mostraNet = !temRestricao || (fornSelecionado?.modo_net ?? true)
+
+                  return (
+                    <Field
+                      label="Modo de pagamento"
+                      hint={
+                        p.pgto_modo === "net"
+                          ? "Líquido = custo − RAV extra fornecedor"
+                          : "Comissionado = custo cheio"
+                      }
+                      className="col-span-12 sm:col-span-3"
+                    >
+                      <Select
+                        value={p.pgto_modo}
+                        onValueChange={(v) =>
+                          patch(p.id, (prev) => {
+                            const novoModo = v as "comissionado" | "net"
+                            const custo = parseValorComSoma(prev.valor_custo_str)
+                            const ravForn = parseValorComSoma(prev.rav_extra_fornecedor_str)
+                            const pgtoTotal =
+                              novoModo === "net"
+                                ? Math.max(0, custo - ravForn)
+                                : custo
+                            const pgtoTotalStr = pgtoTotal > 0
+                              ? new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pgtoTotal)
+                              : ""
+                            return { pgto_modo: novoModo, pgto_valor_total_str: pgtoTotalStr }
+                          })
+                        }
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {mostraComissionado && (
+                            <SelectItem value="comissionado">Comissionado</SelectItem>
+                          )}
+                          {mostraNet && (
+                            <SelectItem value="net">NET (Líquido)</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  )
+                })()}
 
                 <Field
                   label="Forma de pagamento"
@@ -2342,7 +2483,7 @@ function Step3Cobranca(props: {
           </div>
 
           {(() => {
-            const semParcelas = it.tipo === "pix" || it.tipo === "outro"
+            const semParcelas = it.tipo === "outro"
             return (
           <div className="grid gap-3 sm:grid-cols-3">
             <Field label="Forma de pagamento">
@@ -2351,7 +2492,7 @@ function Step3Cobranca(props: {
                 onValueChange={(v) =>
                   patch(i, {
                     tipo: v as CobrancaTipo,
-                    ...(v === "pix" || v === "outro" ? { num_parcelas: 1 } : {}),
+                    ...(v === "outro" ? { num_parcelas: 1 } : {}),
                   })
                 }
               >
@@ -2613,6 +2754,7 @@ function ProdutosRevisao(props: {
   produtos: {
     tipoNome: string
     icone: string | null
+    dataEmissao: string | null
     valorVenda: number
     valorCusto: number
     comissao: number
@@ -2634,7 +2776,7 @@ function ProdutosRevisao(props: {
     setAbertos((prev) => ({ ...prev, [i]: !prev[i] }))
   }
 
-  const colCount = 5 + (props.mostraComissao ? 1 : 0)
+  const colCount = 6 + (props.mostraComissao ? 1 : 0)
 
   return (
     <div className="overflow-hidden rounded-lg border border-white/[0.06]">
@@ -2643,6 +2785,7 @@ function ProdutosRevisao(props: {
           <tr className="border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/45">
             <th className="w-8 px-2 py-2"></th>
             <th className="px-3 py-2 text-left">Tipo</th>
+            <th className="px-3 py-2 text-left">Emissão</th>
             <th className="px-3 py-2 text-right">Venda</th>
             <th className="px-3 py-2 text-right">Custo</th>
             <th className="px-3 py-2 text-right">RAV</th>
@@ -2690,6 +2833,9 @@ function ProdutosRevisao(props: {
                       )}
                       {p.tipoNome}
                     </span>
+                  </td>
+                  <td className="px-3 py-2 text-white/65 tabular-nums">
+                    {p.dataEmissao ? formatDateBR(p.dataEmissao) : "—"}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-white/85">
                     {formatBRL(p.valorVenda)}
@@ -2739,6 +2885,7 @@ function ProdutosRevisao(props: {
           <tr className="bg-white/[0.03] font-medium">
             <td className="px-2 py-2"></td>
             <td className="px-3 py-2 text-white/55">Total</td>
+            <td className="px-3 py-2"></td>
             <td className="px-3 py-2 text-right tabular-nums text-white">
               {formatBRL(props.totalVenda)}
             </td>
@@ -2773,6 +2920,7 @@ function Step5Revisao(props: {
   produtos: {
     tipoNome: string
     icone: string | null
+    dataEmissao: string | null
     valorVenda: number
     valorCusto: number
     comissao: number

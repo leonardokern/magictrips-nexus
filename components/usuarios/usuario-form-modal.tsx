@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useState, useTransition } from "react"
+import { useEffect, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
   Building2,
+  Camera,
   Eye,
   EyeOff,
   KeyRound,
@@ -11,6 +12,7 @@ import {
   ShieldCheck,
   User2,
   Wand2,
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -37,9 +39,11 @@ import {
 import { SenhaProvisoriaDialog } from "./senha-provisoria-dialog"
 import { EmpresaSelector } from "./empresa-selector"
 import {
+  atualizarFotoUsuario,
   createUsuario,
   updateUsuario,
 } from "@/app/(dashboard)/usuarios/actions"
+import { cn } from "@/lib/utils"
 
 type Perfil = { id: string; nome: string; empresa_id: string | null }
 type Empresa = { id: string; nome: string; slug: string }
@@ -56,6 +60,7 @@ type ModeProps =
         email: string
         perfil_id: string
         empresa_ids: string[]
+        foto_url?: string | null
       }
     }
 
@@ -105,20 +110,74 @@ export function UsuarioFormModal(props: Props) {
 
   const isCreate = props.mode === "create"
 
+  // ── Estado de foto (fora do FormState — upload separado) ─────────────────
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [fotoFile, setFotoFile] = useState<File | null>(null)
+  const [fotoPreview, setFotoPreview] = useState<string | null>(null)
+  const [fotoExistente, setFotoExistente] = useState<string | null>(null)
+  const [fotoRemovida, setFotoRemovida] = useState(false)
+
+  // URL efetiva a mostrar: preview local > existente salva > null
+  const fotoAtual = fotoPreview ?? (fotoRemovida ? null : fotoExistente)
+
+  // Libera URL de objeto ao desmontar / trocar preview
+  useEffect(() => {
+    return () => {
+      if (fotoPreview) URL.revokeObjectURL(fotoPreview)
+    }
+  }, [fotoPreview])
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("A imagem deve ter no máximo 2 MB.")
+      return
+    }
+    if (fotoPreview) URL.revokeObjectURL(fotoPreview)
+    setFotoFile(file)
+    setFotoPreview(URL.createObjectURL(file))
+    setFotoRemovida(false)
+    // Reseta input pra permitir re-selecionar o mesmo arquivo
+    e.target.value = ""
+  }
+
+  function removerFoto() {
+    if (fotoPreview) URL.revokeObjectURL(fotoPreview)
+    setFotoFile(null)
+    setFotoPreview(null)
+    setFotoRemovida(true)
+  }
+
   // Sincroniza initial quando o modal abre (em edit)
   useEffect(() => {
     if (!props.open) return
+    // Reset foto state
+    setFotoFile(null)
+    setFotoPreview(null)
+    setFotoRemovida(false)
+
+    // Quando só existe uma empresa, sempre pré-preenche — o seletor fica oculto
+    // e o usuário não tem como escolher; não deve bloquear na validação.
+    const autoEmpresaIds =
+      props.empresas.length === 1 ? [props.empresas[0]!.id] : undefined
+
     if (props.mode === "edit") {
       setV({
         nome: props.initial.nome,
         email: props.initial.email,
         perfil_id: props.initial.perfil_id,
-        empresa_ids: props.initial.empresa_ids,
+        empresa_ids:
+          autoEmpresaIds ?? (props.initial.empresa_ids.length > 0
+            ? props.initial.empresa_ids
+            : []),
         senha: "",
         forcar_troca_senha: true,
       })
+      setFotoExistente(props.initial.foto_url ?? null)
     } else {
-      setV(EMPTY)
+      setV({ ...EMPTY, empresa_ids: autoEmpresaIds ?? [] })
+      setFotoExistente(null)
     }
     setErrors({})
   }, [props.open, props.mode, isCreate])
@@ -153,7 +212,13 @@ export function UsuarioFormModal(props: Props) {
     e.preventDefault()
     setErrors({})
 
-    if (v.empresa_ids.length === 0) {
+    // Se só existe uma empresa e o estado ficou vazio (edge case), auto-corrige
+    const empresaIds =
+      v.empresa_ids.length === 0 && props.empresas.length === 1
+        ? [props.empresas[0]!.id]
+        : v.empresa_ids
+
+    if (empresaIds.length === 0) {
       setErrors({ empresa_ids: "Selecione ao menos uma empresa." })
       toast.error("Selecione ao menos uma empresa.")
       return
@@ -171,7 +236,7 @@ export function UsuarioFormModal(props: Props) {
           nome: v.nome,
           email: v.email,
           perfil_id: v.perfil_id,
-          empresa_ids: v.empresa_ids,
+          empresa_ids: empresaIds,
           senha: v.senha,
           forcar_troca_senha: v.forcar_troca_senha,
         })
@@ -179,6 +244,13 @@ export function UsuarioFormModal(props: Props) {
           if (r.fieldErrors) setErrors(r.fieldErrors)
           toast.error(r.error)
           return
+        }
+        // Upload da foto (best-effort — não bloqueia o fluxo principal)
+        if (r.data && fotoFile) {
+          const fd = new FormData()
+          fd.append("foto", fotoFile)
+          const rFoto = await atualizarFotoUsuario(r.data.id, fd)
+          if (!rFoto.ok) toast.error(`Usuário criado, mas a foto falhou: ${rFoto.error}`)
         }
         if (r.data) {
           setSenhaProv({
@@ -197,7 +269,7 @@ export function UsuarioFormModal(props: Props) {
         nome: v.nome,
         email: v.email,
         perfil_id: v.perfil_id,
-        empresa_ids: v.empresa_ids,
+        empresa_ids: empresaIds,
       }
 
       // edit
@@ -207,6 +279,19 @@ export function UsuarioFormModal(props: Props) {
         toast.error(r.error)
         return
       }
+
+      // Upload / remoção de foto (best-effort)
+      if (fotoFile) {
+        const fd = new FormData()
+        fd.append("foto", fotoFile)
+        const rFoto = await atualizarFotoUsuario(props.id, fd)
+        if (!rFoto.ok) toast.error(`Dados salvos, mas a foto falhou: ${rFoto.error}`)
+      } else if (fotoRemovida) {
+        const fd = new FormData()
+        fd.append("remover", "true")
+        await atualizarFotoUsuario(props.id, fd)
+      }
+
       toast.success("Usuário atualizado.")
       props.onOpenChange(false)
       props.onSuccess?.(props.id)
@@ -243,11 +328,65 @@ export function UsuarioFormModal(props: Props) {
           </DialogHeader>
 
           <form onSubmit={onSubmit} className="space-y-5">
-            {/* Preview do avatar + nome */}
+            {/* Avatar com upload + nome */}
             <div className="flex items-center gap-4 rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-nexus-bright/30 bg-nexus-bright/15 text-sm font-semibold text-nexus-bright">
-                {previewIniciais || "—"}
+              {/* Input de arquivo oculto */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/webp"
+                className="hidden"
+                onChange={handleFileChange}
+                disabled={props.readOnly}
+              />
+
+              {/* Círculo do avatar */}
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => !props.readOnly && fileInputRef.current?.click()}
+                  title={props.readOnly ? undefined : fotoAtual ? "Clique para trocar a foto" : "Clique para adicionar foto"}
+                  className={cn(
+                    "relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border text-sm font-semibold",
+                    fotoAtual
+                      ? "border-white/15 bg-white/[0.04] text-white"
+                      : "border-nexus-bright/30 bg-nexus-bright/15 text-nexus-bright",
+                    !props.readOnly && "cursor-pointer",
+                  )}
+                >
+                  {fotoAtual ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={fotoAtual}
+                      alt={v.nome || "Avatar"}
+                      className="h-full w-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    previewIniciais || "—"
+                  )}
+
+                  {/* Overlay com ícone de câmera */}
+                  {!props.readOnly && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 transition-opacity hover:opacity-100">
+                      <Camera className="h-4 w-4 text-white" />
+                    </div>
+                  )}
+                </button>
+
+                {/* Botão de remover */}
+                {fotoAtual && !props.readOnly && (
+                  <button
+                    type="button"
+                    onClick={removerFoto}
+                    title="Remover foto"
+                    className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-card text-white/60 transition-colors hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
               </div>
+
               <div className="flex-1 space-y-1">
                 <Input
                   value={v.nome}
@@ -257,6 +396,11 @@ export function UsuarioFormModal(props: Props) {
                   required
                   disabled={props.readOnly}
                 />
+                {!props.readOnly && (
+                  <p className="text-[11px] text-white/35">
+                    {fotoAtual ? "JPG, PNG ou WebP · máx. 2 MB" : "Clique na foto para adicionar · JPG, PNG ou WebP · máx. 2 MB"}
+                  </p>
+                )}
                 {errors.nome && (
                   <p className="text-xs text-destructive">{errors.nome}</p>
                 )}

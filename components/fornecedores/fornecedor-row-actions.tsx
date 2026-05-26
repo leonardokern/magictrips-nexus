@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useTransition } from "react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Eye, Pencil, Power, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
@@ -16,168 +15,142 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { UsuarioFormModal } from "./usuario-form-modal"
-import { toggleUsuarioAtivo } from "@/app/(dashboard)/usuarios/actions"
+import { FornecedorFormModal } from "./fornecedor-form-modal"
+import { FornecedorViewModal } from "./fornecedor-view-modal"
+import { toggleFornecedorAtivo } from "@/app/(dashboard)/fornecedores/actions"
 import { cn } from "@/lib/utils"
+import type { TipoFornecedor } from "@/lib/schemas/fornecedor"
 
-type Perfil = { id: string; nome: string; empresa_id: string | null }
-type Empresa = { id: string; nome: string; slug: string }
+type TipoProduto = { id: string; nome: string; icone: string | null }
 
 type Props = {
-  usuario: {
+  fornecedor: {
     id: string
     nome: string
-    email: string
-    perfil_id: string
-    perfil_nome: string
-    empresa_ids: string[]
+    cnpj: string
+    tipo: TipoFornecedor | null
     ativo: boolean
-    foto_url?: string | null
+    tiposProdutoIds: string[]
+    modoComissionado: boolean
+    modoComissionadoDia: number | null
+    modoNet: boolean
   }
-  perfis: Perfil[]
-  empresas: Empresa[]
+  tiposProduto: TipoProduto[]
   podeEditar: boolean
-  isSelf: boolean
 }
 
-export function UsuarioRowActions({
-  usuario,
-  perfis,
-  empresas,
-  podeEditar,
-  isSelf,
-}: Props) {
+export function FornecedorRowActions({ fornecedor: f, tiposProduto, podeEditar }: Props) {
   const router = useRouter()
   const [viewOpen, setViewOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
 
-  const isAdmin = usuario.perfil_nome === "Administrador"
+  const initial = {
+    nome: f.nome,
+    cnpj: f.cnpj,
+    tipo: f.tipo,
+    tiposProdutoIds: f.tiposProdutoIds,
+    modoComissionado: f.modoComissionado,
+    modoComissionadoDia: f.modoComissionadoDia,
+    modoNet: f.modoNet,
+  }
 
   function onToggleConfirmed() {
-    const novoAtivo = !usuario.ativo
+    const novoAtivo = !f.ativo
     startTransition(async () => {
-      const r = await toggleUsuarioAtivo(usuario.id, novoAtivo)
+      const r = await toggleFornecedorAtivo(f.id, novoAtivo)
       if (!r.ok) {
         toast.error(r.error)
         return
       }
-      toast.success(novoAtivo ? "Usuário ativado." : "Usuário inativado.")
+      toast.success(novoAtivo ? "Fornecedor ativado." : "Fornecedor inativado.")
       setConfirmOpen(false)
       router.refresh()
     })
   }
 
-  const initialPayload = {
-    nome: usuario.nome,
-    email: usuario.email,
-    perfil_id: usuario.perfil_id,
-    empresa_ids: usuario.empresa_ids,
-    foto_url: usuario.foto_url,
-  }
-
   return (
     <div className="flex items-center justify-end gap-1.5">
-      <IconAction
-        icon={Eye}
-        label="Visualizar"
-        onClick={() => setViewOpen(true)}
-        tone="neutral"
-      />
+      <IconAction icon={Eye} label="Visualizar" onClick={() => setViewOpen(true)} tone="neutral" />
 
       {podeEditar && (
         <>
-          <IconAction
-            icon={Pencil}
-            label={
-              isAdmin
-                ? "O Administrador Master não pode ser editado por aqui"
-                : "Editar"
-            }
-            onClick={() => setEditOpen(true)}
-            disabled={isAdmin}
-            tone="bright"
-          />
+          <IconAction icon={Pencil} label="Editar" onClick={() => setEditOpen(true)} tone="bright" />
           <IconAction
             icon={Power}
-            label={
-              isAdmin
-                ? "O Administrador Master não pode ser inativado"
-                : isSelf
-                  ? "Você não pode inativar o próprio usuário"
-                  : usuario.ativo
-                    ? "Inativar"
-                    : "Ativar"
-            }
+            label={f.ativo ? "Inativar" : "Ativar"}
             onClick={() => setConfirmOpen(true)}
-            disabled={isPending || isSelf || isAdmin}
-            tone={usuario.ativo ? "amber" : "emerald"}
+            disabled={isPending}
+            tone={f.ativo ? "amber" : "emerald"}
           />
         </>
       )}
 
-      {/* Modal de visualização (read-only) */}
-      <UsuarioFormModal
-        mode="edit"
-        id={usuario.id}
-        initial={initialPayload}
+      {/* Modal: visualizar (card) */}
+      <FornecedorViewModal
         open={viewOpen}
         onOpenChange={setViewOpen}
-        perfis={perfis}
-        empresas={empresas}
-        readOnly
+        fornecedor={{
+          id: f.id,
+          nome: f.nome,
+          cnpj: f.cnpj,
+          tipo: f.tipo,
+          ativo: f.ativo,
+          tiposProdutoIds: f.tiposProdutoIds,
+          modoComissionado: f.modoComissionado,
+          modoComissionadoDia: f.modoComissionadoDia,
+          modoNet: f.modoNet,
+        }}
+        tiposProduto={tiposProduto}
       />
 
-      {/* Modal de edição */}
-      <UsuarioFormModal
+      {/* Modal: editar */}
+      <FornecedorFormModal
         mode="edit"
-        id={usuario.id}
-        initial={initialPayload}
+        id={f.id}
+        initial={initial}
         open={editOpen}
         onOpenChange={setEditOpen}
-        perfis={perfis}
-        empresas={empresas}
+        tiposProduto={tiposProduto}
       />
 
-      {/* Confirmação de ativar/inativar */}
+      {/* Confirmação: ativar / inativar */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {usuario.ativo ? "Inativar usuário?" : "Ativar usuário?"}
+              {f.ativo ? "Inativar fornecedor?" : "Ativar fornecedor?"}
             </DialogTitle>
             <DialogDescription>
-              {usuario.ativo ? (
+              {f.ativo ? (
                 <>
-                  <strong className="text-white">{usuario.nome}</strong> não
-                  conseguirá mais fazer login no sistema. O histórico de ações
-                  fica preservado. Você pode reativar a qualquer momento.
+                  <strong className="text-white">{f.nome}</strong> não aparecerá
+                  mais como opção nas vendas. O histórico fica preservado. Você
+                  pode reativar a qualquer momento.
                 </>
               ) : (
                 <>
-                  <strong className="text-white">{usuario.nome}</strong> voltará
-                  a poder fazer login com a senha atual.
+                  <strong className="text-white">{f.nome}</strong> voltará a
+                  aparecer como opção nas vendas.
                 </>
               )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="ghost" disabled={isPending}>
-                Cancelar
-              </Button>
+              <Button variant="ghost" disabled={isPending}>Cancelar</Button>
             </DialogClose>
             <LoaderButton
               onClick={onToggleConfirmed}
               loading={isPending}
               className={
-                usuario.ativo
+                f.ativo
                   ? "bg-amber-500 text-white hover:bg-amber-500/90"
                   : "bg-emerald-500 text-white hover:bg-emerald-500/90"
               }
             >
-              {usuario.ativo ? "Inativar" : "Ativar"}
+              {f.ativo ? "Inativar" : "Ativar"}
             </LoaderButton>
           </DialogFooter>
         </DialogContent>
@@ -186,10 +159,7 @@ export function UsuarioRowActions({
   )
 }
 
-// Link export kept for callers that prefer plain navigation (no current usage)
-export { Link }
-
-// ─── Icon button ────────────────────────────────────────────────────────────
+// ─── Icon button ─────────────────────────────────────────────────────────────
 
 type IconActionProps = {
   icon: LucideIcon
@@ -199,13 +169,7 @@ type IconActionProps = {
   tone: "neutral" | "bright" | "amber" | "emerald"
 }
 
-function IconAction({
-  icon: Icon,
-  label,
-  onClick,
-  disabled,
-  tone,
-}: IconActionProps) {
+function IconAction({ icon: Icon, label, onClick, disabled, tone }: IconActionProps) {
   const toneClass: Record<typeof tone, string> = {
     neutral:
       "border-white/10 bg-white/[0.03] text-white/75 hover:border-white/25 hover:bg-white/[0.07] hover:text-white",

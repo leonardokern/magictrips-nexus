@@ -63,7 +63,12 @@ export default async function VendasPage() {
     .limit(200)
 
   const podeAprovar = can(user, "vendas", "aprovar")
-  const podeEditarGlobal = can(user, "vendas", "editar")
+  // "Editar global" = capacidade de editar QUALQUER venda da empresa (Admin/Gerente).
+  // Agentes também têm `vendas.editar`, mas só pra suas próprias vendas em
+  // rascunho/em_revisao — esse caso é coberto pela regra de ownership no row.
+  const podeEditarGlobal = can(user, "vendas", "aprovar")
+  /** Permissão base `vendas.editar` — necessária pra edição em qualquer contexto. */
+  const podeEditarBasico = can(user, "vendas", "editar")
   const podeExcluir = can(user, "vendas", "excluir")
   const mostraComissao = podeAprovar
 
@@ -143,6 +148,7 @@ export default async function VendasPage() {
         userId={user.id}
         podeAprovar={podeAprovar}
         podeEditarGlobal={podeEditarGlobal}
+        podeEditarBasico={podeEditarBasico}
         podeExcluir={podeExcluir}
         mostraComissao={mostraComissao}
       />
@@ -160,6 +166,7 @@ export default async function VendasPage() {
         userId={user.id}
         podeAprovar={podeAprovar}
         podeEditarGlobal={podeEditarGlobal}
+        podeEditarBasico={podeEditarBasico}
         podeExcluir={podeExcluir}
         mostraComissao={mostraComissao}
       />
@@ -190,6 +197,7 @@ function VendasSection({
   userId,
   podeAprovar,
   podeEditarGlobal,
+  podeEditarBasico,
   podeExcluir,
   mostraComissao,
 }: {
@@ -200,6 +208,7 @@ function VendasSection({
   userId: string
   podeAprovar: boolean
   podeEditarGlobal: boolean
+  podeEditarBasico: boolean
   podeExcluir: boolean
   mostraComissao: boolean
 }) {
@@ -242,6 +251,7 @@ function VendasSection({
                   userId,
                   podeAprovar,
                   podeEditarGlobal,
+                  podeEditarBasico,
                   podeExcluir,
                   mostraComissao,
                 })
@@ -323,6 +333,7 @@ function VendasSection({
               userId,
               podeAprovar,
               podeEditarGlobal,
+              podeEditarBasico,
               podeExcluir,
               mostraComissao,
             })
@@ -400,16 +411,21 @@ function computeRowProps(
     userId: string
     podeAprovar: boolean
     podeEditarGlobal: boolean
+    /** Permissão genérica `vendas.editar` — exigida tanto pra edição global
+     *  (Admin/Gerente) quanto pra edição das próprias vendas (Agente). */
+    podeEditarBasico: boolean
     podeExcluir: boolean
     mostraComissao: boolean
   },
 ) {
   // Agente só edita as próprias em rascunho/em_revisao. Admin/Gerente edita
   // qualquer status (exceto aprovado, onde a UI de edição não faz sentido).
+  // Em ambos os casos exige `vendas.editar`.
   const podeEditarEsta =
-    (ctx.podeEditarGlobal && v.status !== "aprovado") ||
-    (v.usuario_id === ctx.userId &&
-      (v.status === "rascunho" || v.status === "em_revisao"))
+    ctx.podeEditarBasico &&
+    ((ctx.podeEditarGlobal && v.status !== "aprovado") ||
+      (v.usuario_id === ctx.userId &&
+        (v.status === "rascunho" || v.status === "em_revisao")))
 
   // Excluir: somente quem tem permissão; só faz sentido em validada.
   const podeExcluirEsta = ctx.podeExcluir && v.status === "aprovado"

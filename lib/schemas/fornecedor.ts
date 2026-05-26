@@ -23,6 +23,20 @@ export const fornecedorSchema = z.object({
     .transform((v) => onlyDigits(v))
     .refine(cnpjValido, "CNPJ inválido"),
   tipo: tipoFornecedorSchema.optional().or(z.literal("")),
+  /** IDs dos tipos de produto que este fornecedor atende. */
+  tipos_produto_ids: z.array(z.string().uuid()).default([]),
+  /** Aceita modo comissionado (RAV extra pago posteriormente pelo fornecedor). */
+  modo_comissionado: z.boolean().default(false),
+  /** Dia do mês (1–31) em que o fornecedor repassa o RAV extra comissionado. */
+  modo_comissionado_dia_pagamento: z
+    .number()
+    .int()
+    .min(1)
+    .max(31)
+    .nullable()
+    .optional(),
+  /** Aceita modo NET (RAV extra descontado na hora do pagamento). */
+  modo_net: z.boolean().default(false),
 })
 
 export type FornecedorFormValues = z.infer<typeof fornecedorSchema>

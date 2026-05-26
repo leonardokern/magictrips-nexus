@@ -15,6 +15,7 @@ export type CurrentUser = {
   nome: string
   email: string
   iniciais: string | null
+  foto_url: string | null
   ativo: boolean
   forcePasswordChange: boolean
   /** Empresas às quais o usuário tem acesso (1+). */
@@ -44,9 +45,10 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
 
   if (!authUser) return null
 
-  const { data: u, error: userErr } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: u, error: userErr } = await (supabase as any)
     .from("usuarios")
-    .select("id, nome, email, iniciais, ativo, force_password_change, perfil_id")
+    .select("id, nome, email, iniciais, foto_url, ativo, force_password_change, perfil_id")
     .eq("id", authUser.id)
     .single()
 
@@ -83,6 +85,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     nome: u.nome,
     email: u.email,
     iniciais: u.iniciais,
+    foto_url: (u.foto_url as string | null) ?? null,
     ativo: u.ativo,
     forcePasswordChange: u.force_password_change,
     empresas,

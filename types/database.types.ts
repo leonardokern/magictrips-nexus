@@ -130,6 +130,96 @@ export type Database = {
           },
         ]
       }
+      feature_flags: {
+        Row: {
+          chave: string
+          ativo: boolean
+          descricao: string | null
+          updated_at: string
+        }
+        Insert: {
+          chave: string
+          ativo?: boolean
+          descricao?: string | null
+          updated_at?: string
+        }
+        Update: {
+          chave?: string
+          ativo?: boolean
+          descricao?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      agenda_eventos_compartilhamentos: {
+        Row: {
+          evento_id: string
+          usuario_id: string
+          created_at: string
+        }
+        Insert: {
+          evento_id: string
+          usuario_id: string
+          created_at?: string
+        }
+        Update: {
+          evento_id?: string
+          usuario_id?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
+      agenda_eventos: {
+        Row: {
+          id: string
+          empresa_id: string
+          criado_por: string
+          titulo: string
+          descricao: string | null
+          data_inicio: string
+          data_fim: string | null
+          all_day: boolean
+          hora_inicio: string | null
+          hora_fim: string | null
+          tipo: string
+          cor: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          empresa_id: string
+          criado_por: string
+          titulo: string
+          descricao?: string | null
+          data_inicio: string
+          data_fim?: string | null
+          all_day?: boolean
+          hora_inicio?: string | null
+          hora_fim?: string | null
+          tipo?: string
+          cor?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          empresa_id?: string
+          criado_por?: string
+          titulo?: string
+          descricao?: string | null
+          data_inicio?: string
+          data_fim?: string | null
+          all_day?: boolean
+          hora_inicio?: string | null
+          hora_fim?: string | null
+          tipo?: string
+          cor?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       cartoes: {
         Row: {
           ativo: boolean
@@ -1151,6 +1241,7 @@ export type Database = {
         Row: {
           comissao_vendedor: number | null
           created_at: string
+          data_emissao: string | null
           data_fim_viagem: string | null
           data_inicio_viagem: string | null
           destino: string | null
@@ -1183,6 +1274,7 @@ export type Database = {
         Insert: {
           comissao_vendedor?: number | null
           created_at?: string
+          data_emissao?: string | null
           data_fim_viagem?: string | null
           data_inicio_viagem?: string | null
           destino?: string | null
@@ -1215,6 +1307,7 @@ export type Database = {
         Update: {
           comissao_vendedor?: number | null
           created_at?: string
+          data_emissao?: string | null
           data_fim_viagem?: string | null
           data_inicio_viagem?: string | null
           destino?: string | null
@@ -1451,6 +1544,30 @@ export type Database = {
         Returns: undefined
       }
       app_user_empresas: { Args: never; Returns: string[] }
+      listar_usuarios_para_compartilhar: {
+        Args: Record<string, never>
+        Returns: {
+          id: string
+          nome: string
+          perfil_nome: string
+        }[]
+      }
+      get_agenda_eventos: {
+        Args: { p_inicio: string; p_fim: string }
+        Returns: {
+          id: string
+          tipo: string
+          titulo: string
+          descricao: string
+          dia: string
+          cor: string
+          referencia_tipo: string
+          referencia_id: string | null
+          valor: number | null
+          hora_inicio: string | null
+          hora_fim: string | null
+        }[]
+      }
       app_user_perfil_nome: { Args: never; Returns: string }
       aprovar_venda: {
         Args: { p_aprovador_id: string; p_venda_id: string }

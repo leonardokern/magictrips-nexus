@@ -6,7 +6,7 @@ type CookieToSet = { name: string; value: string; options: CookieOptions }
 
 /**
  * Cliente Supabase para Server Components, Route Handlers e Server Actions.
- * Usa cookies do Next.js para persistir a sessão.
+ * Usa cookies do Next.js para persistir a sessão. Sujeito a RLS.
  */
 export async function createClient() {
   const cookieStore = await cookies()
@@ -33,3 +33,4 @@ export async function createClient() {
     },
   )
 }
+

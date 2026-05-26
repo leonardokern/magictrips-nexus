@@ -62,6 +62,7 @@ function ProdutoRow({ p }: { p: Produto }) {
     !!p.localizador ||
     !!p.localizadorFornecedor ||
     !!p.destino ||
+    !!p.dataEmissao ||
     p.ravExtraFornecedor > 0 ||
     !!p.pgtoForma
 
@@ -122,6 +123,11 @@ function ProdutoRow({ p }: { p: Produto }) {
           <td colSpan={4} className="px-3 pb-4 pt-0">
             <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-4">
               <div className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3 lg:grid-cols-4">
+
+                {/* Data de emissão do produto (conferência) */}
+                {p.dataEmissao && (
+                  <MiniStat label="Emissão" value={formatDateBR(p.dataEmissao)} />
+                )}
 
                 {/* Campos personalizados do tipo de produto */}
                 {p.camposExtras.map((ce) => (

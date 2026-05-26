@@ -489,6 +489,7 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
                     <>
                       <Text style={s.subSectionLabel}>Detalhes</Text>
                       <View style={s.fieldGrid}>
+                        {p.dataEmissao && <Campo label="Emissão" value={formatDate(p.dataEmissao)} />}
                         {p.camposExtras.map((ce, j) => (
                           <Campo key={j} label={ce.nome} value={ce.valor} />
                         ))}
@@ -499,10 +500,11 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
                     </>
                   )}
 
-                  {/* Quando não há campos extras, mostra localizadores direto */}
-                  {p.camposExtras.length === 0 && (p.localizador || p.localizadorFornecedor) && (
+                  {/* Quando não há campos extras, mostra localizadores e/ou emissão */}
+                  {p.camposExtras.length === 0 && (p.localizador || p.localizadorFornecedor || p.dataEmissao) && (
                     <>
                       <View style={s.fieldGrid}>
+                        {p.dataEmissao && <Campo label="Emissão" value={formatDate(p.dataEmissao)} />}
                         {p.localizador && <Campo label="Localizador" value={p.localizador} />}
                         {p.localizadorFornecedor && <Campo label="Loc. Fornecedor" value={p.localizadorFornecedor} />}
                       </View>

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import {
   Boxes,
   Building2,
+  CalendarDays,
   CreditCard,
   History,
   LayoutDashboard,
@@ -46,6 +47,7 @@ const ICONS: Record<string, LucideIcon> = {
   faturados: Building2,
   cartoes: CreditCard,
   fornecedores: Package,
+  agenda: CalendarDays,
   usuarios: UserCog,
   perfis: Shield,
   comissoes: Percent,

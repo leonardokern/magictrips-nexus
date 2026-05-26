@@ -5,7 +5,13 @@ import { Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { FornecedorFormModal } from "./fornecedor-form-modal"
 
-export function NovoFornecedorButton() {
+type TipoProduto = { id: string; nome: string; icone: string | null }
+
+type Props = {
+  tiposProduto: TipoProduto[]
+}
+
+export function NovoFornecedorButton({ tiposProduto }: Props) {
   const [open, setOpen] = useState(false)
   return (
     <>
@@ -16,7 +22,12 @@ export function NovoFornecedorButton() {
         <Plus className="mr-2 h-4 w-4" />
         Novo fornecedor
       </Button>
-      <FornecedorFormModal mode="create" open={open} onOpenChange={setOpen} />
+      <FornecedorFormModal
+        mode="create"
+        open={open}
+        onOpenChange={setOpen}
+        tiposProduto={tiposProduto}
+      />
     </>
   )
 }

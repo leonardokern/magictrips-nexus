@@ -1,8 +1,9 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { Building2, ChevronLeft, FileText } from "lucide-react"
+import { Building2, ChevronLeft, FileText, Package } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { createClient } from "@/lib/supabase/server"
 import { requireCurrentUser } from "@/lib/hooks/use-current-user"
 import { can } from "@/lib/hooks/use-permissions"
@@ -36,19 +37,46 @@ export default async function FornecedorDetailPage({
   }
 
   const supabase = await createClient()
-  const { data: f } = await supabase
-    .from("fornecedores")
-    .select("id, nome, cnpj, tipo, ativo, created_at")
-    .eq("id", id)
-    .maybeSingle()
+
+  const [
+    { data: f },
+    { count: produtosCount },
+    { data: tiposProduto },
+    { data: vinculos },
+  ] = await Promise.all([
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from("fornecedores")
+      .select("id, nome, cnpj, tipo, ativo, created_at, modo_comissionado, modo_comissionado_dia_pagamento, modo_net")
+      .eq("id", id)
+      .maybeSingle() as Promise<{ data: {
+        id: string; nome: string; cnpj: string; tipo: string | null; ativo: boolean
+        created_at: string; modo_comissionado: boolean; modo_comissionado_dia_pagamento: number | null; modo_net: boolean
+      } | null }>,
+    supabase
+      .from("venda_produtos")
+      .select("id", { count: "exact", head: true })
+      .eq("fornecedor_id", id),
+    supabase
+      .from("tipos_produto")
+      .select("id, nome, icone")
+      .eq("ativo", true)
+      .order("nome"),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from("fornecedor_tipos_produto")
+      .select("tipo_produto_id")
+      .eq("fornecedor_id", id),
+  ])
 
   if (!f) notFound()
 
-  // Contagem de produtos vendidos com esse fornecedor (stub p/ futuro)
-  const { count: produtosCount } = await supabase
-    .from("venda_produtos")
-    .select("id", { count: "exact", head: true })
-    .eq("fornecedor_id", id)
+  const tiposProdutoIds = ((vinculos ?? []) as { tipo_produto_id: string }[]).map(
+    (v) => v.tipo_produto_id,
+  )
+  const tiposProdutoVinculados = (tiposProduto ?? []).filter((tp) =>
+    tiposProdutoIds.includes(tp.id),
+  )
 
   const permEditar = can(user, "fornecedores", "editar")
   const permExcluir = can(user, "fornecedores", "excluir")
@@ -71,7 +99,12 @@ export default async function FornecedorDetailPage({
               nome: f.nome,
               cnpj: f.cnpj,
               tipo: f.tipo as TipoFornecedor | null,
+              tiposProdutoIds,
+              modoComissionado: f.modo_comissionado,
+              modoComissionadoDia: f.modo_comissionado_dia_pagamento,
+              modoNet: f.modo_net,
             }}
+            tiposProduto={(tiposProduto ?? []) as { id: string; nome: string; icone: string | null }[]}
           />
         )}
       </div>
@@ -113,6 +146,35 @@ export default async function FornecedorDetailPage({
                 year: "numeric",
               })}
             </Row>
+          </CardContent>
+        </Card>
+
+        {/* Tipos de produto atendidos */}
+        <Card className="border-white/[0.06] bg-white/[0.02]">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-white">
+              <Package className="h-4 w-4 text-white/60" />
+              Tipos de produto atendidos
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {tiposProdutoVinculados.length === 0 ? (
+              <p className="text-sm text-white/45">
+                Nenhum tipo de produto vinculado.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {tiposProdutoVinculados.map((tp) => (
+                  <Badge
+                    key={tp.id}
+                    variant="outline"
+                    className="border-nexus-bright/25 bg-nexus-bright/[0.08] text-nexus-bright"
+                  >
+                    {tp.nome}
+                  </Badge>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 

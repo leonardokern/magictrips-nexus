@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/hooks/use-current-user"
 import { buildPermissions } from "@/lib/hooks/use-permissions"
 import { SidebarNav, type NavItem, type NavSection } from "@/components/dashboard/sidebar-nav"
 import { LogoutButton } from "@/components/dashboard/logout-button"
+import { isFeatureEnabled } from "@/lib/feature-flags"
 import { UserMenu } from "@/components/dashboard/user-menu"
 import { NotificationsButton } from "@/components/dashboard/notifications-button"
 import { MobileNav } from "@/components/dashboard/mobile-nav"
@@ -44,10 +45,17 @@ export default async function DashboardLayout({
     .limit(20)
 
   // Navigation organizada em seções — facilita escalar quando entrar mais módulos
+  const agendaFlag = await isFeatureEnabled("agenda")
+
   const sections: NavSection[] = [
     {
       label: "Visão geral",
-      items: [{ href: "/dashboard", label: "Início", icon: "dashboard" }],
+      items: [
+        { href: "/dashboard", label: "Início", icon: "dashboard" },
+        ...(agendaFlag && (perms.can("agenda", "ler") || perms.can("agenda", "criar"))
+          ? [{ href: "/agenda", label: "Agenda", icon: "agenda" } as NavItem]
+          : []),
+      ],
     },
     {
       label: "Operação",
@@ -90,12 +98,6 @@ export default async function DashboardLayout({
                 href: "/fluxo-de-caixa",
                 label: "Fluxo de Caixa",
                 icon: "caixa",
-                comingSoon: true,
-              } as NavItem,
-              {
-                href: "/clientes-faturados",
-                label: "Clientes Faturados",
-                icon: "faturados",
                 comingSoon: true,
               } as NavItem,
             ]
@@ -223,10 +225,11 @@ export default async function DashboardLayout({
 
             {/* ── Direita: notificações + usuário (sempre) ─────── */}
             <div className="flex items-center gap-2 md:gap-3">
-              <NotificationsButton lembretes={lembretes ?? []} />
+              <NotificationsButton lembretes={lembretes ?? []} userId={user.id} />
               <UserMenu
                 nome={user.nome}
                 iniciais={user.iniciais}
+                foto_url={user.foto_url}
                 email={user.email}
                 perfil={user.perfil.nome}
               />

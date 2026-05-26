@@ -19,7 +19,7 @@ import {
   TIPOS_FORNECEDOR_OPCOES,
   type TipoFornecedor,
 } from "@/lib/schemas/fornecedor"
-import { formatCnpj, onlyDigits } from "@/lib/utils/formatters"
+import { formatCnpjPartial, onlyDigits } from "@/lib/utils/formatters"
 import {
   createFornecedor,
   updateFornecedor,
@@ -118,11 +118,12 @@ export function FornecedorForm(props: Props) {
 
           <Field label="CNPJ *" error={errors.cnpj}>
             <Input
-              value={formatCnpj(v.cnpj)}
-              onChange={(e) => update("cnpj", e.target.value)}
+              value={formatCnpjPartial(v.cnpj)}
+              onChange={(e) => update("cnpj", onlyDigits(e.target.value))}
               maxLength={18}
               required
               placeholder="00.000.000/0000-00"
+              inputMode="numeric"
               className="font-mono"
             />
           </Field>

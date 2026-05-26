@@ -79,10 +79,11 @@ export default async function UsuariosPage({
     if (usuarioIdsFiltrados.length === 0) usuarioIdsFiltrados = ["00000000-0000-0000-0000-000000000000"]
   }
 
-  // Query principal
-  let query = supabase
+  // Query principal — foto_url via cast (aguardando regenerar database.types.ts)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let query = (supabase as any)
     .from("usuarios")
-    .select("id, nome, email, iniciais, ativo, perfil_id", { count: "exact" })
+    .select("id, nome, email, iniciais, foto_url, ativo, perfil_id", { count: "exact" })
     .order("nome")
     .range(from, to)
 
@@ -92,12 +93,14 @@ export default async function UsuariosPage({
   if (status === "inativo") query = query.eq("ativo", false)
   if (usuarioIdsFiltrados) query = query.in("id", usuarioIdsFiltrados)
 
-  const { data: usuarios, count, error } = await query
+  type UsuarioRow = { id: string; nome: string; email: string; iniciais: string | null; foto_url: string | null; ativo: boolean; perfil_id: string }
+  const { data: usuariosRaw, count, error } = await query
+  const usuarios = (usuariosRaw ?? []) as UsuarioRow[]
 
   if (error) {
     return (
       <div className="rounded-md border border-destructive/30 bg-destructive/5 p-6 text-sm text-destructive">
-        Erro ao carregar usuários: {error.message}
+        Erro ao carregar usuários: {(error as { message: string }).message}
       </div>
     )
   }
@@ -195,8 +198,13 @@ export default async function UsuariosPage({
                   >
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-xs font-medium text-white/80">
-                          {u.iniciais ?? u.nome.charAt(0).toUpperCase()}
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.04] text-xs font-medium text-white/80">
+                          {u.foto_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={u.foto_url} alt={u.nome} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            u.iniciais ?? u.nome.charAt(0).toUpperCase()
+                          )}
                         </div>
                         <span className="font-medium text-white">
                           {u.nome}
@@ -223,6 +231,7 @@ export default async function UsuariosPage({
                           perfil_nome: perfilNome,
                           empresa_ids: userEmpresaIds,
                           ativo: u.ativo,
+                          foto_url: u.foto_url,
                         }}
                         perfis={perfis ?? []}
                         empresas={empresasAtivas ?? []}
@@ -266,8 +275,13 @@ export default async function UsuariosPage({
                 >
                   {/* Row 1: avatar + nome + status */}
                   <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-xs font-medium text-white/80">
-                      {u.iniciais ?? u.nome.charAt(0).toUpperCase()}
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.04] text-xs font-medium text-white/80">
+                      {u.foto_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={u.foto_url} alt={u.nome} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        u.iniciais ?? u.nome.charAt(0).toUpperCase()
+                      )}
                     </div>
                     <span className="flex-1 font-medium text-white">
                       {u.nome}

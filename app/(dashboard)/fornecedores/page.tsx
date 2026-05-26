@@ -19,6 +19,7 @@ import {
   TipoFornecedorBadge,
 } from "@/components/fornecedores/fornecedor-badges"
 import { NovoFornecedorButton } from "@/components/fornecedores/novo-fornecedor-button"
+import { FornecedorRowActions } from "@/components/fornecedores/fornecedor-row-actions"
 import type { TipoFornecedor } from "@/lib/schemas/fornecedor"
 
 export const metadata: Metadata = {
@@ -58,9 +59,18 @@ export default async function FornecedoresPage({
 
   const supabase = await createClient()
 
-  let query = supabase
+  // Tipos de produto para os modais
+  const { data: tiposProduto } = await supabase
+    .from("tipos_produto")
+    .select("id, nome, icone")
+    .eq("ativo", true)
+    .order("nome")
+
+  // Query principal — colunas novas via cast (aguardando regenerar database.types.ts)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let query = (supabase as any)
     .from("fornecedores")
-    .select("id, nome, cnpj, tipo, ativo", { count: "exact" })
+    .select("id, nome, cnpj, tipo, ativo, modo_comissionado, modo_comissionado_dia_pagamento, modo_net", { count: "exact" })
     .order("nome")
     .range(from, to)
 
@@ -74,18 +84,43 @@ export default async function FornecedoresPage({
   if (status === "ativo") query = query.eq("ativo", true)
   if (status === "inativo") query = query.eq("ativo", false)
 
-  const { data: fornecedores, count, error } = await query
+  const { data: fornecedoresRaw, count, error } = await query
 
   if (error) {
     return (
       <div className="rounded-md border border-destructive/30 bg-destructive/5 p-6 text-sm text-destructive">
-        Erro ao carregar fornecedores: {error.message}
+        Erro ao carregar fornecedores: {(error as { message: string }).message}
       </div>
     )
   }
 
+  type FornRow = {
+    id: string; nome: string; cnpj: string; tipo: string | null; ativo: boolean
+    modo_comissionado: boolean; modo_comissionado_dia_pagamento: number | null; modo_net: boolean
+  }
+  const fornecedores = (fornecedoresRaw ?? []) as FornRow[]
+
+  // Carrega vínculos de tipos de produto em batch para esta página
+  const fornIds = fornecedores.map((f) => f.id)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: vinculos } = fornIds.length
+    ? await (supabase as any)
+        .from("fornecedor_tipos_produto")
+        .select("fornecedor_id, tipo_produto_id")
+        .in("fornecedor_id", fornIds)
+    : { data: [] }
+
+  const vinculosPorFornecedor = new Map<string, string[]>()
+  for (const v of (vinculos ?? []) as { fornecedor_id: string; tipo_produto_id: string }[]) {
+    const arr = vinculosPorFornecedor.get(v.fornecedor_id) ?? []
+    arr.push(v.tipo_produto_id)
+    vinculosPorFornecedor.set(v.fornecedor_id, arr)
+  }
+
   const total = count ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const podeEditar = can(user, "fornecedores", "editar")
+  const tiposProdutoList = (tiposProduto ?? []) as { id: string; nome: string; icone: string | null }[]
 
   return (
     <div className="space-y-6">
@@ -100,11 +135,14 @@ export default async function FornecedoresPage({
           </p>
         </div>
 
-        {can(user, "fornecedores", "criar") && <NovoFornecedorButton />}
+        {can(user, "fornecedores", "criar") && (
+          <NovoFornecedorButton tiposProduto={tiposProdutoList} />
+        )}
       </div>
 
       <FornecedoresFilters q={q} tipo={tipo} status={status} />
 
+      {/* Desktop */}
       <div className="hidden overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] md:block">
         <Table>
           <TableHeader>
@@ -113,12 +151,13 @@ export default async function FornecedoresPage({
               <TableHead className="text-white/55">CNPJ</TableHead>
               <TableHead className="text-white/55">Tipo</TableHead>
               <TableHead className="text-white/55">Status</TableHead>
+              <TableHead className="text-right text-white/55">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {!fornecedores || fornecedores.length === 0 ? (
+            {fornecedores.length === 0 ? (
               <TableRow className="border-white/[0.06] hover:bg-transparent">
-                <TableCell colSpan={4} className="h-32 text-center text-sm text-white/45">
+                <TableCell colSpan={5} className="h-32 text-center text-sm text-white/45">
                   {q || tipo || status
                     ? "Nenhum fornecedor encontrado com esses filtros."
                     : "Nenhum fornecedor cadastrado ainda."}
@@ -126,15 +165,8 @@ export default async function FornecedoresPage({
               </TableRow>
             ) : (
               fornecedores.map((f) => (
-                <TableRow
-                  key={f.id}
-                  className="cursor-pointer border-white/[0.06] hover:bg-white/[0.025]"
-                >
-                  <TableCell className="font-medium text-white">
-                    <Link href={`/fornecedores/${f.id}`} className="hover:underline">
-                      {f.nome}
-                    </Link>
-                  </TableCell>
+                <TableRow key={f.id} className="border-white/[0.06] hover:bg-white/[0.025]">
+                  <TableCell className="font-medium text-white">{f.nome}</TableCell>
                   <TableCell className="font-mono text-xs text-white/75">
                     {formatCnpj(f.cnpj)}
                   </TableCell>
@@ -144,6 +176,23 @@ export default async function FornecedoresPage({
                   <TableCell>
                     <FornecedorAtivoBadge ativo={f.ativo} />
                   </TableCell>
+                  <TableCell className="text-right">
+                    <FornecedorRowActions
+                      fornecedor={{
+                        id: f.id,
+                        nome: f.nome,
+                        cnpj: f.cnpj,
+                        tipo: f.tipo as TipoFornecedor | null,
+                        ativo: f.ativo,
+                        tiposProdutoIds: vinculosPorFornecedor.get(f.id) ?? [],
+                        modoComissionado: f.modo_comissionado,
+                        modoComissionadoDia: f.modo_comissionado_dia_pagamento,
+                        modoNet: f.modo_net,
+                      }}
+                      tiposProduto={tiposProdutoList}
+                      podeEditar={podeEditar}
+                    />
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -151,9 +200,9 @@ export default async function FornecedoresPage({
         </Table>
       </div>
 
-      {/* Mobile card view */}
+      {/* Mobile */}
       <div className="md:hidden">
-        {!fornecedores || fornecedores.length === 0 ? (
+        {fornecedores.length === 0 ? (
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-8 text-center text-sm text-white/45">
             {q || tipo || status
               ? "Nenhum fornecedor encontrado com esses filtros."
@@ -162,25 +211,36 @@ export default async function FornecedoresPage({
         ) : (
           <div className="flex flex-col gap-2">
             {fornecedores.map((f) => (
-              <Link
+              <div
                 key={f.id}
-                href={`/fornecedores/${f.id}`}
-                className="block rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 transition-colors hover:bg-white/[0.04]"
+                className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
               >
-                {/* Row 1: nome + status badge */}
                 <div className="flex items-center justify-between gap-3">
-                  <span className="font-medium text-nexus-bright">{f.nome}</span>
+                  <span className="font-medium text-white">{f.nome}</span>
                   <FornecedorAtivoBadge ativo={f.ativo} />
                 </div>
-                {/* Row 2: CNPJ */}
                 <p className="mt-1.5 font-mono text-xs text-white/55">
                   {formatCnpj(f.cnpj)}
                 </p>
-                {/* Row 3: tipo badge */}
-                <div className="mt-1.5">
+                <div className="mt-2 flex items-center justify-between gap-2">
                   <TipoFornecedorBadge tipo={f.tipo as TipoFornecedor | null} />
+                  <FornecedorRowActions
+                    fornecedor={{
+                      id: f.id,
+                      nome: f.nome,
+                      cnpj: f.cnpj,
+                      tipo: f.tipo as TipoFornecedor | null,
+                      ativo: f.ativo,
+                      tiposProdutoIds: vinculosPorFornecedor.get(f.id) ?? [],
+                      modoComissionado: f.modo_comissionado,
+                      modoComissionadoDia: f.modo_comissionado_dia_pagamento,
+                      modoNet: f.modo_net,
+                    }}
+                    tiposProduto={tiposProdutoList}
+                    podeEditar={podeEditar}
+                  />
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         )}
@@ -188,9 +248,7 @@ export default async function FornecedoresPage({
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between text-sm text-white/55">
-          <span>
-            Página {page} de {totalPages}
-          </span>
+          <span>Página {page} de {totalPages}</span>
           <div className="flex gap-2">
             {page > 1 && (
               <Button
@@ -201,9 +259,7 @@ export default async function FornecedoresPage({
               >
                 <Link
                   href={`/fornecedores?${new URLSearchParams({
-                    ...Object.fromEntries(
-                      Object.entries(sp).filter(([, v]) => v != null),
-                    ),
+                    ...Object.fromEntries(Object.entries(sp).filter(([, v]) => v != null)),
                     page: String(page - 1),
                   } as Record<string, string>).toString()}`}
                 >
@@ -220,9 +276,7 @@ export default async function FornecedoresPage({
               >
                 <Link
                   href={`/fornecedores?${new URLSearchParams({
-                    ...Object.fromEntries(
-                      Object.entries(sp).filter(([, v]) => v != null),
-                    ),
+                    ...Object.fromEntries(Object.entries(sp).filter(([, v]) => v != null)),
                     page: String(page + 1),
                   } as Record<string, string>).toString()}`}
                 >

@@ -157,8 +157,12 @@ export async function updateUsuario(
     if (error) return { ok: false, error: error.message }
   }
 
-  // Update das empresas via RPC (replace completo)
-  if (v.empresa_ids !== undefined) {
+  // Update das empresas via RPC (replace completo).
+  // A RPC tem restrição de Admin no banco — usuários não-Admin com permissão
+  // "editar" podem editar nome/perfil, mas não alterar vínculos de empresa
+  // (na prática o seletor fica oculto quando há só 1 empresa, então os IDs
+  // chegam iguais ao que já está salvo; pular não tem efeito colateral).
+  if (v.empresa_ids !== undefined && user.perfil.nome === "Administrador") {
     const { error: empErr } = await supabase.rpc("atualizar_empresas_usuario", {
       p_user_id: id,
       p_empresa_ids: v.empresa_ids,
@@ -311,6 +315,79 @@ export async function alterarMinhaSenha(raw: unknown): Promise<ActionResult> {
   return { ok: true, data: undefined as unknown as void }
   // (caller deve redirect manual após sucesso — Server Action de form usa router.push)
   void user
+}
+
+/**
+ * Faz upload (ou remove) a foto de perfil de um usuário.
+ * O arquivo chega via FormData. Retorna a URL pública final.
+ * – Bucket "avatars" público, path: {userId}/avatar
+ * – Upsert = sobrescreve sem precisar deletar antes
+ * – Cache-buster no URL evita stale image no browser
+ */
+export async function atualizarFotoUsuario(
+  userId: string,
+  formData: FormData,
+): Promise<ActionResult<{ foto_url: string | null }>> {
+  const user = await requireCurrentUser()
+  if (!can(user, "usuarios", "editar") && user.id !== userId) {
+    return { ok: false, error: "Sem permissão para alterar foto." }
+  }
+
+  const supabase = await createClient()
+  const remover = formData.get("remover") === "true"
+
+  if (remover) {
+    // RPC com SECURITY DEFINER — bypassa RLS em usuarios sem precisar de service role
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase as any).rpc("atualizar_foto_usuario", {
+      p_user_id: userId,
+      p_foto_url: null,
+    })
+    // Best-effort: tenta excluir arquivo do storage (ignora erros)
+    await supabase.storage.from("avatars").remove([`${userId}/avatar`])
+    revalidatePath("/usuarios")
+    revalidatePath(`/usuarios/${userId}`)
+    revalidatePath("/", "layout")
+    return { ok: true, data: { foto_url: null } }
+  }
+
+  const file = formData.get("foto") as File | null
+  if (!file || file.size === 0) {
+    return { ok: true, data: { foto_url: null } }
+  }
+
+  // Validação de tamanho (2 MB)
+  if (file.size > 2 * 1024 * 1024) {
+    return { ok: false, error: "A foto deve ter no máximo 2 MB." }
+  }
+
+  const path = `${userId}/avatar`
+  const { error: uploadError } = await supabase.storage
+    .from("avatars")
+    .upload(path, file, { upsert: true, contentType: file.type })
+
+  if (uploadError) return { ok: false, error: uploadError.message }
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from("avatars").getPublicUrl(path)
+
+  // Cache-buster: força o browser a buscar a imagem nova após re-upload
+  const fotoUrl = `${publicUrl}?t=${Date.now()}`
+
+  // RPC com SECURITY DEFINER — bypassa RLS em usuarios
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error: updateError } = await (supabase as any).rpc("atualizar_foto_usuario", {
+    p_user_id: userId,
+    p_foto_url: fotoUrl,
+  })
+
+  if (updateError) return { ok: false, error: (updateError as { message: string }).message }
+
+  revalidatePath("/usuarios")
+  revalidatePath(`/usuarios/${userId}`)
+  revalidatePath("/", "layout")
+  return { ok: true, data: { foto_url: fotoUrl } }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

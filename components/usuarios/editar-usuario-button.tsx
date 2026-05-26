@@ -15,6 +15,7 @@ type Props = {
     email: string
     perfil_id: string
     empresa_ids: string[]
+    foto_url?: string | null
   }
   perfis: Perfil[]
   empresas: Empresa[]

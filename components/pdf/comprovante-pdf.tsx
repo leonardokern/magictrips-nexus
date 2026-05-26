@@ -368,6 +368,8 @@ function ProdutoCard({
   cor: string
 }) {
   const fields: { label: string; value: string }[] = []
+  if (produto.dataEmissao)
+    fields.push({ label: "Emissão", value: formatDate(produto.dataEmissao) })
   if (produto.destino) fields.push({ label: "Destino", value: produto.destino })
   // Campos customizados do tipo de produto (preenchidos na venda)
   for (const ce of produto.camposExtras) {

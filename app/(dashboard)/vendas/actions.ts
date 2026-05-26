@@ -72,7 +72,13 @@ export type DadosNovaVenda = {
     email: string | null
     empresa_id: string
   }[]
-  fornecedores: { id: string; nome: string }[]
+  fornecedores: {
+    id: string
+    nome: string
+    tipos_produto_ids: string[]
+    modo_comissionado: boolean
+    modo_net: boolean
+  }[]
   cartoes: {
     id: string
     nome: string
@@ -207,6 +213,7 @@ export type VendaDetalhes = {
   produtos: {
     tipoNome: string
     icone: string | null
+    dataEmissao: string | null
     valorVenda: number
     valorCusto: number
     rav: number
@@ -349,7 +356,7 @@ export async function getVendaDetalhes(
           `tipo_produto_nome, valor_venda, valor_custo, rav, comissao_vendedor,
            rav_extra_cliente, rav_extra_fornecedor, tipo_comissao,
            fornecedor_nome, localizador, localizador_fornecedor, destino,
-           data_inicio_viagem, data_fim_viagem, valores_extras,
+           data_emissao, data_inicio_viagem, data_fim_viagem, valores_extras,
            pgto_forma, pgto_valor_total, pgto_entrada, pgto_num_parcelas,
            pgto_valor_parcela, pgto_data_debito,
            cartao:cartoes!fk_venda_produtos_cartao(nome),
@@ -437,6 +444,7 @@ export async function getVendaDetalhes(
         return {
           tipoNome: p.tipo_produto_nome,
           icone: (p.tipo_produto as unknown as TipoProduto)?.icone ?? null,
+          dataEmissao: p.data_emissao ?? null,
           valorVenda: Number(p.valor_venda ?? 0),
           valorCusto: Number(p.valor_custo ?? 0),
           rav,
@@ -539,6 +547,7 @@ export type VendaParaPDF = {
     localizador: string | null
     localizadorFornecedor: string | null
     destino: string | null
+    dataEmissao: string | null
     dataInicio: string | null
     dataFim: string | null
     valorVenda: number
@@ -617,7 +626,7 @@ export async function getVendaParaPDF(
       .select(
         `
         ordem, tipo_produto_nome, fornecedor_nome, localizador, localizador_fornecedor,
-        destino, data_inicio_viagem, data_fim_viagem,
+        destino, data_emissao, data_inicio_viagem, data_fim_viagem,
         valor_venda, valor_custo, rav, comissao_vendedor,
         rav_extra_cliente, rav_extra_fornecedor, tipo_comissao, valores_extras,
         pgto_forma, pgto_valor_total, pgto_entrada, pgto_num_parcelas,
@@ -762,6 +771,7 @@ export async function getVendaParaPDF(
           localizador: p.localizador ?? null,
           localizadorFornecedor: p.localizador_fornecedor ?? null,
           destino: p.destino ?? null,
+          dataEmissao: p.data_emissao ?? null,
           dataInicio: p.data_inicio_viagem ?? null,
           dataFim: p.data_fim_viagem ?? null,
           valorVenda: Number(p.valor_venda ?? 0),
@@ -859,7 +869,12 @@ export async function getDadosNovaVenda(): Promise<ActionResult<DadosNovaVenda>>
       .select("id, nome, cpf, email, empresa_id")
       .eq("status", "ativo")
       .order("nome"),
-    supabase.from("fornecedores").select("id, nome").eq("ativo", true).order("nome"),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from("fornecedores")
+      .select("id, nome, modo_comissionado, modo_net, fornecedor_tipos_produto(tipo_produto_id)")
+      .eq("ativo", true)
+      .order("nome"),
     supabase
       .from("cartoes")
       .select("id, nome, banco, empresa_id, dia_vencimento")
@@ -929,7 +944,19 @@ export async function getDadosNovaVenda(): Promise<ActionResult<DadosNovaVenda>>
       empresas,
       defaultEmpresaId: empresas.length === 1 ? empresas[0]!.id : undefined,
       clientes: clientes ?? [],
-      fornecedores: fornecedores ?? [],
+      fornecedores: ((fornecedores ?? []) as {
+        id: string
+        nome: string
+        modo_comissionado: boolean
+        modo_net: boolean
+        fornecedor_tipos_produto: { tipo_produto_id: string }[] | null
+      }[]).map((f) => ({
+        id: f.id,
+        nome: f.nome,
+        tipos_produto_ids: (f.fornecedor_tipos_produto ?? []).map((ftp) => ftp.tipo_produto_id),
+        modo_comissionado: f.modo_comissionado ?? false,
+        modo_net: f.modo_net ?? false,
+      })),
       cartoes: cartoes ?? [],
       origens: (origens ?? []).map((o) => ({
         id: o.id,
@@ -1000,6 +1027,7 @@ export type VendaParaEditar = {
       rav_extra_cliente_str: string; rav_extra_fornecedor_str: string
       comissao_vendedor_str: string
       valores_extras: Record<string, string>
+      data_emissao_str: string
       pgto_modo: "comissionado" | "net"
       pgto_forma: string; pgto_cartao_id: string
       pgto_valor_total_str: string; pgto_entrada_str: string
@@ -1051,7 +1079,7 @@ export async function getVendaParaEditar(
         .maybeSingle(),
       supabase
         .from("venda_produtos")
-        .select("tipo_produto_id, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, comissao_vendedor, valores_extras, pgto_modo, pgto_forma, pgto_cartao_id, pgto_valor_total, pgto_entrada, pgto_num_parcelas, pgto_valor_parcela, pgto_data_debito, data_inicio_viagem, data_fim_viagem")
+        .select("tipo_produto_id, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, comissao_vendedor, valores_extras, data_emissao, pgto_modo, pgto_forma, pgto_cartao_id, pgto_valor_total, pgto_entrada, pgto_num_parcelas, pgto_valor_parcela, pgto_data_debito, data_inicio_viagem, data_fim_viagem")
         .eq("venda_id", id)
         .order("ordem"),
       supabase
@@ -1110,6 +1138,7 @@ export async function getVendaParaEditar(
       rav_extra_fornecedor_str: numStr(p.rav_extra_fornecedor),
       comissao_vendedor_str:    numStr(p.comissao_vendedor),
       valores_extras:           (p.valores_extras as Record<string, string> | null) ?? {},
+      data_emissao_str:         p.data_emissao ?? "",
       pgto_modo:                (p.pgto_modo as "comissionado" | "net") ?? "comissionado",
       pgto_forma:               p.pgto_forma ?? "cartao",
       pgto_cartao_id:           p.pgto_cartao_id ?? "",

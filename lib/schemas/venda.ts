@@ -59,6 +59,9 @@ export const vendaProdutoSchema = z.object({
   localizador: z.string().trim().max(60).nullable().optional(),
   localizador_fornecedor: z.string().trim().max(60).nullable().optional(),
   destino: z.string().trim().max(120).nullable().optional(),
+  /** Data de emissão do produto (ex: emissão do bilhete aéreo).
+   *  Conferência operacional, distinta da data_venda. */
+  data_emissao: z.string().nullable().optional(),
   data_inicio_viagem: z.string().nullable().optional(),
   data_fim_viagem: z.string().nullable().optional(),
   /** Map campo_id → valor (texto/número/data/boolean) */

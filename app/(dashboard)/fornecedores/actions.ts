@@ -48,19 +48,39 @@ export async function createFornecedor(
     }
   }
 
-  const { data: novo, error } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const insertResult = await (supabase as any)
     .from("fornecedores")
     .insert({
       nome: values.nome,
       cnpj: values.cnpj,
       tipo: values.tipo || null,
       ativo: true,
+      modo_comissionado: values.modo_comissionado,
+      modo_comissionado_dia_pagamento: values.modo_comissionado
+        ? (values.modo_comissionado_dia_pagamento ?? null)
+        : null,
+      modo_net: values.modo_net,
     })
     .select("id")
     .single()
+  const novo = insertResult.data as { id: string } | null
+  const error = insertResult.error as { message: string } | null
 
   if (error || !novo) {
     return { ok: false, error: error?.message ?? "Falha ao salvar fornecedor." }
+  }
+
+  // Vincula tipos de produto (tabela nova — cast necessário até regenerar database.types.ts)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+  if (values.tipos_produto_ids.length > 0) {
+    await db.from("fornecedor_tipos_produto").insert(
+      values.tipos_produto_ids.map((tp_id: string) => ({
+        fornecedor_id: novo.id,
+        tipo_produto_id: tp_id,
+      })),
+    )
   }
 
   await logAudit(user.id, user.empresas[0]?.id ?? null, "criar", novo.id, null, values)
@@ -115,16 +135,36 @@ export async function updateFornecedor(
     }
   }
 
-  const { error } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updateResult = await (supabase as any)
     .from("fornecedores")
     .update({
       nome: values.nome,
       cnpj: values.cnpj,
       tipo: values.tipo || null,
+      modo_comissionado: values.modo_comissionado,
+      modo_comissionado_dia_pagamento: values.modo_comissionado
+        ? (values.modo_comissionado_dia_pagamento ?? null)
+        : null,
+      modo_net: values.modo_net,
     })
     .eq("id", id)
+  const error = updateResult.error as { message: string } | null
 
   if (error) return { ok: false, error: error.message }
+
+  // Substitui vínculos de tipos de produto (delete + insert)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+  await db.from("fornecedor_tipos_produto").delete().eq("fornecedor_id", id)
+  if (values.tipos_produto_ids.length > 0) {
+    await db.from("fornecedor_tipos_produto").insert(
+      values.tipos_produto_ids.map((tp_id: string) => ({
+        fornecedor_id: id,
+        tipo_produto_id: tp_id,
+      })),
+    )
+  }
 
   await logAudit(user.id, user.empresas[0]?.id ?? null, "editar", id, antes, values)
 

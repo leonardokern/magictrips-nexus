@@ -6,16 +6,23 @@ import { Button } from "@/components/ui/button"
 import { FornecedorFormModal } from "./fornecedor-form-modal"
 import type { TipoFornecedor } from "@/lib/schemas/fornecedor"
 
+type TipoProduto = { id: string; nome: string; icone: string | null }
+
 type Props = {
   id: string
   initial: {
     nome: string
     cnpj: string
     tipo: TipoFornecedor | null
+    tiposProdutoIds: string[]
+    modoComissionado: boolean
+    modoComissionadoDia: number | null
+    modoNet: boolean
   }
+  tiposProduto: TipoProduto[]
 }
 
-export function EditarFornecedorButton({ id, initial }: Props) {
+export function EditarFornecedorButton({ id, initial, tiposProduto }: Props) {
   const [open, setOpen] = useState(false)
   return (
     <>
@@ -34,6 +41,7 @@ export function EditarFornecedorButton({ id, initial }: Props) {
         initial={initial}
         open={open}
         onOpenChange={setOpen}
+        tiposProduto={tiposProduto}
       />
     </>
   )
