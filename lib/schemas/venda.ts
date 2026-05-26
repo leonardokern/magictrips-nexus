@@ -21,25 +21,26 @@ export type ClienteNovoBasicoInput = z.infer<typeof clienteNovoBasicoSchema>
 // Produto da venda
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const PGTO_FORMAS = [
-  "faturado",
-  "cartao",
-  "pix",
-  "boleto",
-  "deposito",
-  "dinheiro",
-  "outro",
-] as const
+/**
+ * Como a Magic paga o fornecedor por um produto. Três cenários:
+ *
+ *  - `faturado` — Fornecedor desconta das comissões pendentes com a Magic;
+ *    se não tem comissão suficiente, gera uma fatura direta com a Magic.
+ *    Fluxo externo, V1 só registra a forma.
+ *  - `cartao_agencia` — Magic paga com cartão próprio (controla parcelas,
+ *    vencimento, contas a pagar futuro). Forma "Cartão" do modelo antigo.
+ *  - `cartao_cliente` — Fornecedor gera um link de pagamento direto pro
+ *    cliente. Magic só recebe a comissão. Não há cobrança nem pagamento
+ *    nosso pra registrar — o Step 3 (Cobrança) é dispensado quando TODOS
+ *    os produtos são `cartao_cliente`.
+ */
+export const PGTO_FORMAS = ["faturado", "cartao_agencia", "cartao_cliente"] as const
 export type PgtoForma = (typeof PGTO_FORMAS)[number]
 
 export const PGTO_FORMA_LABEL: Record<PgtoForma, string> = {
   faturado: "Faturado",
-  cartao: "Cartão",
-  pix: "PIX",
-  boleto: "Boleto",
-  deposito: "Depósito",
-  dinheiro: "Dinheiro",
-  outro: "Outro",
+  cartao_agencia: "Cartão Agência",
+  cartao_cliente: "Cartão Cliente",
 }
 
 export const TIPOS_COMISSAO = ["comissionado", "net", "incentivado"] as const

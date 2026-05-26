@@ -1,7 +1,7 @@
 "use client"
 
 import Image from "next/image"
-import { Fragment, useMemo, useState, useTransition } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
   AlertCircle,
@@ -254,7 +254,7 @@ function novoProduto(): ProdutoState {
     valores_extras: {},
     data_emissao_str: "",
     pgto_modo: "comissionado",
-    pgto_forma: "cartao",
+    pgto_forma: "",
     pgto_cartao_id: "",
     pgto_valor_total_str: "",
     pgto_entrada_str: "",
@@ -301,6 +301,19 @@ export function VendaWizard(props: Props) {
   const [rascunhoId, setRascunhoId] = useState<string | null>(
     props.initialRascunhoId ?? null,
   )
+
+  // ── Autosave (rascunho) ───────────────────────────────────────────────────
+  // Liga apenas em nova venda do agente (sem vendaId, não-gerente). Marca
+  // dirty a cada mudança de estado relevante, salva 1.5s depois do último
+  // keystroke; heartbeat de 10s garante save mesmo durante digitação contínua.
+  type AutoStatus = "idle" | "dirty" | "saving" | "saved" | "error"
+  const autosaveAtivo = !props.modoGerente && !props.vendaId
+  const [autoStatus, setAutoStatus] = useState<AutoStatus>("idle")
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
+  const dirtyRef = useRef(false)
+  const inflightRef = useRef(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [confirmValorAberto, setConfirmValorAberto] = useState(false)
   const [asyncErrors, setAsyncErrors] = useState<Record<string, string>>({})
@@ -504,8 +517,15 @@ export function VendaWizard(props: Props) {
     return e
   }
 
+  /** Se todos os produtos são `cartao_cliente`, o cliente paga direto ao
+   *  fornecedor e a Magic não emite cobrança nenhuma. O Step 3 vira
+   *  informativo apenas — nada a validar. */
+  const todosCartaoCliente =
+    produtos.length > 0 && produtos.every((p) => p.pgto_forma === "cartao_cliente")
+
   function validarStep3(): Record<string, string> {
     const e: Record<string, string> = {}
+    if (todosCartaoCliente) return e
     if (cobrancaItens.length === 0)
       e.cobranca_itens = "Adicione ao menos uma forma de cobrança."
     cobrancaItens.forEach((it, i) => {
@@ -551,14 +571,17 @@ export function VendaWizard(props: Props) {
       return
     }
     setErrors({})
-    // Passo 3 → 4: avisa se houver valor em aberto
+    // Passo 3 → 4: avisa se houver valor em aberto. Pula a checagem quando
+    // todos os produtos são cartão cliente (não há cobrança a comparar).
     if (step === 3) {
-      const totalCobrado = cobrancaItens.reduce(
-        (acc, it) => acc + (parseValorComSoma(it.valor_total_str) || 0), 0,
-      )
-      if (Math.abs(totalCobrado - totalVenda) >= 0.01) {
-        setConfirmValorAberto(true)
-        return
+      if (!todosCartaoCliente) {
+        const totalCobrado = cobrancaItens.reduce(
+          (acc, it) => acc + (parseValorComSoma(it.valor_total_str) || 0), 0,
+        )
+        if (Math.abs(totalCobrado - totalVenda) >= 0.01) {
+          setConfirmValorAberto(true)
+          return
+        }
       }
       sincronizarPassageiros()
     }
@@ -594,7 +617,7 @@ export function VendaWizard(props: Props) {
       return
     }
     setErrors({})
-    if (step === 3) {
+    if (step === 3 && !todosCartaoCliente) {
       const totalCobrado = cobrancaItens.reduce(
         (acc, it) => acc + (parseValorComSoma(it.valor_total_str) || 0), 0,
       )
@@ -707,6 +730,74 @@ export function VendaWizard(props: Props) {
     })
   }
 
+  // ── Autosave: dispara save sem toast, atualiza status visual ────────────
+  // Captura refs estáveis pros valores usados durante o save assíncrono.
+  const rascunhoIdRef = useRef(rascunhoId)
+  rascunhoIdRef.current = rascunhoId
+
+  async function autosaveAgora() {
+    if (!autosaveAtivo) return
+    if (inflightRef.current) return
+    // Sem nada útil pra salvar — não chama o servidor
+    if (!empresaId && !clienteValue && !dataVenda) return
+    inflightRef.current = true
+    setAutoStatus("saving")
+    dirtyRef.current = false
+    try {
+      const r = await salvarRascunho(
+        rascunhoIdRef.current,
+        gerarTituloRascunho(),
+        step,
+        empresaId || null,
+        coletarEstadoAtual() as unknown as Record<string, unknown>,
+      )
+      if (r.ok && r.data) {
+        setRascunhoId(r.data.id)
+        setLastSavedAt(new Date())
+        // Se ficou dirty enquanto salvava, sinaliza e agenda novo save
+        setAutoStatus(dirtyRef.current ? "dirty" : "saved")
+      } else {
+        dirtyRef.current = true
+        setAutoStatus("error")
+      }
+    } catch {
+      dirtyRef.current = true
+      setAutoStatus("error")
+    } finally {
+      inflightRef.current = false
+    }
+  }
+
+  // Marca dirty + agenda save com debounce a cada mudança de estado relevante.
+  // Lista de deps cobre tudo que `coletarEstadoAtual` lê.
+  useEffect(() => {
+    if (!autosaveAtivo) return
+    dirtyRef.current = true
+    setAutoStatus((prev) => (prev === "saving" ? prev : "dirty"))
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      autosaveAgora()
+    }, 1500)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    empresaId, dataVenda, dataInicioViagem, dataFimViagem,
+    clienteValue, clienteNovo, pax, origem, agenteId,
+    observacoesGerais, produtos, cobrancaItens, cobrancaObs, passageiros,
+  ])
+
+  // Heartbeat: salva a cada 10s se houver dirty (cobre digitação contínua).
+  useEffect(() => {
+    if (!autosaveAtivo) return
+    const id = setInterval(() => {
+      if (dirtyRef.current) autosaveAgora()
+    }, 10_000)
+    return () => clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autosaveAtivo])
+
   // ── Submit final ──────────────────────────────────────────────────────────
 
   function onSubmit() {
@@ -798,9 +889,10 @@ export function VendaWizard(props: Props) {
         const t = p.pgto_modo === "net" ? Math.max(0, custo - ravForn) : custo
         return t > 0 ? t : null
       })(),
-      pgto_entrada: p.pgto_forma === "pix" ? 0 : parseValorComSoma(p.pgto_entrada_str) || 0,
-      pgto_num_parcelas: p.pgto_forma === "pix" ? 1 : p.pgto_num_parcelas,
-      pgto_valor_parcela: p.pgto_forma === "pix" ? null : (() => {
+      // Só cartao_agencia controla parcelas/entrada — demais formas zeram.
+      pgto_entrada: p.pgto_forma === "cartao_agencia" ? parseValorComSoma(p.pgto_entrada_str) || 0 : 0,
+      pgto_num_parcelas: p.pgto_forma === "cartao_agencia" ? p.pgto_num_parcelas : 1,
+      pgto_valor_parcela: p.pgto_forma !== "cartao_agencia" ? null : (() => {
         const userVal = parseValorComSoma(p.pgto_valor_total_str)
         const custo = parseValorComSoma(p.valor_custo_str)
         const ravForn = parseValorComSoma(p.rav_extra_fornecedor_str)
@@ -971,14 +1063,38 @@ export function VendaWizard(props: Props) {
         )}
 
         {step === 3 && (
-          <Step3Cobranca
-            itens={cobrancaItens}
-            setItens={setCobrancaItens}
-            obs={cobrancaObs}
-            setObs={setCobrancaObs}
-            totalVenda={totalVenda}
-            errors={errors}
-          />
+          todosCartaoCliente ? (
+            <div className="rounded-xl border border-nexus-bright/20 bg-nexus-bright/[0.04] p-6">
+              <div className="flex items-start gap-3">
+                <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-nexus-bright" />
+                <div className="space-y-1.5 text-sm leading-relaxed text-white/75">
+                  <p className="font-medium text-white">
+                    Cobrança dispensada — cartão do cliente
+                  </p>
+                  <p>
+                    Todos os produtos desta venda foram registrados com forma de
+                    pagamento <strong className="text-white">Cartão Cliente</strong>.
+                    O fornecedor enviará o link de pagamento diretamente ao
+                    cliente e a Magic receberá apenas a comissão.
+                  </p>
+                  <p className="text-white/55">
+                    Nada precisa ser preenchido neste passo. Clique em{" "}
+                    <strong className="text-white/85">Continuar</strong> para
+                    seguir aos passageiros.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <Step3Cobranca
+              itens={cobrancaItens}
+              setItens={setCobrancaItens}
+              obs={cobrancaObs}
+              setObs={setCobrancaObs}
+              totalVenda={totalVenda}
+              errors={errors}
+            />
+          )
         )}
 
         {step === 4 && (
@@ -1069,8 +1185,8 @@ export function VendaWizard(props: Props) {
         )}
       </div>
 
-      {/* Aviso de valor em aberto — só no passo 3 */}
-      {step === 3 && (() => {
+      {/* Aviso de valor em aberto — só no passo 3 e quando há cobrança real */}
+      {step === 3 && !todosCartaoCliente && (() => {
         const totalCobrado = cobrancaItens.reduce(
           (acc, it) => acc + (parseValorComSoma(it.valor_total_str) || 0), 0,
         )
@@ -1107,20 +1223,23 @@ export function VendaWizard(props: Props) {
         <div className="flex items-center gap-2">
           {/* Salvar rascunho — só em nova venda (agente, sem vendaId) */}
           {!props.modoGerente && !props.vendaId && (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={handleSalvarRascunho}
-              disabled={isPending || isSavingDraft}
-              className="border border-white/10 text-white/55 hover:border-white/20 hover:text-white/80"
-            >
-              {isSavingDraft ? (
-                <Spinner className="mr-1.5 h-3.5 w-3.5" />
-              ) : (
-                <Save className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              {rascunhoId ? "Atualizar rascunho" : "Salvar rascunho"}
-            </Button>
+            <>
+              <AutosaveIndicator status={autoStatus} lastSavedAt={lastSavedAt} />
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handleSalvarRascunho}
+                disabled={isPending || isSavingDraft}
+                className="border border-white/10 text-white/55 hover:border-white/20 hover:text-white/80"
+              >
+                {isSavingDraft ? (
+                  <Spinner className="mr-1.5 h-3.5 w-3.5" />
+                ) : (
+                  <Save className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {rascunhoId ? "Atualizar rascunho" : "Salvar rascunho"}
+              </Button>
+            </>
           )}
 
           {step < 5 ? (
@@ -1217,6 +1336,82 @@ export function VendaWizard(props: Props) {
       </Dialog>
     </div>
   )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Indicador visual do autosave (ao lado do botão "Salvar rascunho")
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AutosaveIndicator({
+  status,
+  lastSavedAt,
+}: {
+  status: "idle" | "dirty" | "saving" | "saved" | "error"
+  lastSavedAt: Date | null
+}) {
+  // Mantém o texto atualizando a cada 30s pra ir mostrando "há 1 minuto" etc.
+  // Sem timer pesado: força rerender via setState(tick).
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    if (status !== "saved") return
+    const id = setInterval(() => setTick((t) => t + 1), 30_000)
+    return () => clearInterval(id)
+  }, [status])
+  void tick
+
+  if (status === "idle") return null
+
+  const config = (() => {
+    switch (status) {
+      case "saving":
+        return {
+          label: "Salvando…",
+          dotClass: "bg-nexus-bright animate-pulse",
+          textClass: "text-nexus-bright/85",
+        }
+      case "saved":
+        return {
+          label: lastSavedAt
+            ? `Salvo ${tempoRelativo(lastSavedAt)}`
+            : "Salvo",
+          dotClass: "bg-emerald-400",
+          textClass: "text-emerald-300/85",
+        }
+      case "dirty":
+        return {
+          label: "Mudanças não salvas",
+          dotClass: "bg-amber-400 animate-pulse",
+          textClass: "text-amber-300/85",
+        }
+      case "error":
+        return {
+          label: "Erro ao salvar",
+          dotClass: "bg-rose-500",
+          textClass: "text-rose-300",
+        }
+    }
+  })()
+
+  return (
+    <span
+      className="flex items-center gap-1.5 text-[11px] font-medium"
+      aria-live="polite"
+    >
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${config.dotClass}`} />
+      <span className={config.textClass}>{config.label}</span>
+    </span>
+  )
+}
+
+function tempoRelativo(d: Date): string {
+  const segs = Math.floor((Date.now() - d.getTime()) / 1000)
+  if (segs < 5) return "agora"
+  if (segs < 60) return `há ${segs}s`
+  const min = Math.floor(segs / 60)
+  if (min < 60) return `há ${min}min`
+  const hh = String(d.getHours()).padStart(2, "0")
+  const mi = String(d.getMinutes()).padStart(2, "0")
+  return `às ${hh}:${mi}`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1732,12 +1927,12 @@ function Step2Produtos(props: {
         if (venda > 0) summaryParts.push(formatBRL(venda))
         if (p.pgto_forma) {
           const formaLabel =
-            p.pgto_forma === "cartao" && cartaoNome
-              ? `Cartão (${cartaoNome})`
+            p.pgto_forma === "cartao_agencia" && cartaoNome
+              ? `Cartão Agência (${cartaoNome})`
               : PGTO_FORMA_LABEL[p.pgto_forma as PgtoForma]
           summaryParts.push(formaLabel)
         }
-        if (p.pgto_forma !== "pix" && p.pgto_num_parcelas > 0) {
+        if (p.pgto_forma === "cartao_agencia" && p.pgto_num_parcelas > 0) {
           const userTotal = parseValorComSoma(p.pgto_valor_total_str)
           const custo = parseValorComSoma(p.valor_custo_str)
           const ravForn = parseValorComSoma(p.rav_extra_fornecedor_str)
@@ -2142,18 +2337,19 @@ function Step2Produtos(props: {
                   />
                 </Field>
 
-                {/* RAV — display compacto, não é input editável */}
-                <div className="col-span-12 sm:col-span-3">
-                  <Label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-white/55">
-                    RAV
-                  </Label>
-                  <div className="flex h-10 items-center justify-center rounded-md border border-white/[0.06] bg-white/[0.03] px-2 text-center text-sm tabular-nums text-white/75">
-                    {p.rav_str
-                      ? formatBRL(parseValorComSoma(p.rav_str))
-                      : <span className="text-white/25">—</span>}
-                  </div>
-                  <p className="mt-1 text-[10px] text-white/35">venda − custo</p>
-                </div>
+                {/* RAV — auto-calculado em venda/custo, mas editável (o
+                    vendedor pode sobrescrever pra refletir "depends" manuais). */}
+                <Field
+                  label="RAV"
+                  className="col-span-12 sm:col-span-3"
+                >
+                  <CurrencyInput
+                    value={p.rav_str}
+                    onChange={(v) =>
+                      patch(p.id, () => ({ rav_str: v }))
+                    }
+                  />
+                </Field>
 
                 <Field
                   label="RAV extra (fornecedor)"
@@ -2193,122 +2389,176 @@ function Step2Produtos(props: {
                 Pagamento ao fornecedor
               </p>
               <div className="grid grid-cols-12 gap-3">
-                {/* Linha 1: Modo | Forma | Cartão (condicional) | Valor total */}
-                {/* Modo de pagamento — filtrado pelos modos que o fornecedor aceita */}
-                {(() => {
-                  const fornSelecionado = p.fornecedor_id && p.fornecedor_id !== "outro"
-                    ? props.fornecedores.find((f) => f.id === p.fornecedor_id)
-                    : null
-                  // Se o fornecedor tem restrição de modo, mostrar apenas os permitidos
-                  const temRestricao = fornSelecionado && (fornSelecionado.modo_comissionado || fornSelecionado.modo_net)
-                  const mostraComissionado = !temRestricao || (fornSelecionado?.modo_comissionado ?? true)
-                  const mostraNet = !temRestricao || (fornSelecionado?.modo_net ?? true)
-
-                  return (
-                    <Field
-                      label="Modo de pagamento"
-                      hint={
-                        p.pgto_modo === "net"
-                          ? "Líquido = custo − RAV extra fornecedor"
-                          : "Comissionado = custo cheio"
-                      }
-                      className="col-span-12 sm:col-span-3"
-                    >
-                      <Select
-                        value={p.pgto_modo}
-                        onValueChange={(v) =>
-                          patch(p.id, (prev) => {
-                            const novoModo = v as "comissionado" | "net"
-                            const custo = parseValorComSoma(prev.valor_custo_str)
-                            const ravForn = parseValorComSoma(prev.rav_extra_fornecedor_str)
-                            const pgtoTotal =
-                              novoModo === "net"
-                                ? Math.max(0, custo - ravForn)
-                                : custo
-                            const pgtoTotalStr = pgtoTotal > 0
-                              ? new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pgtoTotal)
-                              : ""
-                            return { pgto_modo: novoModo, pgto_valor_total_str: pgtoTotalStr }
-                          })
-                        }
-                      >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {mostraComissionado && (
-                            <SelectItem value="comissionado">Comissionado</SelectItem>
-                          )}
-                          {mostraNet && (
-                            <SelectItem value="net">NET (Líquido)</SelectItem>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  )
-                })()}
-
+                {/* Forma de pagamento — define o que mais aparece nesta seção */}
                 <Field
                   label="Forma de pagamento"
                   error={props.errors[`produto_${i}_pgto_forma`]}
-                  className="col-span-12 sm:col-span-3"
+                  className="col-span-12 sm:col-span-4"
                 >
                   <Select
                     value={p.pgto_forma || undefined}
                     onValueChange={(v) =>
-                      patch(p.id, () => ({ pgto_forma: v as PgtoForma }))
+                      patch(p.id, (prev) => {
+                        const nova = v as PgtoForma
+                        // Limpa campos que não fazem sentido nas formas onde
+                        // a Magic não controla o fluxo (faturado, cartao_cliente)
+                        if (nova === "cartao_cliente" || nova === "faturado") {
+                          return {
+                            pgto_forma: nova,
+                            pgto_cartao_id: "",
+                            pgto_valor_total_str: "",
+                            pgto_entrada_str: "",
+                            pgto_num_parcelas: 1,
+                          }
+                        }
+                        // Cartão agência: auto-preenche Valor Total conforme
+                        // o modo de pagamento (comissionado = custo cheio,
+                        // NET = custo − RAV extra fornecedor). Só preenche
+                        // se o campo ainda estiver vazio pra não sobrescrever
+                        // um valor que o usuário possa ter digitado antes.
+                        const custo = parseValorComSoma(prev.valor_custo_str)
+                        const ravForn = parseValorComSoma(prev.rav_extra_fornecedor_str)
+                        const totalCalc =
+                          prev.pgto_modo === "net"
+                            ? Math.max(0, custo - ravForn)
+                            : custo
+                        const totalAtual = parseValorComSoma(prev.pgto_valor_total_str)
+                        const novoTotalStr =
+                          totalAtual > 0
+                            ? prev.pgto_valor_total_str
+                            : totalCalc > 0
+                              ? new Intl.NumberFormat("pt-BR", {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                }).format(totalCalc)
+                              : ""
+                        return {
+                          pgto_forma: nova,
+                          pgto_valor_total_str: novoTotalStr,
+                        }
+                      })
                     }
                   >
                     <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="cartao">{PGTO_FORMA_LABEL["cartao"]}</SelectItem>
-                      <SelectItem value="pix">{PGTO_FORMA_LABEL["pix"]}</SelectItem>
+                      <SelectItem value="faturado">{PGTO_FORMA_LABEL["faturado"]}</SelectItem>
+                      <SelectItem value="cartao_agencia">{PGTO_FORMA_LABEL["cartao_agencia"]}</SelectItem>
+                      <SelectItem value="cartao_cliente">{PGTO_FORMA_LABEL["cartao_cliente"]}</SelectItem>
                     </SelectContent>
                   </Select>
                 </Field>
 
-                {p.pgto_forma === "cartao" && (
-                  <Field
-                    label="Cartão da agência"
-                    className="col-span-12 sm:col-span-5"
-                  >
-                    <Select
-                      value={p.pgto_cartao_id || undefined}
-                      onValueChange={(v) => patch(p.id, () => ({ pgto_cartao_id: v }))}
-                    >
-                      <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                      <SelectContent>
-                        {props.cartoes.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.nome} (venc. {c.dia_vencimento})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
+                {/* ── FATURADO ─ Sistema só registra a forma ──────────── */}
+                {p.pgto_forma === "faturado" && (
+                  <div className="col-span-12 sm:col-span-8 flex items-center">
+                    <div className="w-full rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-xs leading-relaxed text-white/55">
+                      Fornecedor desconta das comissões com a Magic; se faltar
+                      saldo, gera fatura direta. O contas a pagar deste fluxo é
+                      tratado fora do sistema nesta fase.
+                    </div>
+                  </div>
                 )}
 
-                {/* Valor total — calculado conforme modo de pagamento */}
-                <Field
-                  label="Valor total"
-                  hint={
-                    p.pgto_modo === "net"
-                      ? "Custo − RAV extra fornecedor"
-                      : "Valor de custo"
-                  }
-                  className="col-span-12 sm:col-span-3"
-                >
-                  <CurrencyInput
-                    value={p.pgto_valor_total_str}
-                    onChange={(v) => patch(p.id, () => ({ pgto_valor_total_str: v }))}
-                  />
-                </Field>
+                {/* ── CARTÃO CLIENTE ─ Cliente paga direto ao fornecedor ── */}
+                {p.pgto_forma === "cartao_cliente" && (
+                  <div className="col-span-12 sm:col-span-8 flex items-center">
+                    <div className="w-full rounded-md border border-nexus-bright/20 bg-nexus-bright/[0.05] px-3 py-2.5 text-xs leading-relaxed text-white/70">
+                      O fornecedor enviará um link de pagamento direto ao cliente.
+                      A Magic recebe apenas a comissão — nada precisa ser
+                      registrado em Cobrança no passo 3.
+                    </div>
+                  </div>
+                )}
 
-                {/* Entrada + Parcelas + Valor parcela — ocultos no PIX */}
-                {p.pgto_forma !== "pix" && (
+                {/* ── CARTÃO AGÊNCIA ─ Magic paga, controla parcelas ──── */}
+                {p.pgto_forma === "cartao_agencia" && (
                   <>
+                    {/* Modo de pagamento (comissionado | NET) — filtrado pelo fornecedor */}
+                    {(() => {
+                      const fornSelecionado = p.fornecedor_id && p.fornecedor_id !== "outro"
+                        ? props.fornecedores.find((f) => f.id === p.fornecedor_id)
+                        : null
+                      const temRestricao = fornSelecionado && (fornSelecionado.modo_comissionado || fornSelecionado.modo_net)
+                      const mostraComissionado = !temRestricao || (fornSelecionado?.modo_comissionado ?? true)
+                      const mostraNet = !temRestricao || (fornSelecionado?.modo_net ?? true)
+
+                      return (
+                        <Field
+                          label="Modo de pagamento"
+                          hint={
+                            p.pgto_modo === "net"
+                              ? "Líquido = custo − RAV extra fornecedor"
+                              : "Comissionado = custo cheio"
+                          }
+                          className="col-span-12 sm:col-span-4"
+                        >
+                          <Select
+                            value={p.pgto_modo}
+                            onValueChange={(v) =>
+                              patch(p.id, (prev) => {
+                                const novoModo = v as "comissionado" | "net"
+                                const custo = parseValorComSoma(prev.valor_custo_str)
+                                const ravForn = parseValorComSoma(prev.rav_extra_fornecedor_str)
+                                const pgtoTotal =
+                                  novoModo === "net"
+                                    ? Math.max(0, custo - ravForn)
+                                    : custo
+                                const pgtoTotalStr = pgtoTotal > 0
+                                  ? new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pgtoTotal)
+                                  : ""
+                                return { pgto_modo: novoModo, pgto_valor_total_str: pgtoTotalStr }
+                              })
+                            }
+                          >
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {mostraComissionado && (
+                                <SelectItem value="comissionado">Comissionado</SelectItem>
+                              )}
+                              {mostraNet && (
+                                <SelectItem value="net">NET (Líquido)</SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      )
+                    })()}
+
                     <Field
-                      label="Entrada"
+                      label="Cartão da agência"
                       className="col-span-12 sm:col-span-4"
                     >
+                      <Select
+                        value={p.pgto_cartao_id || undefined}
+                        onValueChange={(v) => patch(p.id, () => ({ pgto_cartao_id: v }))}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                        <SelectContent>
+                          {props.cartoes.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.nome} (venc. {c.dia_vencimento})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    <Field
+                      label="Valor total"
+                      hint={
+                        p.pgto_modo === "net"
+                          ? "Custo − RAV extra fornecedor"
+                          : "Valor de custo"
+                      }
+                      className="col-span-12 sm:col-span-4"
+                    >
+                      <CurrencyInput
+                        value={p.pgto_valor_total_str}
+                        onChange={(v) => patch(p.id, () => ({ pgto_valor_total_str: v }))}
+                      />
+                    </Field>
+
+                    <Field label="Entrada" className="col-span-12 sm:col-span-4">
                       <CurrencyInput
                         value={p.pgto_entrada_str}
                         onChange={(v) => patch(p.id, () => ({ pgto_entrada_str: v }))}
@@ -2352,13 +2602,13 @@ function Step2Produtos(props: {
                       </div>
                     </div>
 
-                    {/* Valor da parcela — display calculado */}
-                    <div className="col-span-6 sm:col-span-4">
+                    {/* Valor da parcela */}
+                    <div className="col-span-6 sm:col-span-6">
                       {(() => {
                         const userTotal = parseValorComSoma(p.pgto_valor_total_str)
                         const total = userTotal > 0
                           ? userTotal
-                          : parseValorComSoma(p.valor_custo_str) + parseValorComSoma(p.rav_extra_fornecedor_str)
+                          : parseValorComSoma(p.valor_custo_str)
                         const entrada = parseValorComSoma(p.pgto_entrada_str) || 0
                         const n = p.pgto_num_parcelas || 1
                         const parcela = (total - entrada) / n

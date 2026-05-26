@@ -19,6 +19,7 @@ import { FornecedorFormModal } from "./fornecedor-form-modal"
 import { FornecedorViewModal } from "./fornecedor-view-modal"
 import { toggleFornecedorAtivo } from "@/app/(dashboard)/fornecedores/actions"
 import { cn } from "@/lib/utils"
+import { IconTooltip } from "@/components/ui/tooltip"
 import type { TipoFornecedor } from "@/lib/schemas/fornecedor"
 
 type TipoProduto = { id: string; nome: string; icone: string | null }
@@ -181,18 +182,19 @@ function IconAction({ icon: Icon, label, onClick, disabled, tone }: IconActionPr
       "border-emerald-500/25 bg-emerald-500/[0.08] text-emerald-300 hover:border-emerald-500/50 hover:bg-emerald-500/15 hover:text-emerald-200",
   }
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={label}
-      aria-label={label}
-      className={cn(
-        "inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-        toneClass[tone],
-      )}
-    >
-      <Icon className="h-4 w-4" />
-    </button>
+    <IconTooltip label={label}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        className={cn(
+          "inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+          toneClass[tone],
+        )}
+      >
+        <Icon className="h-4 w-4" />
+      </button>
+    </IconTooltip>
   )
 }

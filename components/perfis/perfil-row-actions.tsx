@@ -25,6 +25,7 @@ import { PerfilFormModal } from "./perfil-form-modal"
 import { deletePerfil } from "@/app/(dashboard)/perfis/actions"
 import type { PerfilTipo, PermissoesValue } from "@/lib/schemas/perfil"
 import { cn } from "@/lib/utils"
+import { IconTooltip } from "@/components/ui/tooltip"
 
 type Empresa = { id: string; nome: string; slug: string }
 
@@ -190,18 +191,19 @@ function IconAction({
     rose: "border-rose-500/25 bg-rose-500/[0.08] text-rose-300 hover:border-rose-500/50 hover:bg-rose-500/15 hover:text-rose-200",
   }
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={label}
-      aria-label={label}
-      className={cn(
-        "inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-        toneClass[tone],
-      )}
-    >
-      <Icon className="h-4 w-4" />
-    </button>
+    <IconTooltip label={label}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        className={cn(
+          "inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+          toneClass[tone],
+        )}
+      >
+        <Icon className="h-4 w-4" />
+      </button>
+    </IconTooltip>
   )
 }

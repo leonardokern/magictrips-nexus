@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/hooks/use-current-user"
 import { buildPermissions } from "@/lib/hooks/use-permissions"
 import { SidebarNav, type NavItem, type NavSection } from "@/components/dashboard/sidebar-nav"
 import { LogoutButton } from "@/components/dashboard/logout-button"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { isFeatureEnabled } from "@/lib/feature-flags"
 import { UserMenu } from "@/components/dashboard/user-menu"
 import { NotificationsButton } from "@/components/dashboard/notifications-button"
@@ -136,6 +137,7 @@ export default async function DashboardLayout({
   ].filter((s) => s.items.length > 0)
 
   return (
+    <TooltipProvider delayDuration={250} skipDelayDuration={150}>
     <div className="min-h-screen bg-background text-foreground">
       {/* Halo radial — duas cores da marca Nexus se mesclando */}
       <div
@@ -242,5 +244,6 @@ export default async function DashboardLayout({
         </div>
       </div>
     </div>
+    </TooltipProvider>
   )
 }

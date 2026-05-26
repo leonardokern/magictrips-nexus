@@ -53,10 +53,11 @@ export default async function VendasPage() {
     .select(
       `
       id, identificador, data_venda, status, pax, created_at, usuario_id,
+      comissao_percentual,
       empresa:empresas(nome, slug),
       cliente:clientes(nome),
       agente:usuarios!vendas_usuario_id_fkey(nome),
-      produtos:venda_produtos(valor_venda)
+      produtos:venda_produtos(valor_venda, rav, rav_extra_fornecedor)
     `,
     )
     .order("created_at", { ascending: false })
@@ -72,13 +73,19 @@ export default async function VendasPage() {
   const podeExcluir = can(user, "vendas", "excluir")
   const mostraComissao = podeAprovar
 
-  const linhas = (vendas ?? []).map((v) => ({
-    ...v,
-    total: (v.produtos as { valor_venda: number }[] | null)?.reduce(
-      (a, p) => a + Number(p.valor_venda ?? 0),
+  const linhas = (vendas ?? []).map((v) => {
+    type ProdRow = { valor_venda: number; rav: number | null; rav_extra_fornecedor: number | null }
+    const prods = (v.produtos as ProdRow[] | null) ?? []
+    const total = prods.reduce((a, p) => a + Number(p.valor_venda ?? 0), 0)
+    // RAV total = RAV base + RAV extra fornecedor (mesmo conceito do dashboard/painel)
+    const ravTotal = prods.reduce(
+      (a, p) => a + Number(p.rav ?? 0) + Number(p.rav_extra_fornecedor ?? 0),
       0,
-    ) ?? 0,
-  }))
+    )
+    const pctComissao = Number(v.comissao_percentual ?? 0)
+    const comissao = (ravTotal * pctComissao) / 100
+    return { ...v, total, ravTotal, comissao }
+  })
 
   // ── Particiona em duas listas ─────────────────────────────────────────────
   const pendentes = linhas.filter((v) => STATUS_PENDENTES.has(v.status))
@@ -187,6 +194,8 @@ type Linha = {
   cliente: { nome: string } | { nome: string }[] | null
   agente: { nome: string } | { nome: string }[] | null
   total: number
+  ravTotal: number
+  comissao: number
 }
 
 function VendasSection({
@@ -227,10 +236,10 @@ function VendasSection({
               <TableHead className="text-white/55">ID</TableHead>
               <TableHead className="text-white/55">Data</TableHead>
               <TableHead className="text-white/55">Cliente</TableHead>
-              <TableHead className="text-white/55">Empresa</TableHead>
               <TableHead className="text-white/55">Responsável</TableHead>
-              <TableHead className="text-right text-white/55">PAX</TableHead>
               <TableHead className="text-right text-white/55">Valor</TableHead>
+              <TableHead className="text-right text-white/55">RAV</TableHead>
+              <TableHead className="text-right text-white/55">Comissão</TableHead>
               <TableHead className="text-white/55">Status</TableHead>
               <TableHead className="text-right text-white/55">Ações</TableHead>
             </TableRow>
@@ -275,16 +284,16 @@ function VendasSection({
                       {props.clienteNome}
                     </TableCell>
                     <TableCell className="text-sm text-white/75">
-                      {props.empresaNome}
-                    </TableCell>
-                    <TableCell className="text-sm text-white/75">
                       {props.agenteNome}
-                    </TableCell>
-                    <TableCell className="text-right text-sm tabular-nums text-white/75">
-                      {v.pax}
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums text-white">
                       {formatBRL(v.total)}
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums text-white/75">
+                      {formatBRL(v.ravTotal)}
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums text-amber-300/85">
+                      {formatBRL(v.comissao)}
                     </TableCell>
                     <TableCell>
                       <span

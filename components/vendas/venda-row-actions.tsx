@@ -2,7 +2,17 @@
 
 import { useEffect, useState, useTransition } from "react"
 import { useRouter, useSearchParams, usePathname } from "next/navigation"
-import { Eye, Pencil, CheckCircle, RotateCcw, Trash2, type LucideIcon } from "lucide-react"
+import {
+  Eye,
+  Pencil,
+  CheckCircle,
+  RotateCcw,
+  Trash2,
+  ShieldCheck,
+  Receipt,
+  FileText,
+  type LucideIcon,
+} from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { LoaderButton } from "@/components/ui/loader-button"
@@ -27,6 +37,7 @@ import {
   type VendaDetalhes,
 } from "@/app/(dashboard)/vendas/actions"
 import { cn } from "@/lib/utils"
+import { IconTooltip } from "@/components/ui/tooltip"
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -183,12 +194,30 @@ export function VendaRowActions({
     <>
       {/* ── Botões da linha ────────────────────────────────────── */}
       <div className="flex items-center justify-end gap-1.5">
-        <IconAction
-          icon={Eye}
-          label="Visualizar venda"
-          onClick={() => setViewOpen(true)}
-          tone="neutral"
-        />
+        {(() => {
+          // Pra Admin/Gerente sobre uma venda aguardando aprovação, o
+          // primeiro botão remete a "revisar/validar", não a "visualizar".
+          // Mesmo clique abre o modal — apenas a affordance muda.
+          const ehRevisao =
+            podeAprovar &&
+            (venda.status === "pendente_validacao" ||
+              venda.status === "em_revisao")
+          return ehRevisao ? (
+            <IconAction
+              icon={ShieldCheck}
+              label="Revisar e validar"
+              onClick={() => setViewOpen(true)}
+              tone="amber"
+            />
+          ) : (
+            <IconAction
+              icon={Eye}
+              label="Visualizar venda"
+              onClick={() => setViewOpen(true)}
+              tone="neutral"
+            />
+          )
+        })()}
         {podeEditar && (
           <IconAction
             icon={Pencil}
@@ -196,6 +225,26 @@ export function VendaRowActions({
             onClick={() => setEditarOpen(true)}
             tone="bright"
           />
+        )}
+        {/* Em vendas validadas: Comprovante + Relatório antes do Excluir.
+            Ambos liberados pra qualquer um que enxergue a venda — o agente
+            só vê as próprias por RLS, e os dados (comissão, margem RAV)
+            são os mesmos que ele já vê na revisão e no dashboard. */}
+        {venda.status === "aprovado" && (
+          <>
+            <IconLinkAction
+              icon={Receipt}
+              label="Imprimir comprovante"
+              href={`/api/vendas/${venda.id}/comprovante`}
+              tone="neutral"
+            />
+            <IconLinkAction
+              icon={FileText}
+              label="Imprimir relatório"
+              href={`/api/vendas/${venda.id}/relatorio`}
+              tone="neutral"
+            />
+          </>
         )}
         {podeExcluir && (
           <IconAction
@@ -450,32 +499,69 @@ type IconActionProps = {
   tone: Tone
 }
 
+/** Tabela de classes por tom — compartilhada entre IconAction e IconLinkAction. */
+const TONE_CLASSES: Record<Tone, string> = {
+  neutral:
+    "border-white/10 bg-white/[0.03] text-white/75 hover:border-white/25 hover:bg-white/[0.07] hover:text-white",
+  bright:
+    "border-nexus-bright/25 bg-nexus-bright/[0.08] text-nexus-bright hover:border-nexus-bright/50 hover:bg-nexus-bright/15",
+  amber:
+    "border-amber-500/25 bg-amber-500/[0.08] text-amber-300 hover:border-amber-500/50 hover:bg-amber-500/15 hover:text-amber-200",
+  emerald:
+    "border-emerald-500/25 bg-emerald-500/[0.08] text-emerald-300 hover:border-emerald-500/50 hover:bg-emerald-500/15 hover:text-emerald-200",
+  rose:
+    "border-rose-500/25 bg-rose-500/[0.08] text-rose-300 hover:border-rose-500/50 hover:bg-rose-500/15 hover:text-rose-200",
+}
+
 function IconAction({ icon: Icon, label, onClick, disabled, tone }: IconActionProps) {
-  const toneClass: Record<Tone, string> = {
-    neutral:
-      "border-white/10 bg-white/[0.03] text-white/75 hover:border-white/25 hover:bg-white/[0.07] hover:text-white",
-    bright:
-      "border-nexus-bright/25 bg-nexus-bright/[0.08] text-nexus-bright hover:border-nexus-bright/50 hover:bg-nexus-bright/15",
-    amber:
-      "border-amber-500/25 bg-amber-500/[0.08] text-amber-300 hover:border-amber-500/50 hover:bg-amber-500/15 hover:text-amber-200",
-    emerald:
-      "border-emerald-500/25 bg-emerald-500/[0.08] text-emerald-300 hover:border-emerald-500/50 hover:bg-emerald-500/15 hover:text-emerald-200",
-    rose:
-      "border-rose-500/25 bg-rose-500/[0.08] text-rose-300 hover:border-rose-500/50 hover:bg-rose-500/15 hover:text-rose-200",
-  }
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={label}
-      aria-label={label}
-      className={cn(
-        "inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-        toneClass[tone],
-      )}
-    >
-      <Icon className="h-4 w-4" />
-    </button>
+    <IconTooltip label={label}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        className={cn(
+          "inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+          TONE_CLASSES[tone],
+        )}
+      >
+        <Icon className="h-4 w-4" />
+      </button>
+    </IconTooltip>
+  )
+}
+
+/**
+ * Variante do IconAction como link <a> — usada pra abrir PDFs em nova aba.
+ * Compartilha exatamente o mesmo estilo do IconAction (h-9 w-9, tons,
+ * borda) pra manter consistência visual nas linhas da tabela.
+ */
+function IconLinkAction({
+  icon: Icon,
+  label,
+  href,
+  tone,
+}: {
+  icon: LucideIcon
+  label: string
+  href: string
+  tone: Tone
+}) {
+  return (
+    <IconTooltip label={label}>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={label}
+        className={cn(
+          "inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors",
+          TONE_CLASSES[tone],
+        )}
+      >
+        <Icon className="h-4 w-4" />
+      </a>
+    </IconTooltip>
   )
 }

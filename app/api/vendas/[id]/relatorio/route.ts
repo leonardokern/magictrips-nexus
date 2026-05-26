@@ -16,11 +16,12 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  // Relatório é restrito a quem pode aprovar (gerentes/admin)
+  // Qualquer um que enxerga a venda pode imprimir o relatório.
+  // Agentes recebem só as próprias via RLS em `getVendaParaPDF`.
   const user = await requireCurrentUser()
-  if (!can(user, "vendas", "aprovar")) {
+  if (!can(user, "vendas", "ler")) {
     return NextResponse.json(
-      { error: "Sem permissão para baixar o relatório financeiro." },
+      { error: "Sem permissão para baixar o relatório." },
       { status: 403 },
     )
   }
