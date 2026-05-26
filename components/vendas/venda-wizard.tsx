@@ -313,6 +313,9 @@ export function VendaWizard(props: Props) {
   const dirtyRef = useRef(false)
   const inflightRef = useRef(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Flag pra ignorar o primeiro disparo do useEffect (montagem inicial).
+   *  Só começa a autosalvar a partir da primeira mudança real de campo. */
+  const tocouRef = useRef(false)
 
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [confirmValorAberto, setConfirmValorAberto] = useState(false)
@@ -769,9 +772,14 @@ export function VendaWizard(props: Props) {
   }
 
   // Marca dirty + agenda save com debounce a cada mudança de estado relevante.
-  // Lista de deps cobre tudo que `coletarEstadoAtual` lê.
+  // Lista de deps cobre tudo que `coletarEstadoAtual` lê. O primeiro disparo
+  // (montagem) é ignorado — só salva a partir da primeira interação do usuário.
   useEffect(() => {
     if (!autosaveAtivo) return
+    if (!tocouRef.current) {
+      tocouRef.current = true
+      return
+    }
     dirtyRef.current = true
     setAutoStatus((prev) => (prev === "saving" ? prev : "dirty"))
     if (debounceRef.current) clearTimeout(debounceRef.current)
