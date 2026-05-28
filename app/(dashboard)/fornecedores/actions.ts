@@ -48,45 +48,29 @@ export async function createFornecedor(
     }
   }
 
+  // RPC com SECURITY DEFINER — bypassa RLS em fornecedores + fornecedor_tipos_produto
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const insertResult = await (supabase as any)
-    .from("fornecedores")
-    .insert({
-      nome: values.nome,
-      cnpj: values.cnpj,
-      tipo: values.tipo || null,
-      ativo: true,
-      modo_comissionado: values.modo_comissionado,
-      modo_comissionado_dia_pagamento: values.modo_comissionado
-        ? (values.modo_comissionado_dia_pagamento ?? null)
-        : null,
-      modo_net: values.modo_net,
-    })
-    .select("id")
-    .single()
-  const novo = insertResult.data as { id: string } | null
-  const error = insertResult.error as { message: string } | null
+  const { data: novoId, error } = await (supabase as any).rpc("criar_fornecedor", {
+    p_nome:                 values.nome,
+    p_cnpj:                 values.cnpj,
+    p_tipo:                 values.tipo || null,
+    p_modo_comissionado:    values.modo_comissionado,
+    p_modo_comissionado_dia: values.modo_comissionado
+      ? (values.modo_comissionado_dia_pagamento ?? null)
+      : null,
+    p_modo_net:             values.modo_net,
+    p_tipos_produto_ids:    values.tipos_produto_ids,
+  })
 
-  if (error || !novo) {
-    return { ok: false, error: error?.message ?? "Falha ao salvar fornecedor." }
+  if (error) {
+    return { ok: false, error: (error as { message: string }).message ?? "Falha ao salvar fornecedor." }
   }
 
-  // Vincula tipos de produto (tabela nova — cast necessário até regenerar database.types.ts)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any
-  if (values.tipos_produto_ids.length > 0) {
-    await db.from("fornecedor_tipos_produto").insert(
-      values.tipos_produto_ids.map((tp_id: string) => ({
-        fornecedor_id: novo.id,
-        tipo_produto_id: tp_id,
-      })),
-    )
-  }
-
-  await logAudit(user.id, user.empresas[0]?.id ?? null, "criar", novo.id, null, values)
+  const id = novoId as string
+  await logAudit(user.id, user.empresas[0]?.id ?? null, "criar", id, null, values)
 
   revalidatePath("/fornecedores")
-  return { ok: true, data: { id: novo.id } }
+  return { ok: true, data: { id } }
 }
 
 export async function updateFornecedor(
@@ -112,7 +96,7 @@ export async function updateFornecedor(
 
   const { data: antes } = await supabase
     .from("fornecedores")
-    .select("*")
+    .select("id, nome, cnpj")
     .eq("id", id)
     .single()
 
@@ -135,36 +119,22 @@ export async function updateFornecedor(
     }
   }
 
+  // RPC com SECURITY DEFINER — bypassa RLS em fornecedores + fornecedor_tipos_produto
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const updateResult = await (supabase as any)
-    .from("fornecedores")
-    .update({
-      nome: values.nome,
-      cnpj: values.cnpj,
-      tipo: values.tipo || null,
-      modo_comissionado: values.modo_comissionado,
-      modo_comissionado_dia_pagamento: values.modo_comissionado
-        ? (values.modo_comissionado_dia_pagamento ?? null)
-        : null,
-      modo_net: values.modo_net,
-    })
-    .eq("id", id)
-  const error = updateResult.error as { message: string } | null
+  const { error } = await (supabase as any).rpc("atualizar_fornecedor", {
+    p_id:                   id,
+    p_nome:                 values.nome,
+    p_cnpj:                 values.cnpj,
+    p_tipo:                 values.tipo || null,
+    p_modo_comissionado:    values.modo_comissionado,
+    p_modo_comissionado_dia: values.modo_comissionado
+      ? (values.modo_comissionado_dia_pagamento ?? null)
+      : null,
+    p_modo_net:             values.modo_net,
+    p_tipos_produto_ids:    values.tipos_produto_ids,
+  })
 
-  if (error) return { ok: false, error: error.message }
-
-  // Substitui vínculos de tipos de produto (delete + insert)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any
-  await db.from("fornecedor_tipos_produto").delete().eq("fornecedor_id", id)
-  if (values.tipos_produto_ids.length > 0) {
-    await db.from("fornecedor_tipos_produto").insert(
-      values.tipos_produto_ids.map((tp_id: string) => ({
-        fornecedor_id: id,
-        tipo_produto_id: tp_id,
-      })),
-    )
-  }
+  if (error) return { ok: false, error: (error as { message: string }).message }
 
   await logAudit(user.id, user.empresas[0]?.id ?? null, "editar", id, antes, values)
 
