@@ -112,10 +112,13 @@ export async function updateTipoProduto(
   if (parsed.data.icone !== undefined) updates.icone = parsed.data.icone ?? null
 
   if (Object.keys(updates).length > 0) {
-    const { error } = await supabase
+    // `.select("id")` é importante: detecta silent-fail de RLS (0 linhas
+    // afetadas sem erro), que aconteceria se a policy bloqueasse a escrita.
+    const { data, error } = await supabase
       .from("tipos_produto")
       .update(updates)
       .eq("id", id)
+      .select("id")
     if (error) {
       if (error.code === "23505") {
         return {
@@ -125,6 +128,12 @@ export async function updateTipoProduto(
         }
       }
       return { ok: false, error: error.message }
+    }
+    if (!data || data.length === 0) {
+      return {
+        ok: false,
+        error: "Não foi possível salvar — verifique se você tem permissão para editar tipos de produto.",
+      }
     }
   }
 
@@ -281,10 +290,11 @@ export async function updateCampoExtra(
   if (parsed.data.ativo !== undefined) updates.ativo = parsed.data.ativo
 
   if (Object.keys(updates).length > 0) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("campos_extra")
       .update(updates)
       .eq("id", id)
+      .select("id")
     if (error) {
       if (error.code === "23505") {
         return {
@@ -294,6 +304,12 @@ export async function updateCampoExtra(
         }
       }
       return { ok: false, error: error.message }
+    }
+    if (!data || data.length === 0) {
+      return {
+        ok: false,
+        error: "Não foi possível salvar — verifique se você tem permissão para editar campos.",
+      }
     }
   }
 
