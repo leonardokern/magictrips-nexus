@@ -12,26 +12,19 @@ import {
 } from "@/components/ui/select"
 
 type Perfil = { id: string; nome: string }
-type Empresa = { id: string; nome: string }
 
 type Props = {
   q?: string
   perfilId?: string
   status?: string
-  empresaId?: string
   perfis: Perfil[]
-  empresas?: Empresa[]
-  showEmpresaFilter?: boolean
 }
 
 export function UsuariosFilters({
   q,
   perfilId,
   status,
-  empresaId,
   perfis,
-  empresas,
-  showEmpresaFilter,
 }: Props) {
   const router = useRouter()
   const params = useSearchParams()
@@ -93,24 +86,6 @@ export function UsuariosFilters({
         </SelectContent>
       </Select>
 
-      {showEmpresaFilter && empresas && empresas.length > 0 && (
-        <Select
-          value={empresaId ?? "todas"}
-          onValueChange={(v) => updateParam("empresa", v === "todas" ? null : v)}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Empresa" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todas">Todas as empresas</SelectItem>
-            {empresas.map((e) => (
-              <SelectItem key={e.id} value={e.id}>
-                {e.nome}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
     </div>
   )
 }

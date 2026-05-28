@@ -50,22 +50,19 @@ export function PermissoesTable({
 
   return (
     <div className="overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.02]">
-      <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
-        <colgroup>
-          <col className="w-[30%]" />
-          {ACOES_COLUNAS.map((a) => (
-            <col key={a.key} className="w-[8.75%]" />
-          ))}
-        </colgroup>
+      {/* min-width garante que todas as colunas sejam visíveis antes de rolar */}
+      <table className="w-full border-separate border-spacing-0 text-sm" style={{ minWidth: 820 }}>
         <thead>
           <tr>
-            <th className="sticky left-0 top-0 z-20 border-b border-white/[0.06] bg-card/95 px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-white/55 backdrop-blur">
+            {/* Coluna módulo: ocupa espaço restante */}
+            <th className="sticky left-0 top-0 z-20 border-b border-white/[0.06] bg-[#0b1424] px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-white/55">
               Módulo
             </th>
             {ACOES_COLUNAS.map((acao) => (
               <th
                 key={acao.key}
-                className="sticky top-0 z-10 border-b border-white/[0.06] bg-card/95 py-3 text-center text-[11px] font-medium uppercase tracking-wider text-white/55 backdrop-blur"
+                className="sticky top-0 z-10 border-b border-white/[0.06] bg-[#0b1424] py-3 text-center text-[11px] font-medium uppercase tracking-wider text-white/55"
+                style={{ width: 76 }}
               >
                 {acao.label}
               </th>
@@ -81,12 +78,12 @@ export function PermissoesTable({
                 key={mod.key}
                 className="group transition-colors hover:bg-white/[0.025]"
               >
-                <td className="sticky left-0 z-10 border-b border-white/[0.04] bg-card/95 px-4 py-3 align-top group-hover:bg-white/[0.04]">
+                <td className="sticky left-0 z-10 border-b border-white/[0.04] bg-[#0b1424] px-4 py-3 align-middle group-hover:bg-white/[0.04]">
                   <button
                     type="button"
                     onClick={() => toggleLinhaInteira(mod.key, acoesDisponiveis)}
                     disabled={readOnlyAllTrue || disabled}
-                    className="text-left text-sm font-medium text-white hover:text-nexus-bright disabled:cursor-default disabled:hover:text-white"
+                    className="block text-left text-sm font-medium text-white hover:text-nexus-bright disabled:cursor-default disabled:hover:text-white"
                     title="Clique para marcar/desmarcar toda a linha"
                   >
                     {mod.label}
@@ -103,6 +100,7 @@ export function PermissoesTable({
                       <td
                         key={acao.key}
                         className="border-b border-white/[0.04] py-3 text-center align-middle text-white/20"
+                        style={{ width: 76 }}
                       >
                         —
                       </td>
@@ -115,14 +113,17 @@ export function PermissoesTable({
                     <td
                       key={acao.key}
                       className="border-b border-white/[0.04] py-3 text-center align-middle"
+                      style={{ width: 76 }}
                     >
-                      <Checkbox
-                        checked={checked}
-                        disabled={readOnlyAllTrue || disabled}
-                        onCheckedChange={(c) =>
-                          toggle(mod.key, acao.key, c === true)
-                        }
-                      />
+                      <div className="flex justify-center">
+                        <Checkbox
+                          checked={checked}
+                          disabled={readOnlyAllTrue || disabled}
+                          onCheckedChange={(c) =>
+                            toggle(mod.key, acao.key, c === true)
+                          }
+                        />
+                      </div>
                     </td>
                   )
                 })}

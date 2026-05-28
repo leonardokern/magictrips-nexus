@@ -152,10 +152,7 @@ export default async function UsuariosPage({
         q={q}
         perfilId={perfilId}
         status={status}
-        empresaId={empresaFiltro}
         perfis={perfis ?? []}
-        empresas={empresas}
-        showEmpresaFilter={isAdminMaster}
       />
 
       <div className="hidden overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] md:block">
@@ -165,7 +162,6 @@ export default async function UsuariosPage({
               <TableHead className="text-white/55">Usuário</TableHead>
               <TableHead className="text-white/55">E-mail</TableHead>
               <TableHead className="text-white/55">Perfil</TableHead>
-              <TableHead className="text-white/55">Empresa</TableHead>
               <TableHead className="text-white/55">Status</TableHead>
               <TableHead className="text-right text-white/55">Ações</TableHead>
             </TableRow>
@@ -173,7 +169,7 @@ export default async function UsuariosPage({
           <TableBody>
             {!usuarios || usuarios.length === 0 ? (
               <TableRow className="border-white/[0.06] hover:bg-transparent">
-                <TableCell colSpan={6} className="h-32 text-center text-sm text-white/45">
+                <TableCell colSpan={5} className="h-32 text-center text-sm text-white/45">
                   {q || perfilId || status
                     ? "Nenhum usuário encontrado com esses filtros."
                     : "Nenhum usuário cadastrado ainda."}
@@ -214,9 +210,6 @@ export default async function UsuariosPage({
                     <TableCell className="text-sm text-white/55">{u.email}</TableCell>
                     <TableCell>
                       <PerfilUsuarioBadge nome={perfilNome} />
-                    </TableCell>
-                    <TableCell className="text-sm text-white/75">
-                      {empresaNome}
                     </TableCell>
                     <TableCell>
                       <UsuarioAtivoBadge ativo={u.ativo} />
@@ -290,10 +283,9 @@ export default async function UsuariosPage({
                   </div>
                   {/* Row 2: email */}
                   <p className="mt-1.5 pl-12 text-xs text-white/55">{u.email}</p>
-                  {/* Row 3: perfil + empresa */}
-                  <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-12">
+                  {/* Row 3: perfil */}
+                  <div className="mt-1.5 pl-12">
                     <PerfilUsuarioBadge nome={perfilNome} />
-                    <span className="text-xs text-white/55">{empresaNome}</span>
                   </div>
                   {/* Actions row */}
                   <div className="mt-3 flex items-center justify-end border-t border-white/[0.06] pt-3">
