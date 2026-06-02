@@ -27,6 +27,8 @@ type Props =
       id: string
       nome: string
       sistema: boolean
+      /** Chave estável do perfil sistema; null pra customizados. */
+      chave_sistema: "admin" | "gerente" | "agente" | null
       ativo: boolean
       permissoes: PermissoesValue
     }
@@ -37,7 +39,7 @@ export function PerfilForm(props: Props) {
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   const isCreate = props.mode === "create"
-  const isAdmin = !isCreate && props.nome === "Administrador"
+  const isAdmin = !isCreate && props.chave_sistema === "admin"
   const isSistema = !isCreate && props.sistema
 
   const [nome, setNome] = useState(isCreate ? "" : props.nome)
@@ -74,9 +76,12 @@ export function PerfilForm(props: Props) {
         return
       }
 
-      // Edição
-      const payload: { nome?: string; permissoes: PermissoesValue } = { permissoes }
-      if (!isSistema) payload.nome = nome
+      // Edição: nome editável inclusive em perfis sistema (chave_sistema é a
+      // identidade estável, não o nome).
+      const payload: { nome?: string; permissoes: PermissoesValue } = {
+        permissoes,
+        nome,
+      }
       const result = await updatePerfil(props.id, payload)
       if (!result.ok) {
         if (result.fieldErrors) setErrors(result.fieldErrors)
@@ -118,17 +123,12 @@ export function PerfilForm(props: Props) {
                 setNome(e.target.value)
                 update("nome", e.target.value)
               }}
-              disabled={isSistema}
               required
             />
-            {isSistema && !isAdmin && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Nome bloqueado (perfil do sistema). Apenas permissões são editáveis.
-              </p>
-            )}
             {isAdmin && (
               <p className="mt-1 text-xs text-muted-foreground">
-                O Administrador tem acesso total automático — não é editável.
+                O Administrador tem acesso total automático — permissões e tipo
+                são fixos, mas o nome pode ser renomeado livremente.
               </p>
             )}
             {errors.nome && (

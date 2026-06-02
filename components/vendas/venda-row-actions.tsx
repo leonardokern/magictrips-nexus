@@ -104,6 +104,12 @@ export function VendaRowActions({
   // Agente dono de uma venda em revisão — pode abrir o editor a partir
   // do modal de visualização (a tabela mostra só o olho nesse status).
   const podeRevisarNoModal = podeEditar && statusAtual === "em_revisao"
+  // Quando o criador da venda já é Gerente/Admin, o botão "Solicitar revisão"
+  // não faz sentido — ele tem permissão pra editar e aprovar direto. Devolver
+  // a venda a si mesmo seria fluxo perdido.
+  const criadorEhValidador =
+    detalhes?.agentePerfilNome === "Gerente" ||
+    detalhes?.agentePerfilNome === "Administrador"
 
   // Defesa: se `venda.id` mudar (não deveria acontecer com keys corretas,
   // mas garantimos), descarta detalhes pra forçar re-fetch.
@@ -338,14 +344,20 @@ export function VendaRowActions({
 
             {podeAcionarModal && detalhes && (
               <>
-                <Button
-                  variant="ghost"
-                  onClick={abrirRevisao}
-                  className="border border-amber-500/25 bg-amber-500/[0.08] text-amber-300 hover:border-amber-500/50 hover:bg-amber-500/15 hover:text-amber-200"
-                >
-                  <RotateCcw className="mr-2 h-4 w-4" />
-                  Solicitar revisão
-                </Button>
+                {/* "Solicitar revisão" só faz sentido quando o criador da
+                    venda é um Agente — devolver a venda pra um Gerente/Admin
+                    seria devolver pra si próprio, já que ele pode editar e
+                    aprovar direto. */}
+                {!criadorEhValidador && (
+                  <Button
+                    variant="ghost"
+                    onClick={abrirRevisao}
+                    className="border border-amber-500/25 bg-amber-500/[0.08] text-amber-300 hover:border-amber-500/50 hover:bg-amber-500/15 hover:text-amber-200"
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Solicitar revisão
+                  </Button>
+                )}
 
                 <Button
                   onClick={abrirValidar}

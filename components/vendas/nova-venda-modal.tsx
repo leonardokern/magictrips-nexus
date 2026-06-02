@@ -70,8 +70,8 @@ export function NovaVendaModal({ open, onOpenChange }: Props) {
   const [view, setView] = useState<ModalView>({ kind: "loading" })
   const [descartando, setDescartando] = useState<string | null>(null)
   const [isDescartando, startDescartando] = useTransition()
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4 | 5>(1)
-  const [maxWizardStep, setMaxWizardStep] = useState<1 | 2 | 3 | 4 | 5>(1)
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1)
+  const [maxWizardStep, setMaxWizardStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1)
 
   // Carrega dados do wizard + rascunhos do usuário em paralelo
   useEffect(() => {
@@ -135,7 +135,7 @@ export function NovaVendaModal({ open, onOpenChange }: Props) {
       }
       const draft = r.data!.dados as unknown as WizardDraftData
       // Restaura no passo mais avançado que o usuário chegou, não onde salvou
-      const restoreStep = ((draft.maxStep ?? draft.step) as 1 | 2 | 3 | 4 | 5) ?? 1
+      const restoreStep = ((draft.maxStep ?? draft.step) as 1 | 2 | 3 | 4 | 5 | 6) ?? 1
       setWizardStep(restoreStep)
       setMaxWizardStep(restoreStep)
       setView({ kind: "wizard", rascunhoId: id, initialDraft: draft })
@@ -204,7 +204,7 @@ export function NovaVendaModal({ open, onOpenChange }: Props) {
                 return passado ? (
                   <li key={s.num} className={`${base} ${color}`}>
                     <button type="button" className="flex w-full items-center gap-2"
-                      onClick={() => setWizardStep(s.num as 1 | 2 | 3 | 4 | 5)}
+                      onClick={() => setWizardStep(s.num as 1 | 2 | 3 | 4 | 5 | 6)}
                       title={`Voltar para ${s.label}`}>{inner}</button>
                   </li>
                 ) : (

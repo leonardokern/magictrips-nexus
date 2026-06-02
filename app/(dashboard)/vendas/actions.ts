@@ -175,7 +175,7 @@ export async function excluirVenda(
   const supabase = await createClient()
   const { error } = await supabase.rpc("excluir_venda", {
     p_venda_id: id,
-    p_motivo: motivo?.trim() || null,
+    p_motivo: motivo?.trim() || undefined,
   })
 
   if (error) return { ok: false, error: error.message }
@@ -200,6 +200,10 @@ export type VendaDetalhes = {
   clienteNome: string
   agenteId: string
   agenteNome: string
+  /** Nome do perfil do criador da venda (Administrador, Gerente, Agente, etc.).
+   *  Usado pra esconder ações como "Solicitar revisão" quando o criador já é
+   *  Gerente/Admin — nesse caso ele edita e aprova direto. */
+  agentePerfilNome: string | null
   origem: string | null
   pax: number
   observacoes: string | null
@@ -232,6 +236,8 @@ export type VendaDetalhes = {
     pgtoNumParcelas: number
     pgtoValorParcela: number | null
     pgtoDataDebito: string | null
+    /** Taxa adicional na 1ª parcela (pgto_primeira_parcela_extra). */
+    pgtoPrimeiraParcelaExtra: number
     /** Campos personalizados do tipo de produto resolvidos para { nome, valor }. */
     camposExtras: { nome: string; valor: string }[]
   }[]
@@ -241,6 +247,10 @@ export type VendaDetalhes = {
     parcelas: number
     valorParcela: number | null
     plataformaLink: string | null
+    /** Plataforma do pagamento (PagSeguro / Cielo) — null se não informada. */
+    plataforma: string | null
+    /** Distribuição planejada — array com valor + data por parcela. */
+    parcelasDetalhe: { ordem: number; valor: number; data: string | null }[]
     taxaAdquirente: number | null
     valorLiquido: number | null
     dataInicio: string | null
@@ -252,6 +262,12 @@ export type VendaDetalhes = {
     nome: string
     cpf: string | null
     dataNascimento: string | null
+  }[]
+  anexos: {
+    id: string
+    nomeArquivo: string
+    mimeType: string
+    tamanhoBytes: number
   }[]
 }
 
@@ -274,7 +290,7 @@ export async function getVendaDetalhes(
       comissao_percentual,
       empresa:empresas(nome),
       cliente:clientes(nome),
-      agente:usuarios!vendas_usuario_id_fkey(id, nome, comissao_percentual, perfil_id),
+      agente:usuarios!vendas_usuario_id_fkey(id, nome, comissao_percentual, perfil_id, perfil:perfis_acesso(nome)),
       aprovador:usuarios!vendas_aprovado_por_fkey(nome)
     `,
     )
@@ -288,6 +304,7 @@ export async function getVendaDetalhes(
     nome: string
     comissao_percentual: number | null
     perfil_id: string
+    perfil: { nome: string } | null
   } | null
   type Simples = { nome: string } | null
   type TipoProduto = { icone: string | null } | null
@@ -346,43 +363,52 @@ export async function getVendaDetalhes(
     }
   }
 
-  const [{ data: produtos }, { data: passageiros }, { data: cobranca }, { data: camposExtraRows }] =
-    await Promise.all([
-      supabase
-        .from("venda_produtos")
-        .select(
-          `tipo_produto_nome, valor_venda, valor_custo, rav, comissao_vendedor,
-           rav_extra_cliente, rav_extra_fornecedor, tipo_comissao,
-           fornecedor_nome, localizador, localizador_fornecedor, destino,
-           data_emissao, data_inicio_viagem, data_fim_viagem, valores_extras,
-           pgto_forma, pgto_valor_total, pgto_entrada, pgto_num_parcelas,
-           pgto_valor_parcela, pgto_data_debito,
-           cartao:cartoes!fk_venda_produtos_cartao(nome),
-           tipo_produto:tipos_produto!venda_produtos_tipo_produto_id_fkey(icone)`,
-        )
-        .eq("venda_id", id)
-        .order("ordem"),
-      supabase
-        .from("venda_passageiros")
-        .select("nome, cpf, data_nascimento")
-        .eq("venda_id", id)
-        .order("ordem"),
-      supabase
-        .from("cobranca_cliente")
-        .select(
-          `itens:cobranca_cliente_itens(
-            tipo, valor_total, num_parcelas, valor_parcela,
-            plataforma_link, taxa_adquirente, valor_liquido,
-            data_inicio, data_primeiro_recebimento,
-            fornecedor_destino, observacoes
-          )`,
-        )
-        .eq("venda_id", id)
-        .maybeSingle(),
-      supabase
-        .from("campos_extra")
-        .select("id, nome"),
-    ])
+  const [
+    { data: produtos },
+    { data: passageiros },
+    { data: cobranca },
+    { data: camposExtraRows },
+    { data: anexosRows },
+  ] = await Promise.all([
+    supabase
+      .from("venda_produtos")
+      .select(
+        `tipo_produto_nome, valor_venda, valor_custo, rav, comissao_vendedor,
+         rav_extra_cliente, rav_extra_fornecedor, tipo_comissao,
+         fornecedor_nome, localizador, localizador_fornecedor, destino,
+         data_emissao, data_inicio_viagem, data_fim_viagem, valores_extras,
+         pgto_forma, pgto_valor_total, pgto_entrada, pgto_num_parcelas,
+         pgto_valor_parcela, pgto_data_debito, pgto_primeira_parcela_extra,
+         cartao:cartoes!fk_venda_produtos_cartao(nome),
+         tipo_produto:tipos_produto!venda_produtos_tipo_produto_id_fkey(icone)`,
+      )
+      .eq("venda_id", id)
+      .order("ordem"),
+    supabase
+      .from("venda_passageiros")
+      .select("nome, cpf, data_nascimento")
+      .eq("venda_id", id)
+      .order("ordem"),
+    supabase
+      .from("cobranca_cliente")
+      .select(
+        `itens:cobranca_cliente_itens(
+          tipo, valor_total, num_parcelas, valor_parcela,
+          plataforma_link, plataforma, parcelas_detalhe,
+          taxa_adquirente, valor_liquido,
+          data_inicio, data_primeiro_recebimento,
+          fornecedor_destino, observacoes
+        )`,
+      )
+      .eq("venda_id", id)
+      .maybeSingle(),
+    supabase.from("campos_extra").select("id, nome"),
+    supabase
+      .from("venda_anexos")
+      .select("id, nome_arquivo, mime_type, tamanho_bytes")
+      .eq("venda_id", id)
+      .order("created_at", { ascending: true }),
+  ])
 
   // Mapa de id → nome para campos personalizados
   const camposMap: Record<string, string> = {}
@@ -408,6 +434,7 @@ export async function getVendaDetalhes(
       dataFimViagem: dataFim,
       clienteNome: (v.cliente as Simples)?.nome ?? "—",
       agenteId: agente?.id ?? "",
+      agentePerfilNome: agente?.perfil?.nome ?? null,
       agenteNome: agente?.nome ?? "—",
       origem: v.origem,
       pax: v.pax,
@@ -463,6 +490,7 @@ export async function getVendaDetalhes(
           pgtoNumParcelas: Number(p.pgto_num_parcelas ?? 1),
           pgtoValorParcela: p.pgto_valor_parcela != null ? Number(p.pgto_valor_parcela) : null,
           pgtoDataDebito: p.pgto_data_debito ?? null,
+          pgtoPrimeiraParcelaExtra: Number(p.pgto_primeira_parcela_extra ?? 0),
           camposExtras,
         }
       }),
@@ -474,6 +502,12 @@ export async function getVendaDetalhes(
             num_parcelas: number
             valor_parcela: number | null
             plataforma_link: string | null
+            plataforma: string | null
+            parcelas_detalhe: Array<{
+              ordem: number
+              valor: number | string
+              data: string | null
+            }> | null
             taxa_adquirente: number | null
             valor_liquido: number | null
             data_inicio: string | null
@@ -488,6 +522,12 @@ export async function getVendaDetalhes(
         parcelas: it.num_parcelas,
         valorParcela: it.valor_parcela != null ? Number(it.valor_parcela) : null,
         plataformaLink: it.plataforma_link ?? null,
+        plataforma: it.plataforma ?? null,
+        parcelasDetalhe: (it.parcelas_detalhe ?? []).map((p, j) => ({
+          ordem: Number(p.ordem ?? j + 1),
+          valor: Number(p.valor ?? 0),
+          data: p.data ?? null,
+        })),
         taxaAdquirente: it.taxa_adquirente != null ? Number(it.taxa_adquirente) : null,
         valorLiquido: it.valor_liquido != null ? Number(it.valor_liquido) : null,
         dataInicio: it.data_inicio ?? null,
@@ -499,6 +539,12 @@ export async function getVendaDetalhes(
         nome: p.nome,
         cpf: p.cpf ?? null,
         dataNascimento: p.data_nascimento ?? null,
+      })),
+      anexos: (anexosRows ?? []).map((a) => ({
+        id: a.id,
+        nomeArquivo: a.nome_arquivo,
+        mimeType: a.mime_type,
+        tamanhoBytes: a.tamanho_bytes,
       })),
     },
   }
@@ -562,6 +608,7 @@ export type VendaParaPDF = {
     pgtoNumParcelas: number
     pgtoValorParcela: number | null
     pgtoDataDebito: string | null
+    pgtoPrimeiraParcelaExtra: number
     camposExtras: { nome: string; valor: string }[]
   }[]
   // Passageiros com dados completos
@@ -577,12 +624,22 @@ export type VendaParaPDF = {
     parcelas: number
     valorParcela: number | null
     plataformaLink: string | null
+    /** Plataforma do pagamento (PagSeguro / Cielo) — null se não informada. */
+    plataforma: string | null
+    /** Distribuição planejada — array com valor + data por parcela. */
+    parcelasDetalhe: { ordem: number; valor: number; data: string | null }[]
     taxaAdquirente: number | null
     valorLiquido: number | null
     dataInicio: string | null
     dataPrimeiroRecebimento: string | null
     fornecedorDestino: string | null
     observacoes: string | null
+  }[]
+  // Anexos da venda (PDF/imagens) — listados nominalmente no PDF.
+  anexos: {
+    nomeArquivo: string
+    mimeType: string
+    tamanhoBytes: number
   }[]
 }
 
@@ -618,6 +675,7 @@ export async function getVendaParaPDF(
     { data: passageiros },
     { data: cobranca },
     { data: camposExtraRows },
+    { data: anexosRows },
   ] = await Promise.all([
     supabase
       .from("venda_produtos")
@@ -628,7 +686,7 @@ export async function getVendaParaPDF(
         valor_venda, valor_custo, rav, comissao_vendedor,
         rav_extra_cliente, rav_extra_fornecedor, tipo_comissao, valores_extras,
         pgto_forma, pgto_valor_total, pgto_entrada, pgto_num_parcelas,
-        pgto_valor_parcela, pgto_data_debito,
+        pgto_valor_parcela, pgto_data_debito, pgto_primeira_parcela_extra,
         pgto_cartao:cartoes!fk_venda_produtos_cartao(nome)
       `,
       )
@@ -644,7 +702,8 @@ export async function getVendaParaPDF(
       .select(
         `itens:cobranca_cliente_itens(
           tipo, valor_total, num_parcelas, valor_parcela,
-          plataforma_link, taxa_adquirente, valor_liquido,
+          plataforma_link, plataforma, parcelas_detalhe,
+          taxa_adquirente, valor_liquido,
           data_inicio, data_primeiro_recebimento,
           fornecedor_destino, observacoes
         )`,
@@ -652,6 +711,11 @@ export async function getVendaParaPDF(
       .eq("venda_id", id)
       .maybeSingle(),
     supabase.from("campos_extra").select("id, nome"),
+    supabase
+      .from("venda_anexos")
+      .select("nome_arquivo, mime_type, tamanho_bytes")
+      .eq("venda_id", id)
+      .order("created_at", { ascending: true }),
   ])
 
   type Simples = { nome: string } | null
@@ -786,6 +850,7 @@ export async function getVendaParaPDF(
           pgtoNumParcelas: Number(p.pgto_num_parcelas ?? 1),
           pgtoValorParcela: p.pgto_valor_parcela != null ? Number(p.pgto_valor_parcela) : null,
           pgtoDataDebito: p.pgto_data_debito ?? null,
+          pgtoPrimeiraParcelaExtra: Number(p.pgto_primeira_parcela_extra ?? 0),
           camposExtras,
         }
       }),
@@ -802,6 +867,12 @@ export async function getVendaParaPDF(
             num_parcelas: number
             valor_parcela: number | null
             plataforma_link: string | null
+            plataforma: string | null
+            parcelas_detalhe: Array<{
+              ordem: number
+              valor: number | string
+              data: string | null
+            }> | null
             taxa_adquirente: number | null
             valor_liquido: number | null
             data_inicio: string | null
@@ -816,12 +887,23 @@ export async function getVendaParaPDF(
         parcelas: it.num_parcelas,
         valorParcela: it.valor_parcela != null ? Number(it.valor_parcela) : null,
         plataformaLink: it.plataforma_link ?? null,
+        plataforma: it.plataforma ?? null,
+        parcelasDetalhe: (it.parcelas_detalhe ?? []).map((p, j) => ({
+          ordem: Number(p.ordem ?? j + 1),
+          valor: Number(p.valor ?? 0),
+          data: p.data ?? null,
+        })),
         taxaAdquirente: it.taxa_adquirente != null ? Number(it.taxa_adquirente) : null,
         valorLiquido: it.valor_liquido != null ? Number(it.valor_liquido) : null,
         dataInicio: it.data_inicio ?? null,
         dataPrimeiroRecebimento: it.data_primeiro_recebimento ?? null,
         fornecedorDestino: it.fornecedor_destino ?? null,
         observacoes: it.observacoes ?? null,
+      })),
+      anexos: (anexosRows ?? []).map((a) => ({
+        nomeArquivo: a.nome_arquivo,
+        mimeType: a.mime_type,
+        tamanhoBytes: a.tamanho_bytes,
       })),
     },
   }
@@ -1030,10 +1112,18 @@ export type VendaParaEditar = {
       pgto_forma: string; pgto_cartao_id: string
       pgto_valor_total_str: string; pgto_entrada_str: string
       pgto_num_parcelas: number
+      /** Data da primeira cobrança no cartão (pgto_data_debito). */
+      pgto_data_entrada_str: string
+      /** Valor extra na 1ª parcela — taxas/IOF (pgto_primeira_parcela_extra). */
+      pgto_primeira_parcela_extra_str: string
     }[]
     cobrancaItens: {
       tipo: string; outro_descricao: string; valor_total_str: string
       num_parcelas: number; plataforma_link: string
+      /** Plataforma da cobrança (PagSeguro / Cielo / vazio). */
+      plataforma: "" | "PagSeguro" | "Cielo"
+      /** Distribuição de parcelas — array com valor + data. */
+      parcelas_detalhe: { ordem: number; valor_str: string; data: string }[]
       taxa_adquirente_str: string; valor_liquido_str: string
       data_inicio: string; data_primeiro_recebimento: string; observacoes: string
     }[]
@@ -1077,7 +1167,7 @@ export async function getVendaParaEditar(
         .maybeSingle(),
       supabase
         .from("venda_produtos")
-        .select("tipo_produto_id, fornecedor_id, fornecedor_nome, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, comissao_vendedor, valores_extras, data_emissao, pgto_modo, pgto_forma, pgto_cartao_id, pgto_valor_total, pgto_entrada, pgto_num_parcelas, pgto_valor_parcela, pgto_data_debito, data_inicio_viagem, data_fim_viagem")
+        .select("tipo_produto_id, fornecedor_id, fornecedor_nome, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, comissao_vendedor, valores_extras, data_emissao, pgto_modo, pgto_forma, pgto_cartao_id, pgto_valor_total, pgto_entrada, pgto_num_parcelas, pgto_valor_parcela, pgto_data_debito, pgto_primeira_parcela_extra, data_inicio_viagem, data_fim_viagem")
         .eq("venda_id", id)
         .order("ordem"),
       supabase
@@ -1087,7 +1177,7 @@ export async function getVendaParaEditar(
         .order("ordem"),
       supabase
         .from("cobranca_cliente")
-        .select("observacoes, itens:cobranca_cliente_itens(tipo, valor_total, num_parcelas, valor_parcela, plataforma_link, taxa_adquirente, valor_liquido, data_inicio, data_primeiro_recebimento, observacoes)")
+        .select("observacoes, itens:cobranca_cliente_itens(tipo, valor_total, num_parcelas, valor_parcela, plataforma_link, plataforma, parcelas_detalhe, taxa_adquirente, valor_liquido, data_inicio, data_primeiro_recebimento, observacoes)")
         .eq("venda_id", id)
         .maybeSingle(),
     ])
@@ -1099,6 +1189,8 @@ export async function getVendaParaEditar(
   type ItemRaw = {
     tipo: string; valor_total: number | null; num_parcelas: number | null
     valor_parcela: number | null; plataforma_link: string | null
+    plataforma: string | null
+    parcelas_detalhe: { ordem: number; valor: number | string; data: string | null }[] | null
     taxa_adquirente: number | null; valor_liquido: number | null
     data_inicio: string | null; data_primeiro_recebimento: string | null
     observacoes: string | null
@@ -1150,6 +1242,8 @@ export async function getVendaParaEditar(
       pgto_valor_total_str:     numStr(p.pgto_valor_total),
       pgto_entrada_str:         numStr(p.pgto_entrada),
       pgto_num_parcelas:        Number(p.pgto_num_parcelas ?? 1),
+      pgto_data_entrada_str:    p.pgto_data_debito ?? "",
+      pgto_primeira_parcela_extra_str: numStr(p.pgto_primeira_parcela_extra),
     })),
     cobrancaItens: itensRaw.map((it) => ({
       tipo:                     it.tipo ?? "pix",
@@ -1157,6 +1251,15 @@ export async function getVendaParaEditar(
       valor_total_str:          numStr(it.valor_total),
       num_parcelas:             Number(it.num_parcelas ?? 1),
       plataforma_link:          it.plataforma_link ?? "",
+      plataforma:
+        it.plataforma === "PagSeguro" || it.plataforma === "Cielo"
+          ? it.plataforma
+          : "",
+      parcelas_detalhe: (it.parcelas_detalhe ?? []).map((p, j) => ({
+        ordem: Number(p.ordem ?? j + 1),
+        valor_str: numStr(Number(p.valor ?? 0)),
+        data: p.data ?? "",
+      })),
       taxa_adquirente_str:      numStr(it.taxa_adquirente),
       valor_liquido_str:        numStr(it.valor_liquido),
       data_inicio:              it.data_inicio ?? "",

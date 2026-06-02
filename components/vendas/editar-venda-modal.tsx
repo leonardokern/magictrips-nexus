@@ -26,12 +26,13 @@ export function EditarVendaModal({ vendaId, open, onOpenChange, modoGerente = tr
   const [dados, setDados] = useState<DadosNovaVenda | null>(null)
   const [draft, setDraft] = useState<WizardDraftData | null>(null)
   const [loading, setLoading] = useState(false)
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4 | 5>(1)
-  const [maxWizardStep, setMaxWizardStep] = useState<1 | 2 | 3 | 4 | 5>(5)
-  // Validade dos 4 primeiros steps — recebido do wizard via callback.
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1)
+  const [maxWizardStep, setMaxWizardStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(6)
+  // Validade dos 5 primeiros steps — recebido do wizard via callback.
   // Em modoGerente, define quais tabs aparecem ✓ válido (verde) ou ⚠ inválido (âmbar).
+  // Step 5 (Anexos) é opcional, então sempre nasce válido.
   const [stepsStatus, setStepsStatus] = useState<StepsStatus>({
-    1: "valid", 2: "valid", 3: "valid", 4: "valid",
+    1: "valid", 2: "valid", 3: "valid", 4: "valid", 5: "valid",
   })
 
   useEffect(() => {
@@ -39,7 +40,7 @@ export function EditarVendaModal({ vendaId, open, onOpenChange, modoGerente = tr
       setDados(null)
       setDraft(null)
       setWizardStep(1)
-      setMaxWizardStep(5)
+      setMaxWizardStep(6)
       return
     }
     setLoading(true)
@@ -77,18 +78,18 @@ export function EditarVendaModal({ vendaId, open, onOpenChange, modoGerente = tr
                 const Icon = s.icon
                 const ativo = wizardStep === s.num
                 const passado = wizardStep > s.num
-                // Em modoGerente, todos os steps 1-4 são navegáveis pelo header
-                const clicavel = modoGerente ? (s.num <= 4 && !ativo) : passado
+                // Em modoGerente, todos os steps 1-5 são navegáveis pelo header
+                const clicavel = modoGerente ? (s.num <= 5 && !ativo) : passado
 
                 // Em modoGerente, considera o step "concluído" por padrão (a venda
                 // já foi cadastrada). Marca inválido apenas se faltar campo obrigatório.
                 const valido =
-                  modoGerente && s.num <= 4
-                    ? stepsStatus[s.num as 1 | 2 | 3 | 4] === "valid"
+                  modoGerente && s.num <= 5
+                    ? stepsStatus[s.num as 1 | 2 | 3 | 4 | 5] === "valid"
                     : false
                 const invalido =
-                  modoGerente && s.num <= 4
-                    ? stepsStatus[s.num as 1 | 2 | 3 | 4] === "invalid"
+                  modoGerente && s.num <= 5
+                    ? stepsStatus[s.num as 1 | 2 | 3 | 4 | 5] === "invalid"
                     : false
 
                 const base =
@@ -128,7 +129,7 @@ export function EditarVendaModal({ vendaId, open, onOpenChange, modoGerente = tr
                     <button
                       type="button"
                       className="flex w-full items-center gap-2"
-                      onClick={() => setWizardStep(s.num as 1 | 2 | 3 | 4 | 5)}
+                      onClick={() => setWizardStep(s.num as 1 | 2 | 3 | 4 | 5 | 6)}
                       title={`Ir para ${s.label}`}
                     >
                       {inner}

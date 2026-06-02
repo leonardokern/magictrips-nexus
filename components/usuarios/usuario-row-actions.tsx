@@ -31,6 +31,12 @@ type Props = {
     email: string
     perfil_id: string
     perfil_nome: string
+    /**
+     * Chave estável do perfil sistema ('admin'|'gerente'|'agente') ou null
+     * para perfis customizados. Use ESTA para checagens de privilégio
+     * (não o nome, que é renomeável).
+     */
+    perfil_chave_sistema: "admin" | "gerente" | "agente" | null
     empresa_ids: string[]
     ativo: boolean
     foto_url?: string | null
@@ -54,7 +60,7 @@ export function UsuarioRowActions({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
 
-  const isAdmin = usuario.perfil_nome === "Administrador"
+  const isAdmin = usuario.perfil_chave_sistema === "admin"
 
   function onToggleConfirmed() {
     const novoAtivo = !usuario.ativo

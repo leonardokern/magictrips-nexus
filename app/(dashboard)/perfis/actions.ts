@@ -13,14 +13,10 @@ import {
 import { permissoesTodas } from "@/lib/constants/permissoes"
 import type { ActionResult } from "@/app/(dashboard)/clientes/actions"
 
-const PERFIL_ADMIN = "Administrador"
-const NOMES_RESERVADOS = [
-  "Administrador",
-  "Gerente",
-  "Agente",
-  "Agente Magic Trips",
-  "Agente Del Mondo",
-]
+// Os perfis sistema agora são identificados pela coluna `chave_sistema`
+// ('admin'|'gerente'|'agente') — o NOME pode ser renomeado livremente.
+// Não há mais lista de nomes reservados: o UNIQUE em perfis_acesso(nome)
+// + UNIQUE parcial em chave_sistema cuidam de colisão.
 
 /**
  * Sincroniza os overrides de comissão de um perfil agente.
@@ -63,14 +59,6 @@ export async function createPerfil(
 
   const { nome, tipo, empresa_id, permissoes, comissoes } = parsed.data
   const supabase = await createClient()
-
-  if (NOMES_RESERVADOS.map((n) => n.toLowerCase()).includes(nome.toLowerCase())) {
-    return {
-      ok: false,
-      error: "Este nome é reservado para um perfil do sistema.",
-      fieldErrors: { nome: "Nome reservado." },
-    }
-  }
 
   const { data: novo, error } = await supabase
     .from("perfis_acesso")
@@ -133,21 +121,16 @@ export async function updatePerfil(
   }
 
   const supabase = await createClient()
-  const { data: antes } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: antes } = await (supabase as any)
     .from("perfis_acesso")
-    .select("id, nome, sistema, permissoes, ativo, empresa_id, tipo")
+    .select("id, nome, sistema, permissoes, ativo, empresa_id, tipo, chave_sistema")
     .eq("id", id)
     .single()
 
   if (!antes) return { ok: false, error: "Perfil não encontrado." }
 
-  if (antes.nome === PERFIL_ADMIN) {
-    return {
-      ok: false,
-      error:
-        "O perfil Administrador tem acesso total automático e não é editável.",
-    }
-  }
+  const isAdmin = antes.chave_sistema === "admin"
 
   const updates: {
     nome?: string
@@ -155,14 +138,13 @@ export async function updatePerfil(
     empresa_id?: string | null
     permissoes?: Record<string, Record<string, boolean>>
   } = {}
-  if (parsed.data.permissoes !== undefined) {
+
+  // Permissões e tipo do Admin são fixos (acesso total automático) — só nome muda.
+  if (!isAdmin && parsed.data.permissoes !== undefined) {
     updates.permissoes = sanitizarPermissoes(parsed.data.permissoes)
   }
-  // IMPORTANTE: só inclui nome/tipo/empresa no UPDATE se realmente mudaram.
-  // O frontend manda sempre o estado completo, mas perfis sistema têm trigger
-  // `proteger_rename_perfis_sistema` que bloqueia qualquer UPDATE onde
-  // NEW.nome difere de OLD.nome — incluindo casos de reassignment idêntico
-  // que tropeçam em normalização de whitespace/encoding.
+  // Só inclui nome/tipo/empresa no UPDATE se realmente mudaram, pra evitar
+  // tropeço em triggers de reassignment idêntico (defesa em profundidade).
   if (
     parsed.data.nome !== undefined &&
     parsed.data.nome !== antes.nome
@@ -170,12 +152,14 @@ export async function updatePerfil(
     updates.nome = parsed.data.nome
   }
   if (
+    !isAdmin &&
     parsed.data.tipo !== undefined &&
     parsed.data.tipo !== antes.tipo
   ) {
     updates.tipo = parsed.data.tipo
   }
   if (
+    !isAdmin &&
     parsed.data.empresa_id !== undefined &&
     parsed.data.empresa_id !== antes.empresa_id
   ) {
@@ -230,14 +214,15 @@ export async function togglePerfilAtivo(
   }
 
   const supabase = await createClient()
-  const { data: antes } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: antes } = await (supabase as any)
     .from("perfis_acesso")
-    .select("id, nome, sistema, ativo")
+    .select("id, nome, sistema, ativo, chave_sistema")
     .eq("id", id)
     .single()
 
   if (!antes) return { ok: false, error: "Perfil não encontrado." }
-  if (antes.nome === PERFIL_ADMIN) {
+  if (antes.chave_sistema === "admin") {
     return { ok: false, error: "O perfil Administrador não pode ser desativado." }
   }
 
@@ -311,10 +296,11 @@ export async function resetPermissoesAdmin() {
     return { ok: false as const, error: "Sem permissão." }
   }
   const supabase = await createClient()
-  await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (supabase as any)
     .from("perfis_acesso")
     .update({ permissoes: permissoesTodas(true) })
-    .eq("nome", PERFIL_ADMIN)
+    .eq("chave_sistema", "admin")
   revalidatePath("/perfis")
   return { ok: true as const }
 }

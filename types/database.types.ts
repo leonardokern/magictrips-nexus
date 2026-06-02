@@ -14,6 +14,105 @@ export type Database = {
   }
   public: {
     Tables: {
+      agenda_eventos: {
+        Row: {
+          all_day: boolean
+          cor: string
+          created_at: string
+          criado_por: string
+          data_fim: string | null
+          data_inicio: string
+          descricao: string | null
+          empresa_id: string
+          hora_fim: string | null
+          hora_inicio: string | null
+          id: string
+          tipo: string
+          titulo: string
+          updated_at: string
+        }
+        Insert: {
+          all_day?: boolean
+          cor?: string
+          created_at?: string
+          criado_por: string
+          data_fim?: string | null
+          data_inicio: string
+          descricao?: string | null
+          empresa_id: string
+          hora_fim?: string | null
+          hora_inicio?: string | null
+          id?: string
+          tipo?: string
+          titulo: string
+          updated_at?: string
+        }
+        Update: {
+          all_day?: boolean
+          cor?: string
+          created_at?: string
+          criado_por?: string
+          data_fim?: string | null
+          data_inicio?: string
+          descricao?: string | null
+          empresa_id?: string
+          hora_fim?: string | null
+          hora_inicio?: string | null
+          id?: string
+          tipo?: string
+          titulo?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agenda_eventos_criado_por_fkey"
+            columns: ["criado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agenda_eventos_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agenda_eventos_compartilhamentos: {
+        Row: {
+          created_at: string
+          evento_id: string
+          usuario_id: string
+        }
+        Insert: {
+          created_at?: string
+          evento_id: string
+          usuario_id: string
+        }
+        Update: {
+          created_at?: string
+          evento_id?: string
+          usuario_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agenda_eventos_compartilhamentos_evento_id_fkey"
+            columns: ["evento_id"]
+            isOneToOne: false
+            referencedRelation: "agenda_eventos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agenda_eventos_compartilhamentos_usuario_id_fkey"
+            columns: ["usuario_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           acao: string
@@ -129,102 +228,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      feature_flags: {
-        Row: {
-          chave: string
-          ativo: boolean
-          ativo_dev: boolean
-          ativo_prod: boolean
-          descricao: string | null
-          updated_at: string
-        }
-        Insert: {
-          chave: string
-          ativo?: boolean
-          ativo_dev?: boolean
-          ativo_prod?: boolean
-          descricao?: string | null
-          updated_at?: string
-        }
-        Update: {
-          chave?: string
-          ativo?: boolean
-          ativo_dev?: boolean
-          ativo_prod?: boolean
-          descricao?: string | null
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      agenda_eventos_compartilhamentos: {
-        Row: {
-          evento_id: string
-          usuario_id: string
-          created_at: string
-        }
-        Insert: {
-          evento_id: string
-          usuario_id: string
-          created_at?: string
-        }
-        Update: {
-          evento_id?: string
-          usuario_id?: string
-          created_at?: string
-        }
-        Relationships: []
-      }
-      agenda_eventos: {
-        Row: {
-          id: string
-          empresa_id: string
-          criado_por: string
-          titulo: string
-          descricao: string | null
-          data_inicio: string
-          data_fim: string | null
-          all_day: boolean
-          hora_inicio: string | null
-          hora_fim: string | null
-          tipo: string
-          cor: string
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          empresa_id: string
-          criado_por: string
-          titulo: string
-          descricao?: string | null
-          data_inicio: string
-          data_fim?: string | null
-          all_day?: boolean
-          hora_inicio?: string | null
-          hora_fim?: string | null
-          tipo?: string
-          cor?: string
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          empresa_id?: string
-          criado_por?: string
-          titulo?: string
-          descricao?: string | null
-          data_inicio?: string
-          data_fim?: string | null
-          all_day?: boolean
-          hora_inicio?: string | null
-          hora_fim?: string | null
-          tipo?: string
-          cor?: string
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: []
       }
       cartoes: {
         Row: {
@@ -465,6 +468,8 @@ export type Database = {
           id: string
           num_parcelas: number
           observacoes: string | null
+          parcelas_detalhe: Json
+          plataforma: string | null
           plataforma_link: string | null
           taxa_adquirente: number | null
           tipo: string
@@ -481,6 +486,8 @@ export type Database = {
           id?: string
           num_parcelas?: number
           observacoes?: string | null
+          parcelas_detalhe?: Json
+          plataforma?: string | null
           plataforma_link?: string | null
           taxa_adquirente?: number | null
           tipo: string
@@ -497,6 +504,8 @@ export type Database = {
           id?: string
           num_parcelas?: number
           observacoes?: string | null
+          parcelas_detalhe?: Json
+          plataforma?: string | null
           plataforma_link?: string | null
           taxa_adquirente?: number | null
           tipo?: string
@@ -601,12 +610,78 @@ export type Database = {
         }
         Relationships: []
       }
+      feature_flags: {
+        Row: {
+          ativo: boolean
+          ativo_dev: boolean
+          ativo_prod: boolean
+          chave: string
+          descricao: string | null
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          ativo_dev?: boolean
+          ativo_prod?: boolean
+          chave: string
+          descricao?: string | null
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          ativo_dev?: boolean
+          ativo_prod?: boolean
+          chave?: string
+          descricao?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      fornecedor_tipos_produto: {
+        Row: {
+          created_at: string
+          fornecedor_id: string
+          id: string
+          tipo_produto_id: string
+        }
+        Insert: {
+          created_at?: string
+          fornecedor_id: string
+          id?: string
+          tipo_produto_id: string
+        }
+        Update: {
+          created_at?: string
+          fornecedor_id?: string
+          id?: string
+          tipo_produto_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fornecedor_tipos_produto_fornecedor_id_fkey"
+            columns: ["fornecedor_id"]
+            isOneToOne: false
+            referencedRelation: "fornecedores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fornecedor_tipos_produto_tipo_produto_id_fkey"
+            columns: ["tipo_produto_id"]
+            isOneToOne: false
+            referencedRelation: "tipos_produto"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fornecedores: {
         Row: {
           ativo: boolean
           cnpj: string
           created_at: string
           id: string
+          modo_comissionado: boolean
+          modo_comissionado_dia_pagamento: number | null
+          modo_net: boolean
           nome: string
           tipo: string | null
         }
@@ -615,6 +690,9 @@ export type Database = {
           cnpj: string
           created_at?: string
           id?: string
+          modo_comissionado?: boolean
+          modo_comissionado_dia_pagamento?: number | null
+          modo_net?: boolean
           nome: string
           tipo?: string | null
         }
@@ -623,6 +701,9 @@ export type Database = {
           cnpj?: string
           created_at?: string
           id?: string
+          modo_comissionado?: boolean
+          modo_comissionado_dia_pagamento?: number | null
+          modo_net?: boolean
           nome?: string
           tipo?: string | null
         }
@@ -946,6 +1027,7 @@ export type Database = {
       perfis_acesso: {
         Row: {
           ativo: boolean
+          chave_sistema: string | null
           created_at: string
           empresa_id: string | null
           id: string
@@ -956,6 +1038,7 @@ export type Database = {
         }
         Insert: {
           ativo?: boolean
+          chave_sistema?: string | null
           created_at?: string
           empresa_id?: string | null
           id?: string
@@ -966,6 +1049,7 @@ export type Database = {
         }
         Update: {
           ativo?: boolean
+          chave_sistema?: string | null
           created_at?: string
           empresa_id?: string | null
           id?: string
@@ -1099,6 +1183,7 @@ export type Database = {
           created_at: string
           email: string
           force_password_change: boolean
+          foto_url: string | null
           id: string
           iniciais: string | null
           nome: string
@@ -1111,6 +1196,7 @@ export type Database = {
           created_at?: string
           email: string
           force_password_change?: boolean
+          foto_url?: string | null
           id: string
           iniciais?: string | null
           nome: string
@@ -1123,6 +1209,7 @@ export type Database = {
           created_at?: string
           email?: string
           force_password_change?: boolean
+          foto_url?: string | null
           id?: string
           iniciais?: string | null
           nome?: string
@@ -1168,6 +1255,57 @@ export type Database = {
             columns: ["usuario_id"]
             isOneToOne: false
             referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      venda_anexos: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          mime_type: string
+          nome_arquivo: string
+          storage_path: string
+          tamanho_bytes: number
+          venda_id: string | null
+          wizard_session_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          mime_type: string
+          nome_arquivo: string
+          storage_path: string
+          tamanho_bytes: number
+          venda_id?: string | null
+          wizard_session_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          mime_type?: string
+          nome_arquivo?: string
+          storage_path?: string
+          tamanho_bytes?: number
+          venda_id?: string | null
+          wizard_session_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "venda_anexos_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venda_anexos_venda_id_fkey"
+            columns: ["venda_id"]
+            isOneToOne: false
+            referencedRelation: "vendas"
             referencedColumns: ["id"]
           },
         ]
@@ -1263,6 +1401,7 @@ export type Database = {
           pgto_forma: string | null
           pgto_modo: string
           pgto_num_parcelas: number | null
+          pgto_primeira_parcela_extra: number
           pgto_status: string
           pgto_valor_parcela: number | null
           pgto_valor_total: number | null
@@ -1296,6 +1435,7 @@ export type Database = {
           pgto_forma?: string | null
           pgto_modo?: string
           pgto_num_parcelas?: number | null
+          pgto_primeira_parcela_extra?: number
           pgto_status?: string
           pgto_valor_parcela?: number | null
           pgto_valor_total?: number | null
@@ -1329,6 +1469,7 @@ export type Database = {
           pgto_forma?: string | null
           pgto_modo?: string
           pgto_num_parcelas?: number | null
+          pgto_primeira_parcela_extra?: number
           pgto_status?: string
           pgto_valor_parcela?: number | null
           pgto_valor_total?: number | null
@@ -1545,35 +1686,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      agenda_eh_compartilhado: {
+        Args: { p_evento_id: string }
+        Returns: boolean
+      }
+      agenda_eh_dono: { Args: { p_evento_id: string }; Returns: boolean }
       alterar_minha_senha: {
         Args: { p_nova_senha: string; p_senha_atual: string }
         Returns: undefined
       }
       app_user_empresas: { Args: never; Returns: string[] }
-      listar_usuarios_para_compartilhar: {
-        Args: Record<string, never>
-        Returns: {
-          id: string
-          nome: string
-          perfil_nome: string
-        }[]
-      }
-      get_agenda_eventos: {
-        Args: { p_inicio: string; p_fim: string }
-        Returns: {
-          id: string
-          tipo: string
-          titulo: string
-          descricao: string
-          dia: string
-          cor: string
-          referencia_tipo: string
-          referencia_id: string | null
-          valor: number | null
-          hora_inicio: string | null
-          hora_fim: string | null
-        }[]
-      }
       app_user_perfil_nome: { Args: never; Returns: string }
       aprovar_venda: {
         Args: { p_aprovador_id: string; p_venda_id: string }
@@ -1583,9 +1705,39 @@ export type Database = {
         Args: { p_empresa_ids: string[]; p_user_id: string }
         Returns: undefined
       }
+      atualizar_fornecedor: {
+        Args: {
+          p_cnpj: string
+          p_id: string
+          p_modo_comissionado?: boolean
+          p_modo_comissionado_dia?: number
+          p_modo_net?: boolean
+          p_nome: string
+          p_tipo?: string
+          p_tipos_produto_ids?: string[]
+        }
+        Returns: undefined
+      }
+      atualizar_foto_usuario: {
+        Args: { p_foto_url?: string; p_user_id: string }
+        Returns: undefined
+      }
       comissao_efetiva_perfil: {
         Args: { p_origem_id: string; p_perfil_id: string }
         Returns: number
+      }
+      compartilham_empresa: { Args: { p_usuario_id: string }; Returns: boolean }
+      criar_fornecedor: {
+        Args: {
+          p_cnpj: string
+          p_modo_comissionado?: boolean
+          p_modo_comissionado_dia?: number
+          p_modo_net?: boolean
+          p_nome: string
+          p_tipo?: string
+          p_tipos_produto_ids?: string[]
+        }
+        Returns: string
       }
       criar_usuario_admin: {
         Args: {
@@ -1600,29 +1752,61 @@ export type Database = {
         Returns: string
       }
       criar_venda_completa: { Args: { p_payload: Json }; Returns: string }
-      excluir_venda: {
-        Args: { p_venda_id: string; p_motivo?: string | null }
-        Returns: undefined
-      }
-      editar_venda_completa: {
-        Args: { p_venda_id: string; p_payload: Json; p_aprovar?: boolean }
-        Returns: undefined
-      }
       devolver_venda: {
         Args: { p_motivo: string; p_revisor_id: string; p_venda_id: string }
         Returns: undefined
       }
-      resubmeter_venda: {
-        Args: { p_venda_id: string; p_payload: Json }
+      editar_venda_completa: {
+        Args: { p_aprovar?: boolean; p_payload: Json; p_venda_id: string }
         Returns: undefined
       }
       excluir_usuario_admin: { Args: { p_user_id: string }; Returns: undefined }
+      excluir_venda: {
+        Args: { p_motivo?: string; p_venda_id: string }
+        Returns: undefined
+      }
+      gerar_parcelas_receber: {
+        Args: { p_venda_id: string }
+        Returns: undefined
+      }
+      get_agenda_eventos: {
+        Args: { p_fim: string; p_inicio: string }
+        Returns: {
+          cor: string
+          descricao: string
+          dia: string
+          hora_fim: string
+          hora_inicio: string
+          id: string
+          referencia_id: string
+          referencia_tipo: string
+          tipo: string
+          titulo: string
+          valor: number
+        }[]
+      }
+      has_permissao: {
+        Args: { acao: string; modulo: string }
+        Returns: boolean
+      }
       is_administrador: { Args: never; Returns: boolean }
       is_agente: { Args: never; Returns: boolean }
       is_gerente: { Args: never; Returns: boolean }
+      listar_usuarios_para_compartilhar: {
+        Args: never
+        Returns: {
+          id: string
+          nome: string
+          perfil_nome: string
+        }[]
+      }
       mesma_empresa: { Args: { p_empresa_id: string }; Returns: boolean }
       resetar_senha_usuario: {
         Args: { p_nova_senha: string; p_user_id: string }
+        Returns: undefined
+      }
+      resubmeter_venda: {
+        Args: { p_payload: Json; p_venda_id: string }
         Returns: undefined
       }
     }

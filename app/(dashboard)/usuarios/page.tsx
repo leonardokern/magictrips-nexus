@@ -61,7 +61,8 @@ export default async function UsuariosPage({
   const supabase = await createClient()
 
   const [{ data: perfis }, { data: empresasAtivas }] = await Promise.all([
-    supabase.from("perfis_acesso").select("id, nome, empresa_id").eq("ativo", true).order("nome"),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from("perfis_acesso").select("id, nome, empresa_id, chave_sistema").eq("ativo", true).order("nome"),
     supabase.from("empresas").select("id, nome, slug").eq("ativo", true).order("nome"),
   ])
 
@@ -105,7 +106,19 @@ export default async function UsuariosPage({
     )
   }
 
-  const perfisMap = new Map((perfis ?? []).map((p) => [p.id, p.nome]))
+  type PerfilLite = {
+    id: string
+    nome: string
+    empresa_id: string | null
+    chave_sistema: string | null
+  }
+  const perfisList = (perfis ?? []) as PerfilLite[]
+  const perfisMap = new Map<string, string>(
+    perfisList.map((p) => [p.id, p.nome]),
+  )
+  const perfisChaveMap = new Map<string, string | null>(
+    perfisList.map((p) => [p.id, p.chave_sistema]),
+  )
   const empresasMap = new Map((empresasAtivas ?? []).map((e) => [e.id, e.nome]))
 
   // Busca as empresas de cada usuário em batch
@@ -222,6 +235,12 @@ export default async function UsuariosPage({
                           email: u.email,
                           perfil_id: u.perfil_id,
                           perfil_nome: perfilNome,
+                          perfil_chave_sistema:
+                            (perfisChaveMap.get(u.perfil_id) ?? null) as
+                              | "admin"
+                              | "gerente"
+                              | "agente"
+                              | null,
                           empresa_ids: userEmpresaIds,
                           ativo: u.ativo,
                           foto_url: u.foto_url,
@@ -296,6 +315,12 @@ export default async function UsuariosPage({
                         email: u.email,
                         perfil_id: u.perfil_id,
                         perfil_nome: perfilNome,
+                        perfil_chave_sistema:
+                          (perfisChaveMap.get(u.perfil_id) ?? null) as
+                            | "admin"
+                            | "gerente"
+                            | "agente"
+                            | null,
                         empresa_ids: userEmpresaIds,
                         ativo: u.ativo,
                       }}

@@ -2,10 +2,12 @@
 
 import { useState } from "react"
 import Image from "next/image"
-import { CheckCircle, AlertTriangle, ChevronDown, ExternalLink, FileDown } from "lucide-react"
+import { CheckCircle, AlertTriangle, ChevronDown, ExternalLink, FileDown, Paperclip } from "lucide-react"
+import { toast } from "sonner"
 import { formatBRL } from "@/lib/utils/sum-parser"
 import { COBRANCA_TIPO_LABEL, PGTO_FORMA_LABEL } from "@/lib/schemas/venda"
 import type { VendaDetalhes } from "@/app/(dashboard)/vendas/actions"
+import { obterUrlAnexo } from "@/app/(dashboard)/vendas/anexos-actions"
 import { cn } from "@/lib/utils"
 
 function formatDateBR(iso: string | null): string {
@@ -235,8 +237,14 @@ function ProdutoRow({ p }: { p: Produto }) {
                     )}
                     {p.pgtoDataDebito && (
                       <MiniStat
-                        label="Data débito"
+                        label="Data de entrada"
                         value={formatDateBR(p.pgtoDataDebito)}
+                      />
+                    )}
+                    {p.pgtoPrimeiraParcelaExtra > 0 && (
+                      <MiniStat
+                        label="Taxa 1ª parcela"
+                        value={formatBRL(p.pgtoPrimeiraParcelaExtra)}
                       />
                     )}
                   </div>
@@ -420,6 +428,13 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
                   <PassageiroCard key={i} pax={pax} ordem={i + 1} />
                 ))}
               </div>
+            </Bloco>
+          )}
+
+          {/* Anexos — clicáveis, abrem em nova aba (signed URL) */}
+          {d.anexos.length > 0 && (
+            <Bloco titulo={`Anexos (${d.anexos.length})`}>
+              <AnexosBloco anexos={d.anexos} />
             </Bloco>
           )}
 
@@ -723,8 +738,11 @@ function CobrancaItemCard({ item: c }: { item: CobrancaItem }) {
           <MiniStat label="Destino" value={c.fornecedorDestino} />
         )}
 
-        {/* Plataforma / link de pagamento — link_externo vira âncora clicável */}
-        {c.plataformaLink && c.tipo === "link_externo" ? (
+        {/* Plataforma — PagSeguro / Cielo (campo dedicado) */}
+        {c.plataforma && <MiniStat label="Plataforma" value={c.plataforma} />}
+
+        {/* URL do link de pagamento — só link_externo. Vira âncora clicável. */}
+        {c.plataformaLink && c.tipo === "link_externo" && (
           <div className="col-span-2 sm:col-span-3">
             <p className="text-[10px] uppercase tracking-wider text-white/40">
               Link de pagamento
@@ -739,9 +757,7 @@ function CobrancaItemCard({ item: c }: { item: CobrancaItem }) {
               <span className="truncate">{c.plataformaLink}</span>
             </a>
           </div>
-        ) : c.plataformaLink ? (
-          <MiniStat label="Plataforma / Link" value={c.plataformaLink} />
-        ) : null}
+        )}
 
         {/* Taxa e líquido */}
         {c.taxaAdquirente != null && c.taxaAdquirente > 0 && (
@@ -760,6 +776,35 @@ function CobrancaItemCard({ item: c }: { item: CobrancaItem }) {
         )}
       </div>
 
+      {/* Detalhamento das parcelas — só quando o operador customizou */}
+      {c.parcelasDetalhe && c.parcelasDetalhe.length > 0 && (
+        <div className="mt-2.5 border-t border-white/[0.05] pt-2.5">
+          <p className="mb-1.5 text-[10px] uppercase tracking-wider text-white/40">
+            Parcelas planejadas
+          </p>
+          <ul className="space-y-0.5">
+            {c.parcelasDetalhe.map((p) => (
+              <li
+                key={p.ordem}
+                className="flex items-center justify-between text-[12px]"
+              >
+                <span className="text-white/55">
+                  Parcela {p.ordem}
+                  {p.data && (
+                    <span className="ml-2 tabular-nums text-white/45">
+                      {formatDateBR(p.data)}
+                    </span>
+                  )}
+                </span>
+                <span className="tabular-nums text-white/75">
+                  {formatBRL(p.valor)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Observações */}
       {c.observacoes && (
         <p className="mt-2.5 border-t border-white/[0.05] pt-2.5 text-[12px] text-white/50">
@@ -767,5 +812,65 @@ function CobrancaItemCard({ item: c }: { item: CobrancaItem }) {
         </p>
       )}
     </div>
+  )
+}
+
+function AnexosBloco({ anexos }: { anexos: VendaDetalhes["anexos"] }) {
+  async function onAbrir(anexoId: string) {
+    const r = await obterUrlAnexo(anexoId)
+    if (!r.ok) {
+      toast.error(r.error ?? "Não foi possível abrir o arquivo.")
+      return
+    }
+    if (!r.data) return
+    window.open(r.data.url, "_blank", "noopener,noreferrer")
+  }
+
+  return (
+    <ul className="space-y-2">
+      {anexos.map((a) => {
+        const isPdf = a.mimeType === "application/pdf"
+        const tamanhoMB = (a.tamanhoBytes / (1024 * 1024)).toFixed(2)
+        return (
+          <li
+            key={a.id}
+            className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5"
+          >
+            <div
+              className={
+                "flex h-9 w-9 shrink-0 items-center justify-center rounded-md border " +
+                (isPdf
+                  ? "border-rose-400/30 bg-rose-400/[0.08] text-rose-300"
+                  : "border-nexus-bright/30 bg-nexus-bright/[0.08] text-nexus-bright")
+              }
+            >
+              <Paperclip className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={() => onAbrir(a.id)}
+                className="block w-full truncate text-left text-sm font-medium text-white hover:text-nexus-bright"
+                title={a.nomeArquivo}
+              >
+                {a.nomeArquivo}
+              </button>
+              <p className="mt-0.5 text-[11px] text-white/45">
+                {isPdf ? "PDF" : "Imagem"} · {tamanhoMB} MB
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onAbrir(a.id)}
+              title="Abrir em nova aba"
+              aria-label="Abrir em nova aba"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 text-white/55 transition-colors hover:border-white/20 hover:bg-white/[0.04] hover:text-white"
+            >
+              <ExternalLink className="h-4 w-4" />
+            </button>
+          </li>
+        )
+      })}
+    </ul>
   )
 }

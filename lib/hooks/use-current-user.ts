@@ -26,6 +26,12 @@ export type CurrentUser = {
     id: string
     nome: string
     sistema: boolean
+    /**
+     * Chave estável dos perfis sistema: 'admin' | 'gerente' | 'agente'.
+     * NULL para perfis customizados. Use ESTA chave (não o nome) para
+     * checagens de privilégio — o nome pode ser renomeado livremente.
+     */
+    chave_sistema: "admin" | "gerente" | "agente" | null
     /** "agente" = perfil de venda (vê dashboard próprio). "operacao" = admin/gerente. */
     tipo: "agente" | "operacao"
     permissoes: Permissoes
@@ -55,9 +61,12 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   if (userErr || !u) return null
 
   const [perfilRes, empresasRes, todasEmpresasRes] = await Promise.all([
-    supabase
+    // Cast pra any: a coluna `chave_sistema` (migration 059) ainda não está
+    // na geração de tipos do Supabase MCP — usamos cast manual com fallback
+    // seguro no uso (linhas abaixo).
+    (supabase as any)
       .from("perfis_acesso")
-      .select("id, nome, sistema, permissoes, tipo")
+      .select("id, nome, sistema, permissoes, tipo, chave_sistema")
       .eq("id", u.perfil_id)
       .single(),
     supabase
@@ -94,6 +103,12 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       id: perfilRes.data.id,
       nome: perfilRes.data.nome,
       sistema: perfilRes.data.sistema,
+      chave_sistema:
+        (perfilRes.data as { chave_sistema?: string | null }).chave_sistema as
+          | "admin"
+          | "gerente"
+          | "agente"
+          | null ?? null,
       tipo: (perfilRes.data.tipo === "agente" ? "agente" : "operacao"),
       permissoes: (perfilRes.data.permissoes as Permissoes) ?? {},
     },

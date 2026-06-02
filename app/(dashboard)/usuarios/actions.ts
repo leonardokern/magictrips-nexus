@@ -162,7 +162,7 @@ export async function updateUsuario(
   // "editar" podem editar nome/perfil, mas não alterar vínculos de empresa
   // (na prática o seletor fica oculto quando há só 1 empresa, então os IDs
   // chegam iguais ao que já está salvo; pular não tem efeito colateral).
-  if (v.empresa_ids !== undefined && user.perfil.nome === "Administrador") {
+  if (v.empresa_ids !== undefined && user.perfil.chave_sistema === "admin") {
     const { error: empErr } = await supabase.rpc("atualizar_empresas_usuario", {
       p_user_id: id,
       p_empresa_ids: v.empresa_ids,

@@ -40,6 +40,8 @@ type Props = {
     comissoes: Record<string, number>
     /** Vem do seed (sistema=true) — bloqueia exclusão por UI. */
     sistema: boolean
+    /** Chave estável: 'admin'|'gerente'|'agente' ou null pra perfis customizados. */
+    chave_sistema: "admin" | "gerente" | "agente" | null
   }
   empresas: Empresa[]
   usuariosCount: number
@@ -60,7 +62,7 @@ export function PerfilRowActions({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
 
-  const isAdmin = perfil.nome === "Administrador"
+  const isAdmin = perfil.chave_sistema === "admin"
   // Único bloqueio: ter usuário atrelado. Perfis do sistema (sistema=true) também
   // podem ser deletados desde que ninguém esteja atrelado a eles.
   const podeExcluir = usuariosCount === 0

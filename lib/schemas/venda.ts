@@ -82,6 +82,8 @@ export const vendaProdutoSchema = z.object({
   pgto_num_parcelas: z.number().int().min(1).default(1),
   pgto_valor_parcela: z.number().min(0).nullable().optional(),
   pgto_data_debito: z.string().nullable().optional(),
+  /** Valor extra embutido na 1ª parcela (taxas etc.). Diluído nas demais. */
+  pgto_primeira_parcela_extra: z.number().min(0).default(0),
 })
 
 export type VendaProdutoInput = z.infer<typeof vendaProdutoSchema>
@@ -115,12 +117,24 @@ export const COBRANCA_TIPO_LABEL: Record<CobrancaTipo, string> = {
   outro: "Outro",
 }
 
+/** Distribuição planejada de uma parcela individual (valor + data). */
+export const parcelaDetalheSchema = z.object({
+  ordem: z.number().int().min(1),
+  valor: z.number().min(0),
+  data: z.string().nullable().optional(),
+})
+
 export const cobrancaItemSchema = z.object({
   tipo: z.enum(COBRANCA_TIPOS),
   valor_total: z.number().min(0),
   num_parcelas: z.number().int().min(1).default(1),
   valor_parcela: z.number().min(0).nullable().optional(),
+  /** URL do link de pagamento — usado por `link_externo`. */
   plataforma_link: z.string().trim().max(500).nullable().optional(),
+  /** Plataforma do pagamento. Restrito a PagSeguro/Cielo no banco. */
+  plataforma: z.enum(["PagSeguro", "Cielo"]).nullable().optional(),
+  /** Distribuição planejada das parcelas (vazia em pagamento à vista). */
+  parcelas_detalhe: z.array(parcelaDetalheSchema).default([]),
   taxa_adquirente: z.number().min(0).nullable().optional(),
   valor_liquido: z.number().min(0).nullable().optional(),
   data_inicio: z.string().nullable().optional(),
@@ -128,6 +142,8 @@ export const cobrancaItemSchema = z.object({
   fornecedor_destino: z.string().trim().max(120).nullable().optional(),
   observacoes: z.string().trim().max(500).nullable().optional(),
 })
+
+export type ParcelaDetalheInput = z.infer<typeof parcelaDetalheSchema>
 
 export const cobrancaSchema = z.object({
   valor_total: z.number().min(0),

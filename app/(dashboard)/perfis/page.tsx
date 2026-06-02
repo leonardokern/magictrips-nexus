@@ -34,10 +34,11 @@ export default async function PerfisPage() {
   const agendaEnabled = await isFeatureEnabled("agenda")
 
   const [{ data: perfis }, { data: empresas }] = await Promise.all([
-    supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
       .from("perfis_acesso")
       .select(
-        "id, nome, sistema, ativo, empresa_id, tipo, permissoes, created_at",
+        "id, nome, sistema, ativo, empresa_id, tipo, permissoes, chave_sistema, created_at",
       )
       .order("sistema", { ascending: false })
       .order("nome"),
@@ -48,7 +49,19 @@ export default async function PerfisPage() {
       .order("nome"),
   ])
 
-  const perfilIds = (perfis ?? []).map((p) => p.id)
+  type PerfilRow = {
+    id: string
+    nome: string
+    sistema: boolean
+    ativo: boolean
+    empresa_id: string | null
+    tipo: string
+    permissoes: unknown
+    chave_sistema: string | null
+    created_at: string
+  }
+  const perfisList = (perfis ?? []) as PerfilRow[]
+  const perfilIds = perfisList.map((p) => p.id)
 
   // Batch: contagem de usuários + overrides de comissão para todos os perfis
   const [overridesRes, ...countResults] = await Promise.all([
@@ -64,7 +77,7 @@ export default async function PerfisPage() {
             percentual: number
           }[],
         }),
-    ...perfilIds.map((id) =>
+    ...perfilIds.map((id: string) =>
       supabase
         .from("usuarios")
         .select("id", { count: "exact", head: true })
@@ -73,7 +86,7 @@ export default async function PerfisPage() {
   ])
 
   const usuariosPorPerfil = new Map<string, number>()
-  perfilIds.forEach((id, idx) => {
+  perfilIds.forEach((id: string, idx: number) => {
     const r = countResults[idx]
     if (r) usuariosPorPerfil.set(id, r.count ?? 0)
   })
@@ -127,7 +140,7 @@ export default async function PerfisPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              perfis.map((p) => {
+              perfisList.map((p) => {
                 const tipoLabel = p.tipo === "agente" ? "Agente" : "Operação"
                 const tipoChip =
                   p.tipo === "agente"
@@ -166,6 +179,13 @@ export default async function PerfisPage() {
                             (p.permissoes as PermissoesValue) ?? {},
                           ativo: p.ativo,
                           sistema: p.sistema,
+                          chave_sistema:
+                            ((p as { chave_sistema?: string | null })
+                              .chave_sistema ?? null) as
+                              | "admin"
+                              | "gerente"
+                              | "agente"
+                              | null,
                           comissoes: overridesPorPerfil.get(p.id) ?? {},
                         }}
                         empresas={empresas ?? []}
@@ -190,7 +210,7 @@ export default async function PerfisPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {perfis.map((p) => {
+            {perfisList.map((p) => {
               const tipoLabel = p.tipo === "agente" ? "Agente" : "Operação"
               const tipoChip =
                 p.tipo === "agente"
@@ -229,6 +249,13 @@ export default async function PerfisPage() {
                         permissoes: (p.permissoes as PermissoesValue) ?? {},
                         ativo: p.ativo,
                         sistema: p.sistema,
+                        chave_sistema:
+                          ((p as { chave_sistema?: string | null })
+                            .chave_sistema ?? null) as
+                            | "admin"
+                            | "gerente"
+                            | "agente"
+                            | null,
                         comissoes: overridesPorPerfil.get(p.id) ?? {},
                       }}
                       empresas={empresas ?? []}

@@ -16,6 +16,7 @@ import {
   CreditCard,
   ExternalLink,
   Minus,
+  Paperclip,
   Plus,
   Save,
   ShoppingCart,
@@ -45,8 +46,23 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { ClienteCombobox, type ClienteOption } from "./cliente-combobox"
+import { CartaoCombobox } from "./cartao-combobox"
+import { IconTooltip } from "@/components/ui/tooltip"
 import { criarVenda, editarEAprovarVenda, resubmeterVenda } from "@/app/(dashboard)/vendas/actions"
 import { salvarRascunho, descartarRascunho } from "@/app/(dashboard)/vendas/rascunho-actions"
+import {
+  listarAnexos,
+  uploadAnexo,
+  excluirAnexo,
+  obterUrlAnexo,
+  migrarAnexosParaVenda,
+} from "@/app/(dashboard)/vendas/anexos-actions"
+import {
+  MAX_ANEXOS_POR_VENDA,
+  MAX_ANEXO_BYTES,
+  MIMES_ACEITOS,
+  type AnexoVenda,
+} from "@/lib/schemas/anexo"
 import {
   COBRANCA_TIPO_LABEL,
   PGTO_FORMA_LABEL,
@@ -123,13 +139,13 @@ type Props = {
   /** ID do rascunho que está sendo editado (para update em vez de insert). */
   initialRascunhoId?: string | null
   /** Passo atual controlado externamente pelo modal. */
-  step: 1 | 2 | 3 | 4 | 5
+  step: 1 | 2 | 3 | 4 | 5 | 6
   /** Callback para mudar o passo (controle externo). */
-  onStepChange: (step: 1 | 2 | 3 | 4 | 5) => void
+  onStepChange: (step: 1 | 2 | 3 | 4 | 5 | 6) => void
   /** Passo mais avançado atingido — para salvar no rascunho e restaurar corretamente. */
-  maxStep: 1 | 2 | 3 | 4 | 5
-  onMaxStepChange: (step: 1 | 2 | 3 | 4 | 5) => void
-  /** Modo edição por Gerente/Admin: steps 1-4 têm "Salvar e Revisar", step 5 tem "Validar Venda". */
+  maxStep: 1 | 2 | 3 | 4 | 5 | 6
+  onMaxStepChange: (step: 1 | 2 | 3 | 4 | 5 | 6) => void
+  /** Modo edição por Gerente/Admin: steps 1-5 têm "Salvar e Revisar", step 6 tem "Validar Venda". */
   modoGerente?: boolean
   /** ID da venda sendo editada (obrigatório em modoGerente). */
   vendaId?: string
@@ -143,6 +159,7 @@ export type StepsStatus = {
   2: "valid" | "invalid"
   3: "valid" | "invalid"
   4: "valid" | "invalid"
+  5: "valid" | "invalid"
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -150,9 +167,9 @@ export type StepsStatus = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Exportado para que o NovaVendaModal possa tipá-lo ao hidratar um rascunho.
 export type WizardDraftData = {
-  step: 1 | 2 | 3 | 4 | 5
+  step: 1 | 2 | 3 | 4 | 5 | 6
   /** Passo mais avançado que o usuário chegou — usado para restaurar o rascunho. */
-  maxStep: 1 | 2 | 3 | 4 | 5
+  maxStep: 1 | 2 | 3 | 4 | 5 | 6
   empresaId: string
   dataVenda: string
   clienteValue: string | "novo" | null
@@ -166,6 +183,9 @@ export type WizardDraftData = {
   cobrancaItens: CobrancaItemState[]
   cobrancaObs: string
   passageiros: PassageiroState[]
+  /** UUID gerado no client pra agrupar anexos uploadados durante o wizard.
+   *  Persistido no rascunho pra que reabrir o rascunho recupere os anexos. */
+  wizardSessionId?: string
 }
 
 type ProdutoState = {
@@ -197,6 +217,20 @@ type ProdutoState = {
   pgto_valor_total_str: string
   pgto_entrada_str: string
   pgto_num_parcelas: number
+  /** Data em que a entrada/1ª parcela é cobrada (cartão agência).
+   *  Persiste em `venda_produtos.pgto_data_debito`. */
+  pgto_data_entrada_str: string
+  /** Valor extra na 1ª parcela (taxas no cartão). Diluído nas demais. */
+  pgto_primeira_parcela_extra_str: string
+}
+
+type ParcelaDetalhe = {
+  /** Posição 1-based pra exibir como "Parcela N". */
+  ordem: number
+  /** Valor da parcela como string (formato R$). */
+  valor_str: string
+  /** Data ISO YYYY-MM-DD da parcela. */
+  data: string
 }
 
 type CobrancaItemState = {
@@ -204,7 +238,12 @@ type CobrancaItemState = {
   outro_descricao: string
   valor_total_str: string
   num_parcelas: number
+  /** URL do link de pagamento — usado por `link_externo`. */
   plataforma_link: string
+  /** Plataforma da cobrança — Select restrito a PagSeguro / Cielo. */
+  plataforma: "" | "PagSeguro" | "Cielo"
+  /** Distribuição das parcelas — vazia em pagamento à vista. */
+  parcelas_detalhe: ParcelaDetalhe[]
   taxa_adquirente_str: string
   valor_liquido_str: string
   data_inicio: string
@@ -244,7 +283,8 @@ export const STEPS = [
   { num: 2, label: "Produtos", icon: ShoppingCart },
   { num: 3, label: "Cobrança", icon: CreditCard },
   { num: 4, label: "Passageiros", icon: Users },
-  { num: 5, label: "Revisão", icon: Check },
+  { num: 5, label: "Anexos", icon: Paperclip },
+  { num: 6, label: "Revisão", icon: Check },
 ] as const
 
 function novoProduto(): ProdutoState {
@@ -269,6 +309,8 @@ function novoProduto(): ProdutoState {
     pgto_valor_total_str: "",
     pgto_entrada_str: "",
     pgto_num_parcelas: 1,
+    pgto_data_entrada_str: "",
+    pgto_primeira_parcela_extra_str: "",
   }
 }
 
@@ -288,12 +330,30 @@ function novoItemCobranca(): CobrancaItemState {
     valor_total_str: "",
     num_parcelas: 1,
     plataforma_link: "",
+    plataforma: "",
+    parcelas_detalhe: [],
     taxa_adquirente_str: "",
     valor_liquido_str: "",
     data_inicio: "",
     data_primeiro_recebimento: "",
     observacoes: "",
   }
+}
+
+/** Recalcula `parcelas_detalhe` distribuindo o valor total igualmente.
+ *  Mantém datas já preenchidas; cria entradas faltantes com data vazia. */
+function redistribuirParcelas(it: CobrancaItemState): ParcelaDetalhe[] {
+  if (it.num_parcelas <= 1) return []
+  const total = parseValorComSoma(it.valor_total_str) || 0
+  const base = total / it.num_parcelas
+  return Array.from({ length: it.num_parcelas }).map((_, i) => {
+    const existente = it.parcelas_detalhe[i]
+    return {
+      ordem: i + 1,
+      valor_str: base > 0 ? formatBRL(base) : (existente?.valor_str ?? ""),
+      data: existente?.data ?? "",
+    }
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -311,6 +371,34 @@ export function VendaWizard(props: Props) {
   const [rascunhoId, setRascunhoId] = useState<string | null>(
     props.initialRascunhoId ?? null,
   )
+
+  // ── Anexos ───────────────────────────────────────────────────────────────
+  // O `wizardSessionId` é um UUID estável durante toda a sessão do wizard.
+  // Para nova venda: anexos são uploadados com este session_id; quando a
+  // venda é criada, o server action `migrarAnexosParaVenda` migra os
+  // registros pra venda_id. Para edição: usa-se direto o `props.vendaId`.
+  // Hidrata do rascunho se existir, senão gera novo — assim reabrir o
+  // rascunho recupera os anexos uploadados anteriormente.
+  const [wizardSessionId] = useState<string>(
+    () => d?.wizardSessionId ?? crypto.randomUUID(),
+  )
+  const [anexos, setAnexos] = useState<AnexoVenda[]>([])
+
+  // Carrega anexos iniciais quando o wizard abre — uma única vez por sessão.
+  useEffect(() => {
+    let cancel = false
+    listarAnexos({
+      vendaId: props.vendaId ?? null,
+      wizardSessionId: props.vendaId ? null : wizardSessionId,
+    }).then((r) => {
+      if (cancel) return
+      if (r.ok && r.data) setAnexos(r.data)
+    })
+    return () => {
+      cancel = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.vendaId, wizardSessionId])
 
   // ── Autosave (rascunho) ───────────────────────────────────────────────────
   // Liga apenas em nova venda do agente (sem vendaId, não-gerente). Marca
@@ -509,9 +597,11 @@ export function VendaWizard(props: Props) {
         e[`produto_${i}_data_emissao`] = "Data de emissão obrigatória."
       if (!p.data_inicio_viagem_str)
         e[`produto_${i}_data_inicio_viagem`] = "Início da viagem obrigatório."
-      if (!p.data_fim_viagem_str) {
-        e[`produto_${i}_data_fim_viagem`] = "Fim da viagem obrigatório."
-      } else if (
+      // Fim da viagem é opcional (alguns produtos como passagem só-ida ou
+      // serviços avulsos não têm data fim). Quando preenchido, ainda
+      // validamos que não precede o início.
+      if (
+        p.data_fim_viagem_str &&
         p.data_inicio_viagem_str &&
         p.data_fim_viagem_str < p.data_inicio_viagem_str
       ) {
@@ -628,10 +718,10 @@ export function VendaWizard(props: Props) {
       }
       sincronizarPassageiros()
     }
-    if (step < 5) {
-      const next = (step + 1) as 1 | 2 | 3 | 4 | 5
+    if (step < 6) {
+      const next = (step + 1) as 1 | 2 | 3 | 4 | 5 | 6
       setStep(next)
-      props.onMaxStepChange(Math.max(props.maxStep, next) as 1 | 2 | 3 | 4 | 5)
+      props.onMaxStepChange(Math.max(props.maxStep, next) as 1 | 2 | 3 | 4 | 5 | 6)
     }
   }
 
@@ -642,7 +732,7 @@ export function VendaWizard(props: Props) {
   }
 
   function voltar() {
-    if (step > 1) setStep((step - 1) as 1 | 2 | 3 | 4 | 5)
+    if (step > 1) setStep((step - 1) as 1 | 2 | 3 | 4 | 5 | 6)
   }
 
   // ── Avançar direto para revisão (modo Gerente) ────────────────────────────
@@ -670,8 +760,8 @@ export function VendaWizard(props: Props) {
       }
     }
     sincronizarPassageiros()
-    setStep(5)
-    props.onMaxStepChange(5)
+    setStep(6)
+    props.onMaxStepChange(6)
   }
 
   // ── Submit modo Gerente: edita + aprova ───────────────────────────────────
@@ -744,6 +834,7 @@ export function VendaWizard(props: Props) {
       cobrancaItens,
       cobrancaObs,
       passageiros,
+      wizardSessionId,
     }
   }
 
@@ -847,8 +938,8 @@ export function VendaWizard(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autosaveAtivo])
 
-  // Reporta validade dos steps 1-4 pro modal (usado pra estilizar tabs).
-  // Recalcula a cada mudança de estado relevante.
+  // Reporta validade dos steps 1-5 pro modal (usado pra estilizar tabs).
+  // O step 5 (Anexos) é sempre válido — anexos são opcionais.
   useEffect(() => {
     if (!props.onStepsStatusChange) return
     const e1 = { ...validarStep1(), ...asyncErrors }
@@ -860,6 +951,7 @@ export function VendaWizard(props: Props) {
       2: Object.keys(e2).length === 0 ? "valid" : "invalid",
       3: Object.keys(e3).length === 0 ? "valid" : "invalid",
       4: Object.keys(e4).length === 0 ? "valid" : "invalid",
+      5: "valid",
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -887,6 +979,15 @@ export function VendaWizard(props: Props) {
       if (!r.ok) {
         toast.error(r.error)
         return
+      }
+      // Associa anexos uploadados durante o wizard (vinculados a
+      // wizardSessionId) à venda recém-criada. Best-effort — falha aqui não
+      // bloqueia o fluxo, mas avisa o usuário.
+      if (r.data?.id && anexos.length > 0) {
+        const mig = await migrarAnexosParaVenda(wizardSessionId, r.data.id)
+        if (!mig.ok) {
+          toast.warning("Venda criada, mas alguns anexos podem não ter sido vinculados.")
+        }
       }
       // Descarta o rascunho após aprovação bem-sucedida (silencioso)
       if (rascunhoId) {
@@ -962,23 +1063,33 @@ export function VendaWizard(props: Props) {
       // Só cartao_agencia controla parcelas/entrada — demais formas zeram.
       pgto_entrada: p.pgto_forma === "cartao_agencia" ? parseValorComSoma(p.pgto_entrada_str) || 0 : 0,
       pgto_num_parcelas: p.pgto_forma === "cartao_agencia" ? p.pgto_num_parcelas : 1,
+      // valor_parcela = base de cada parcela "normal" (excluindo o extra da 1ª).
+      // Modelo: base = (total - entrada - extra) / N. Primeira = base + extra.
       pgto_valor_parcela: p.pgto_forma !== "cartao_agencia" ? null : (() => {
         const userVal = parseValorComSoma(p.pgto_valor_total_str)
         const custo = parseValorComSoma(p.valor_custo_str)
         const total = userVal > 0 ? userVal : custo
         const entrada = parseValorComSoma(p.pgto_entrada_str) || 0
+        const extra = parseValorComSoma(p.pgto_primeira_parcela_extra_str) || 0
         const n = p.pgto_num_parcelas || 1
-        const v = (total - entrada) / n
+        const v = (total - entrada - extra) / n
         return v > 0 ? v : null
       })(),
-      pgto_data_debito: null,
+      pgto_primeira_parcela_extra:
+        p.pgto_forma === "cartao_agencia"
+          ? parseValorComSoma(p.pgto_primeira_parcela_extra_str) || 0
+          : 0,
+      pgto_data_debito:
+        p.pgto_forma === "cartao_agencia" && p.pgto_data_entrada_str
+          ? p.pgto_data_entrada_str
+          : null,
       }
     })
 
-    // "outro" não tem parcelamento (cliente paga direto ao fornecedor/etc).
-    // PIX e boleto podem ser parcelados — gera N parcelas mensais a partir
-    // da data_primeiro_recebimento, mesmo dia todo mês.
-    const semParcelas = (tipo: CobrancaTipo) => tipo === "outro"
+    // "outro" e "link_externo" não têm parcelamento.
+    // PIX, boleto, faturado e cartão podem ser parcelados.
+    const semParcelas = (tipo: CobrancaTipo) =>
+      tipo === "outro" || tipo === "link_externo"
     const itensCobranca = cobrancaItens.map((it) => ({
       tipo: it.tipo,
       valor_total: parseValorComSoma(it.valor_total_str),
@@ -989,6 +1100,14 @@ export function VendaWizard(props: Props) {
         return total > 0 ? total / n : null
       })(),
       plataforma_link: it.plataforma_link || null,
+      plataforma: it.plataforma || null,
+      parcelas_detalhe: semParcelas(it.tipo) || it.num_parcelas <= 1
+        ? []
+        : it.parcelas_detalhe.map((p, i) => ({
+            ordem: i + 1,
+            valor: parseValorComSoma(p.valor_str) || 0,
+            data: p.data || null,
+          })),
       taxa_adquirente: it.taxa_adquirente_str
         ? parseValorComSoma(it.taxa_adquirente_str)
         : null,
@@ -1157,7 +1276,17 @@ export function VendaWizard(props: Props) {
         )}
 
         {step === 5 && (
-          <Step5Revisao
+          <Step5Anexos
+            vendaId={props.vendaId ?? null}
+            wizardSessionId={wizardSessionId}
+            anexos={anexos}
+            setAnexos={setAnexos}
+            readOnly={false}
+          />
+        )}
+
+        {step === 6 && (
+          <Step6Revisao
             empresaNome={
               props.empresas.find((e) => e.id === empresaId)?.nome ?? "—"
             }
@@ -1191,6 +1320,10 @@ export function VendaWizard(props: Props) {
                 p.fornecedor_id === "outro"
                   ? p.fornecedor_outro_nome
                   : props.fornecedores.find((f) => f.id === p.fornecedor_id)?.nome ?? ""
+              const cartaoNome =
+                p.pgto_forma === "cartao_agencia"
+                  ? props.cartoes.find((c) => c.id === p.pgto_cartao_id)?.nome ?? null
+                  : null
               return {
                 tipoNome: tp?.nome ?? "—",
                 icone: tp?.icone ?? null,
@@ -1211,6 +1344,14 @@ export function VendaWizard(props: Props) {
                   ? parseValorComSoma(p.rav_extra_fornecedor_str)
                   : 0,
                 camposExtras,
+                pgtoForma: p.pgto_forma || null,
+                pgtoCartaoNome: cartaoNome,
+                pgtoValorTotal: parseValorComSoma(p.pgto_valor_total_str) || 0,
+                pgtoEntrada: parseValorComSoma(p.pgto_entrada_str) || 0,
+                pgtoNumParcelas: p.pgto_num_parcelas || 1,
+                pgtoDataEntrada: p.pgto_data_entrada_str || null,
+                pgtoPrimeiraParcelaExtra:
+                  parseValorComSoma(p.pgto_primeira_parcela_extra_str) || 0,
               }
             })}
             cobranca={cobrancaItens.map((it) => ({
@@ -1218,6 +1359,15 @@ export function VendaWizard(props: Props) {
               valor: parseValorComSoma(it.valor_total_str),
               parcelas: it.num_parcelas,
               link: it.tipo === "link_externo" ? it.plataforma_link.trim() : null,
+              plataforma: it.plataforma || null,
+              parcelasDetalhe:
+                it.num_parcelas > 1 && it.parcelas_detalhe.length > 0
+                  ? it.parcelas_detalhe.map((p, j) => ({
+                      ordem: p.ordem ?? j + 1,
+                      valor: parseValorComSoma(p.valor_str) || 0,
+                      data: p.data || null,
+                    }))
+                  : [],
             }))}
             passageiros={passageiros.map((p) => ({
               nome: p.nome,
@@ -1230,6 +1380,7 @@ export function VendaWizard(props: Props) {
             // do responsável aparece num único bloco compacto à direita.
             mostraComissao={false}
             comissaoPercentual={comissaoDoAgente}
+            anexos={anexos}
           />
         )}
       </div>
@@ -1293,10 +1444,10 @@ export function VendaWizard(props: Props) {
             </>
           )}
 
-          {step < 5 ? (
+          {step < 6 ? (
             props.modoGerente ? (
-              // Gerente: todos os steps 1-4 têm "Salvar e Revisar" → vai direto ao step 5
-              // Navegação entre 1-4 é feita clicando nas abas do cabeçalho
+              // Gerente: todos os steps 1-5 têm "Salvar e Revisar" → vai direto ao step 6
+              // Navegação entre 1-5 é feita clicando nas abas do cabeçalho
               <Button
                 type="button"
                 onClick={avancarParaRevisao}
@@ -1319,7 +1470,7 @@ export function VendaWizard(props: Props) {
               </Button>
             )
           ) : props.modoGerente ? (
-            // Step 5 · Gerente: aprovar diretamente
+            // Step 6 · Gerente: aprovar diretamente
             <Button
               type="button"
               onClick={onSubmitGerente}
@@ -1330,7 +1481,7 @@ export function VendaWizard(props: Props) {
               <CheckCircle2 className="ml-1 h-4 w-4" />
             </Button>
           ) : props.vendaId ? (
-            // Step 5 · Agente editando em_revisao: resubmete
+            // Step 6 · Agente editando em_revisao: resubmete
             <Button
               type="button"
               onClick={onSubmitAgente}
@@ -1341,7 +1492,7 @@ export function VendaWizard(props: Props) {
               <Check className="ml-1 h-4 w-4" />
             </Button>
           ) : (
-            // Step 5 · Agente criando nova venda
+            // Step 6 · Agente criando nova venda
             <Button
               type="button"
               onClick={onSubmit}
@@ -2337,7 +2488,7 @@ function Step2Produtos(props: {
                 </Field>
 
                 <Field
-                  label="Fim da viagem *"
+                  label="Fim da viagem"
                   icon={<CalendarDays className="h-3.5 w-3.5" />}
                   className="col-span-12 sm:col-span-4"
                   error={props.errors[`produto_${i}_data_fim_viagem`]}
@@ -2562,29 +2713,24 @@ function Step2Produtos(props: {
                 {/* ── CARTÃO AGÊNCIA ─ Magic paga, controla parcelas ──── */}
                 {p.pgto_forma === "cartao_agencia" && (
                   <>
+                    {/* Linha 1 — Cartão (com busca) + Valor total + Data entrada */}
                     <Field
                       label="Cartão da agência"
-                      className="col-span-12 sm:col-span-4"
+                      className="col-span-12 sm:col-span-5"
                     >
-                      <Select
-                        value={p.pgto_cartao_id || undefined}
-                        onValueChange={(v) => patch(p.id, () => ({ pgto_cartao_id: v }))}
-                      >
-                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                        <SelectContent>
-                          {props.cartoes.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.nome} (venc. {c.dia_vencimento})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <CartaoCombobox
+                        cartoes={props.cartoes}
+                        value={p.pgto_cartao_id || null}
+                        onChange={(id) =>
+                          patch(p.id, () => ({ pgto_cartao_id: id ?? "" }))
+                        }
+                      />
                     </Field>
 
                     <Field
                       label="Valor total"
                       hint="Valor de custo"
-                      className="col-span-12 sm:col-span-4"
+                      className="col-span-6 sm:col-span-4"
                     >
                       <CurrencyInput
                         value={p.pgto_valor_total_str}
@@ -2592,6 +2738,23 @@ function Step2Produtos(props: {
                       />
                     </Field>
 
+                    {/* Data da primeira cobrança no cartão (data de débito).
+                        Persiste em pgto_data_debito. Útil pra projetar
+                        fluxo de caixa das parcelas. */}
+                    <Field
+                      label="Data de entrada"
+                      icon={<CalendarDays className="h-3.5 w-3.5" />}
+                      className="col-span-6 sm:col-span-3"
+                    >
+                      <DateInput
+                        value={p.pgto_data_entrada_str}
+                        onChange={(iso) =>
+                          patch(p.id, () => ({ pgto_data_entrada_str: iso }))
+                        }
+                      />
+                    </Field>
+
+                    {/* Linha 2 — Entrada + Parcelas + Extra primeira parcela */}
                     <Field label="Entrada" className="col-span-12 sm:col-span-4">
                       <CurrencyInput
                         value={p.pgto_entrada_str}
@@ -2599,7 +2762,7 @@ function Step2Produtos(props: {
                       />
                     </Field>
 
-                    <div className="col-span-6 sm:col-span-2">
+                    <div className="col-span-6 sm:col-span-3">
                       <Label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-white/55">
                         Parcelas
                       </Label>
@@ -2636,29 +2799,75 @@ function Step2Produtos(props: {
                       </div>
                     </div>
 
-                    {/* Valor da parcela */}
-                    <div className="col-span-6 sm:col-span-6">
+                    {/* Valor extra na primeira parcela (taxas etc.) —
+                        comum em viagens onde a primeira fatura já vem com
+                        IOF / taxa de serviço / seguro. */}
+                    <Field
+                      label="Extra na 1ª parcela"
+                      hint="Taxas etc."
+                      className="col-span-6 sm:col-span-5"
+                    >
+                      <CurrencyInput
+                        value={p.pgto_primeira_parcela_extra_str}
+                        onChange={(v) =>
+                          patch(p.id, () => ({ pgto_primeira_parcela_extra_str: v }))
+                        }
+                      />
+                    </Field>
+
+                    {/* Linha 3 — Breakdown completo das parcelas */}
+                    <div className="col-span-12">
                       {(() => {
                         const userTotal = parseValorComSoma(p.pgto_valor_total_str)
                         const total = userTotal > 0
                           ? userTotal
                           : parseValorComSoma(p.valor_custo_str)
                         const entrada = parseValorComSoma(p.pgto_entrada_str) || 0
+                        const extra = parseValorComSoma(p.pgto_primeira_parcela_extra_str) || 0
                         const n = p.pgto_num_parcelas || 1
-                        const parcela = (total - entrada) / n
+                        // Modelo: cada parcela recebe base + extra na primeira.
+                        // base = (total − entrada − extra) / n
+                        // p1 = base + extra; p2..pN = base
+                        const base = (total - entrada - extra) / n
+                        const p1 = base + extra
+                        const semExtra = extra <= 0
                         return (
                           <>
                             <Label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-white/55">
-                              Valor da parcela
+                              Valor das parcelas
                             </Label>
-                            <div className="flex h-10 items-center rounded-md border border-white/[0.06] bg-white/[0.03] px-3 text-sm tabular-nums text-white/75">
-                              {parcela > 0
-                                ? formatBRL(parcela)
-                                : <span className="text-white/25">—</span>}
-                            </div>
-                            <p className="mt-1 text-[10px] text-white/35">
-                              (total − entrada) ÷ parcelas
-                            </p>
+                            {base > 0 ? (
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <div className="rounded-md border border-nexus-bright/20 bg-nexus-bright/[0.05] px-3 py-2">
+                                  <p className="text-[10px] uppercase tracking-wider text-nexus-bright/70">
+                                    1ª parcela
+                                  </p>
+                                  <p className="text-sm font-semibold tabular-nums text-white">
+                                    {formatBRL(p1)}
+                                  </p>
+                                  {!semExtra && (
+                                    <p className="text-[10px] text-white/45">
+                                      {formatBRL(base)} + {formatBRL(extra)} (taxas)
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="rounded-md border border-white/[0.06] bg-white/[0.03] px-3 py-2">
+                                  <p className="text-[10px] uppercase tracking-wider text-white/45">
+                                    {n > 1 ? `Demais (${n - 1}x)` : "Detalhes"}
+                                  </p>
+                                  <p className="text-sm font-semibold tabular-nums text-white/85">
+                                    {n > 1 ? formatBRL(base) : <span className="text-white/25">—</span>}
+                                  </p>
+                                  <p className="text-[10px] text-white/35">
+                                    base = (total − entrada − extra) ÷ parcelas
+                                  </p>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex h-10 items-center rounded-md border border-white/[0.06] bg-white/[0.03] px-3 text-sm text-white/25">
+                                Preencha valor total para ver as parcelas
+                              </div>
+                            )}
                           </>
                         )
                       })()}
@@ -2755,183 +2964,329 @@ function Step3Cobranca(props: {
         </div>
       </div>
 
-      {props.itens.map((it, i) => (
-        <div
-          key={i}
-          className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4"
-        >
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-medium text-white">
-              Cobrança {i + 1}
-            </p>
-            {props.itens.length > 1 && (
-              <button
-                type="button"
-                onClick={() => remover(i)}
-                className="rounded p-1 text-rose-300/70 hover:text-rose-200"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+      {props.itens.map((it, i) => {
+        // Tipos sem parcelamento: pagamento avulso ou pago em um único momento
+        // pelo cliente fora do nosso controle (link_externo).
+        const semParcelas = it.tipo === "outro" || it.tipo === "link_externo"
+        const isLinkExterno = it.tipo === "link_externo"
+        const valorItem = parseValorComSoma(it.valor_total_str) || 0
+        const valorOutrosItens = props.itens.reduce(
+          (acc, x, j) =>
+            j === i ? acc : acc + (parseValorComSoma(x.valor_total_str) || 0),
+          0,
+        )
+        const restante = props.totalVenda - valorOutrosItens - valorItem
+        const restanteAbs = props.totalVenda - valorOutrosItens
+        const podePreencherRestante =
+          restanteAbs > 0 && Math.abs(restante) >= 0.01
 
-          {(() => {
-            const semParcelas =
-              it.tipo === "outro" ||
-              it.tipo === "faturado" ||
-              it.tipo === "link_externo"
-            const isLinkExterno = it.tipo === "link_externo"
-            return (
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Field label="Forma de pagamento">
-              <Select
-                value={it.tipo}
-                onValueChange={(v) =>
-                  patch(i, {
-                    tipo: v as CobrancaTipo,
-                    ...(v === "outro" || v === "faturado" || v === "link_externo"
-                      ? { num_parcelas: 1 }
-                      : {}),
-                  })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {props.restritoCartaoCliente ? (
-                    <>
-                      <SelectItem value="faturado">
-                        {COBRANCA_TIPO_LABEL["faturado"]}
-                      </SelectItem>
-                      <SelectItem value="link_externo">
-                        {COBRANCA_TIPO_LABEL["link_externo"]}
-                      </SelectItem>
-                    </>
-                  ) : (
-                    <>
-                      <SelectItem value="pix">{COBRANCA_TIPO_LABEL["pix"]}</SelectItem>
-                      <SelectItem value="boleto">{COBRANCA_TIPO_LABEL["boleto"]}</SelectItem>
-                      <SelectItem value="cartao_credito">{COBRANCA_TIPO_LABEL["cartao_credito"]}</SelectItem>
-                      <SelectItem value="outro">{COBRANCA_TIPO_LABEL["outro"]}</SelectItem>
-                    </>
-                  )}
-                </SelectContent>
-              </Select>
-            </Field>
+        function setTipo(novoTipo: CobrancaTipo) {
+          const reseta =
+            novoTipo === "outro" || novoTipo === "link_externo"
+              ? { num_parcelas: 1, parcelas_detalhe: [] }
+              : {}
+          patch(i, { tipo: novoTipo, ...reseta })
+        }
 
-            {it.tipo === "outro" && (
-              <Field
-                label="Forma de pagamento (Outro)"
-                error={props.errors[`cobranca_${i}_outro_descricao`]}
-              >
-                <Input
-                  value={it.outro_descricao}
-                  onChange={(ev) => patch(i, { outro_descricao: ev.target.value })}
-                  placeholder="Ex: Cheque, Permuta…"
-                />
+        function setNumParcelas(novo: number) {
+          const next: Partial<CobrancaItemState> = { num_parcelas: novo }
+          if (novo <= 1) {
+            next.parcelas_detalhe = []
+          } else {
+            // Cresceu: estende com auto-fill. Encolheu: trunca.
+            const total = parseValorComSoma(it.valor_total_str) || 0
+            const base = total / novo
+            const existentes = it.parcelas_detalhe.slice(0, novo)
+            const novas: ParcelaDetalhe[] = Array.from({ length: novo }).map((_, j) => {
+              const ja = existentes[j]
+              return {
+                ordem: j + 1,
+                valor_str: ja?.valor_str ?? (base > 0 ? formatBRL(base) : ""),
+                data: ja?.data ?? "",
+              }
+            })
+            next.parcelas_detalhe = novas
+          }
+          patch(i, next)
+        }
+
+        function setValorTotal(v: string) {
+          // Sempre que o valor total mudar, refaz a distribuição mantendo as
+          // datas. Operador pode customizar valores depois.
+          const next: Partial<CobrancaItemState> = { valor_total_str: v }
+          if (!semParcelas && it.num_parcelas > 1) {
+            const total = parseValorComSoma(v) || 0
+            const base = total / it.num_parcelas
+            next.parcelas_detalhe = Array.from({ length: it.num_parcelas }).map(
+              (_, j) => ({
+                ordem: j + 1,
+                valor_str: base > 0 ? formatBRL(base) : "",
+                data: it.parcelas_detalhe[j]?.data ?? "",
+              }),
+            )
+          }
+          patch(i, next)
+        }
+
+        function patchParcela(idx: number, dados: Partial<ParcelaDetalhe>) {
+          patch(i, {
+            parcelas_detalhe: it.parcelas_detalhe.map((p, j) =>
+              j === idx ? { ...p, ...dados } : p,
+            ),
+          })
+        }
+
+        function preencherRestante() {
+          if (restanteAbs <= 0) return
+          setValorTotal(formatBRL(restanteAbs))
+        }
+
+        return (
+          <div
+            key={i}
+            className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-medium text-white">Cobrança {i + 1}</p>
+              {props.itens.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => remover(i)}
+                  className="rounded p-1 text-rose-300/70 hover:text-rose-200"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Forma de pagamento">
+                <Select
+                  value={it.tipo}
+                  onValueChange={(v) => setTipo(v as CobrancaTipo)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {props.restritoCartaoCliente ? (
+                      <>
+                        <SelectItem value="faturado">
+                          {COBRANCA_TIPO_LABEL["faturado"]}
+                        </SelectItem>
+                        <SelectItem value="link_externo">
+                          {COBRANCA_TIPO_LABEL["link_externo"]}
+                        </SelectItem>
+                      </>
+                    ) : (
+                      <>
+                        <SelectItem value="pix">{COBRANCA_TIPO_LABEL["pix"]}</SelectItem>
+                        <SelectItem value="boleto">{COBRANCA_TIPO_LABEL["boleto"]}</SelectItem>
+                        <SelectItem value="cartao_credito">
+                          {COBRANCA_TIPO_LABEL["cartao_credito"]}
+                        </SelectItem>
+                        <SelectItem value="faturado">
+                          {COBRANCA_TIPO_LABEL["faturado"]}
+                        </SelectItem>
+                        <SelectItem value="link_externo">
+                          {COBRANCA_TIPO_LABEL["link_externo"]}
+                        </SelectItem>
+                        <SelectItem value="outro">{COBRANCA_TIPO_LABEL["outro"]}</SelectItem>
+                      </>
+                    )}
+                  </SelectContent>
+                </Select>
               </Field>
-            )}
 
-            <Field
-              label="Valor"
-              error={props.errors[`cobranca_${i}_valor`]}
-            >
-              <CurrencyInput
-                value={it.valor_total_str}
-                onChange={(v) => patch(i, { valor_total_str: v })}
-              />
-            </Field>
-
-            {!semParcelas && (
-              <>
-                <Field label="Número de parcelas">
-                  <div className="flex h-10 items-center overflow-hidden rounded-md border border-white/[0.08]">
-                    <button
-                      type="button"
-                      onClick={() => patch(i, { num_parcelas: Math.max(1, it.num_parcelas - 1) })}
-                      disabled={it.num_parcelas <= 1}
-                      className="flex h-full w-9 shrink-0 items-center justify-center border-r border-white/[0.08] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-30"
-                      aria-label="Diminuir parcelas"
-                    >
-                      <Minus className="h-3.5 w-3.5" />
-                    </button>
-                    <span className="flex-1 text-center text-sm tabular-nums text-white">
-                      {it.num_parcelas}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => patch(i, { num_parcelas: Math.min(360, it.num_parcelas + 1) })}
-                      disabled={it.num_parcelas >= 360}
-                      className="flex h-full w-9 shrink-0 items-center justify-center border-l border-white/[0.08] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-30"
-                      aria-label="Aumentar parcelas"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </Field>
-
-                <Field label="Valor da parcela" hint="valor ÷ parcelas">
-                  <CurrencyInput
-                    value={(() => {
-                      const total = parseValorComSoma(it.valor_total_str) || 0
-                      const n = it.num_parcelas || 1
-                      const v = total / n
-                      return v > 0 ? formatBRL(v) : ""
-                    })()}
-                    onChange={() => {}}
-                    disabled
+              {it.tipo === "outro" && (
+                <Field
+                  label="Forma de pagamento (Outro)"
+                  error={props.errors[`cobranca_${i}_outro_descricao`]}
+                >
+                  <Input
+                    value={it.outro_descricao}
+                    onChange={(ev) => patch(i, { outro_descricao: ev.target.value })}
+                    placeholder="Ex: Cheque, Permuta…"
                   />
                 </Field>
-              </>
-            )}
+              )}
 
-            {/* Faturado: ciclo mensal é gerado depois.
-                Link externo: futuro vai integrar com Cielo/PagSeguro pra
-                puxar o contas a receber automaticamente.
-                Ambos dispensam o campo de data agora. */}
-            {it.tipo !== "faturado" && it.tipo !== "link_externo" && (
-              <Field label={semParcelas ? "Data pagamento" : "Data primeiro recebimento"}>
-                <DateInput
-                  value={it.data_primeiro_recebimento}
-                  onChange={(iso) => patch(i, { data_primeiro_recebimento: iso })}
-                />
-              </Field>
-            )}
-
-            {/* Link externo ocupa 2/3 da linha pra dar espaço à URL */}
-            {isLinkExterno ? (
+              {/* Valor + botão "Restante" — só aparece quando há diferença */}
               <Field
-                label="Link de pagamento (PagSeguro / Cielo)"
-                className="sm:col-span-2"
-                error={props.errors[`cobranca_${i}_link`]}
+                label="Valor"
+                error={props.errors[`cobranca_${i}_valor`]}
               >
-                <Input
-                  value={it.plataforma_link}
-                  onChange={(ev) =>
-                    patch(i, { plataforma_link: ev.target.value })
-                  }
-                  placeholder="https://pag.ae/abc123 ou https://cielo.com.br/…"
-                  maxLength={500}
-                />
+                <div className="flex items-stretch gap-1.5">
+                  <CurrencyInput
+                    value={it.valor_total_str}
+                    onChange={setValorTotal}
+                  />
+                  {podePreencherRestante && (
+                    <IconTooltip label={`Preencher com ${formatBRL(restanteAbs)}`}>
+                      <button
+                        type="button"
+                        onClick={preencherRestante}
+                        className="inline-flex h-10 shrink-0 items-center gap-1 rounded-md border border-nexus-bright/30 bg-nexus-bright/[0.08] px-2.5 text-[11px] font-medium text-nexus-bright transition-colors hover:border-nexus-bright/50 hover:bg-nexus-bright/15"
+                      >
+                        <Plus className="h-3 w-3" />
+                        Restante
+                      </button>
+                    </IconTooltip>
+                  )}
+                </div>
               </Field>
-            ) : it.tipo !== "faturado" ? (
-              <Field label="Plataforma / link (opcional)">
-                <Input
-                  value={it.plataforma_link}
-                  onChange={(ev) =>
-                    patch(i, { plataforma_link: ev.target.value })
-                  }
-                  placeholder="PagSeguro, Cielo…"
-                />
-              </Field>
-            ) : null}
 
+              {!semParcelas && (
+                <>
+                  <Field label="Número de parcelas">
+                    <div className="flex h-10 items-center overflow-hidden rounded-md border border-white/[0.08]">
+                      <button
+                        type="button"
+                        onClick={() => setNumParcelas(Math.max(1, it.num_parcelas - 1))}
+                        disabled={it.num_parcelas <= 1}
+                        className="flex h-full w-9 shrink-0 items-center justify-center border-r border-white/[0.08] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-30"
+                        aria-label="Diminuir parcelas"
+                      >
+                        <Minus className="h-3.5 w-3.5" />
+                      </button>
+                      <span className="flex-1 text-center text-sm tabular-nums text-white">
+                        {it.num_parcelas}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setNumParcelas(Math.min(360, it.num_parcelas + 1))}
+                        disabled={it.num_parcelas >= 360}
+                        className="flex h-full w-9 shrink-0 items-center justify-center border-l border-white/[0.08] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-30"
+                        aria-label="Aumentar parcelas"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </Field>
+
+                  {it.num_parcelas <= 1 && (
+                    <Field label="Data do pagamento">
+                      <DateInput
+                        value={it.data_primeiro_recebimento}
+                        onChange={(iso) =>
+                          patch(i, { data_primeiro_recebimento: iso })
+                        }
+                      />
+                    </Field>
+                  )}
+                </>
+              )}
+
+              {/* Plataforma — Select restrito a PagSeguro / Cielo.
+                  Aplicável a qualquer tipo, inclusive link_externo (informa
+                  qual plataforma gerou o link). */}
+              <Field label="Plataforma">
+                <Select
+                  value={it.plataforma || "_nenhuma"}
+                  onValueChange={(v) =>
+                    patch(i, {
+                      plataforma:
+                        v === "_nenhuma"
+                          ? ""
+                          : (v as "PagSeguro" | "Cielo"),
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecionar" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_nenhuma">Nenhuma</SelectItem>
+                    <SelectItem value="PagSeguro">PagSeguro</SelectItem>
+                    <SelectItem value="Cielo">Cielo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              {/* Link de pagamento — só pra link_externo (URL) */}
+              {isLinkExterno && (
+                <Field
+                  label="Link de pagamento"
+                  className="sm:col-span-2"
+                  error={props.errors[`cobranca_${i}_link`]}
+                >
+                  <Input
+                    value={it.plataforma_link}
+                    onChange={(ev) =>
+                      patch(i, { plataforma_link: ev.target.value })
+                    }
+                    placeholder="https://pag.ae/abc123 ou https://cielo.com.br/…"
+                    maxLength={500}
+                  />
+                </Field>
+              )}
+            </div>
+
+            {/* ── Parcelas detalhadas ──────────────────────────────────── */}
+            {!semParcelas && it.num_parcelas > 1 && (
+              <div className="mt-4 space-y-2 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] uppercase tracking-wider text-white/55">
+                    Detalhamento das parcelas
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      patch(i, { parcelas_detalhe: redistribuirParcelas(it) })
+                    }
+                    className="text-[11px] text-nexus-bright/80 hover:text-nexus-bright"
+                  >
+                    Redistribuir valores
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {(it.parcelas_detalhe.length === it.num_parcelas
+                    ? it.parcelas_detalhe
+                    : redistribuirParcelas(it)
+                  ).map((parc, j) => (
+                    <div
+                      key={j}
+                      className="grid grid-cols-12 items-center gap-2 rounded-md border border-white/[0.04] bg-white/[0.02] px-3 py-2"
+                    >
+                      <div className="col-span-2 text-[11px] uppercase tracking-wider text-white/45">
+                        Parcela {parc.ordem}
+                      </div>
+                      <div className="col-span-5">
+                        <CurrencyInput
+                          value={parc.valor_str}
+                          onChange={(v) => patchParcela(j, { valor_str: v })}
+                        />
+                      </div>
+                      <div className="col-span-5">
+                        <DateInput
+                          value={parc.data}
+                          onChange={(iso) => patchParcela(j, { data: iso })}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {(() => {
+                  const somaParcelas = (
+                    it.parcelas_detalhe.length === it.num_parcelas
+                      ? it.parcelas_detalhe
+                      : []
+                  ).reduce((acc, p) => acc + (parseValorComSoma(p.valor_str) || 0), 0)
+                  const diff = somaParcelas - valorItem
+                  if (Math.abs(diff) < 0.01) return null
+                  return (
+                    <p className="text-[11px] text-amber-300/80">
+                      Soma das parcelas: {formatBRL(somaParcelas)} ·{" "}
+                      {diff > 0 ? "+" : "−"}
+                      {formatBRL(Math.abs(diff))} em relação ao valor total
+                    </p>
+                  )
+                })()}
+              </div>
+            )}
           </div>
-            )
-          })()}
-        </div>
-      ))}
+        )
+      })}
 
       <Button
         type="button"
@@ -3101,6 +3456,13 @@ function ProdutosRevisao(props: {
     ravExtraCliente: number
     ravExtraFornecedor: number
     camposExtras: { nome: string; valor: string }[]
+    pgtoForma: string | null
+    pgtoCartaoNome: string | null
+    pgtoValorTotal: number
+    pgtoEntrada: number
+    pgtoNumParcelas: number
+    pgtoDataEntrada: string | null
+    pgtoPrimeiraParcelaExtra: number
   }[]
   totalVenda: number
   totalCusto: number
@@ -3143,7 +3505,8 @@ function ProdutosRevisao(props: {
               p.ravExtraFornecedor > 0 ||
               !!p.fornecedorNome ||
               !!p.dataInicioViagem ||
-              !!p.dataFimViagem
+              !!p.dataFimViagem ||
+              !!p.pgtoForma
             return (
               <Fragment key={i}>
                 <tr
@@ -3246,6 +3609,72 @@ function ProdutosRevisao(props: {
                           </div>
                         )}
                       </div>
+
+                      {/* ── Pagamento ao fornecedor ──────────────────── */}
+                      {p.pgtoForma && (
+                        <div className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1.5 border-t border-white/[0.04] pl-6 pt-2 sm:grid-cols-2">
+                          <div className="flex items-baseline gap-2 text-[12px]">
+                            <span className="text-white/40">Forma de pgto:</span>
+                            <span className="text-white/85">
+                              {p.pgtoForma === "cartao_agencia" && p.pgtoCartaoNome
+                                ? `Cartão Agência — ${p.pgtoCartaoNome}`
+                                : PGTO_FORMA_LABEL[p.pgtoForma as PgtoForma] ?? p.pgtoForma}
+                            </span>
+                          </div>
+                          {p.pgtoForma === "cartao_agencia" && p.pgtoDataEntrada && (
+                            <div className="flex items-baseline gap-2 text-[12px]">
+                              <span className="text-white/40">Data de entrada:</span>
+                              <span className="tabular-nums text-white/85">
+                                {formatDateBR(p.pgtoDataEntrada)}
+                              </span>
+                            </div>
+                          )}
+                          {p.pgtoForma === "cartao_agencia" && p.pgtoEntrada > 0 && (
+                            <div className="flex items-baseline gap-2 text-[12px]">
+                              <span className="text-white/40">Entrada:</span>
+                              <span className="tabular-nums text-white/85">
+                                {formatBRL(p.pgtoEntrada)}
+                              </span>
+                            </div>
+                          )}
+                          {p.pgtoForma === "cartao_agencia" && p.pgtoNumParcelas > 1 && (() => {
+                            const totalPgto =
+                              p.pgtoValorTotal > 0 ? p.pgtoValorTotal : p.valorCusto
+                            const extra = p.pgtoPrimeiraParcelaExtra || 0
+                            const base =
+                              (totalPgto - p.pgtoEntrada - extra) / p.pgtoNumParcelas
+                            const p1 = base + extra
+                            return (
+                              <>
+                                <div className="flex items-baseline gap-2 text-[12px]">
+                                  <span className="text-white/40">Parcelas:</span>
+                                  <span className="tabular-nums text-white/85">
+                                    {p.pgtoNumParcelas}x{" "}
+                                    {extra > 0 ? (
+                                      <>
+                                        — 1ª: {formatBRL(p1)} · demais:{" "}
+                                        {formatBRL(base)}
+                                      </>
+                                    ) : (
+                                      <>de {formatBRL(base)}</>
+                                    )}
+                                  </span>
+                                </div>
+                                {extra > 0 && (
+                                  <div className="flex items-baseline gap-2 text-[12px]">
+                                    <span className="text-white/40">
+                                      Taxa na 1ª parcela:
+                                    </span>
+                                    <span className="tabular-nums text-nexus-bright">
+                                      {formatBRL(extra)}
+                                    </span>
+                                  </div>
+                                )}
+                              </>
+                            )
+                          })()}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )}
@@ -3277,7 +3706,7 @@ function ProdutosRevisao(props: {
   )
 }
 
-function Step5Revisao(props: {
+function Step6Revisao(props: {
   empresaNome: string
   dataVenda: string
   cliente: string
@@ -3299,6 +3728,13 @@ function Step5Revisao(props: {
     ravExtraCliente: number
     ravExtraFornecedor: number
     camposExtras: { nome: string; valor: string }[]
+    pgtoForma: string | null
+    pgtoCartaoNome: string | null
+    pgtoValorTotal: number
+    pgtoEntrada: number
+    pgtoNumParcelas: number
+    pgtoDataEntrada: string | null
+    pgtoPrimeiraParcelaExtra: number
   }[]
   cobranca: {
     tipo: string
@@ -3307,6 +3743,10 @@ function Step5Revisao(props: {
     /** Quando preenchido, mostra link clicável abaixo do item.
      *  Hoje só é usado pelo tipo `link_externo` (PagSeguro/Cielo). */
     link?: string | null
+    /** Plataforma da cobrança (PagSeguro / Cielo / null). */
+    plataforma?: string | null
+    /** Distribuição planejada das parcelas. Vazio = à vista ou auto-divide. */
+    parcelasDetalhe?: { ordem: number; valor: number; data: string | null }[]
   }[]
   passageiros: {
     nome: string
@@ -3319,6 +3759,9 @@ function Step5Revisao(props: {
   mostraComissao: boolean
   /** Percentual de comissão do agente (calculado pela regra de origem/perfil). */
   comissaoPercentual: number | null
+  /** Lista de anexos (carregada do server) — exibida em bloco próprio
+   *  abaixo de Passageiros. Vazio = bloco oculto. */
+  anexos: AnexoVenda[]
 }) {
   const totalVenda = props.produtos.reduce((a, p) => a + p.valorVenda, 0)
   const totalCusto = props.produtos.reduce((a, p) => a + p.valorCusto, 0)
@@ -3379,7 +3822,7 @@ function Step5Revisao(props: {
         </Bloco>
 
         <Bloco titulo="Cobrança do cliente">
-          <ul className="space-y-2 text-sm">
+          <ul className="space-y-2.5 text-sm">
             {props.cobranca.map((c, i) => (
               <li key={i} className="space-y-1">
                 <div className="flex items-center justify-between">
@@ -3388,6 +3831,11 @@ function Step5Revisao(props: {
                     {c.parcelas > 1 && (
                       <span className="ml-2 text-xs text-white/45">
                         {c.parcelas}x
+                      </span>
+                    )}
+                    {c.plataforma && (
+                      <span className="ml-2 rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-white/55">
+                        {c.plataforma}
                       </span>
                     )}
                   </span>
@@ -3405,6 +3853,28 @@ function Step5Revisao(props: {
                     <ExternalLink className="h-3 w-3 shrink-0" />
                     <span className="truncate">{c.link}</span>
                   </a>
+                )}
+                {c.parcelasDetalhe && c.parcelasDetalhe.length > 0 && (
+                  <ul className="mt-1 space-y-0.5 border-l border-white/[0.05] pl-3">
+                    {c.parcelasDetalhe.map((p) => (
+                      <li
+                        key={p.ordem}
+                        className="flex items-center justify-between text-[11px]"
+                      >
+                        <span className="text-white/45">
+                          Parcela {p.ordem}
+                          {p.data && (
+                            <span className="ml-2 tabular-nums text-white/55">
+                              {formatDateBR(p.data)}
+                            </span>
+                          )}
+                        </span>
+                        <span className="tabular-nums text-white/65">
+                          {formatBRL(p.valor)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </li>
             ))}
@@ -3453,6 +3923,12 @@ function Step5Revisao(props: {
             ))}
           </ul>
         </Bloco>
+
+        {props.anexos.length > 0 && (
+          <Bloco titulo={`Anexos (${props.anexos.length})`}>
+            <AnexosRevisao anexos={props.anexos} />
+          </Bloco>
+        )}
       </div>
 
       {/* ── Coluna direita — painel financeiro ───────────────────────── */}
@@ -3734,4 +4210,230 @@ function formatDateBR(iso: string): string {
   if (!iso) return "—"
   const [y, m, d] = iso.split("-")
   return `${d}/${m}/${y}`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Step 5 — Anexos (até 10 arquivos, 10 MB cada, imagens ou PDF)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Step5Anexos(props: {
+  vendaId: string | null
+  wizardSessionId: string
+  anexos: AnexoVenda[]
+  setAnexos: React.Dispatch<React.SetStateAction<AnexoVenda[]>>
+  readOnly?: boolean
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState<string[]>([])
+
+  const limiteAtingido = props.anexos.length >= MAX_ANEXOS_POR_VENDA
+  const acceptedTypes = MIMES_ACEITOS.join(",")
+
+  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    if (files.length === 0) return
+    if (props.anexos.length + files.length > MAX_ANEXOS_POR_VENDA) {
+      toast.error(`Máximo de ${MAX_ANEXOS_POR_VENDA} anexos por venda.`)
+      e.target.value = ""
+      return
+    }
+    for (const file of files) {
+      if (file.size > MAX_ANEXO_BYTES) {
+        toast.error(`"${file.name}" excede 10 MB.`)
+        continue
+      }
+      if (!(MIMES_ACEITOS as readonly string[]).includes(file.type)) {
+        toast.error(`"${file.name}" não é PDF nem imagem.`)
+        continue
+      }
+      const tempKey = `${file.name}-${file.size}`
+      setUploading((s) => [...s, tempKey])
+      try {
+        const fd = new FormData()
+        fd.set("file", file)
+        if (props.vendaId) fd.set("vendaId", props.vendaId)
+        else fd.set("wizardSessionId", props.wizardSessionId)
+        const r = await uploadAnexo(fd)
+        if (!r.ok) {
+          toast.error(r.error ?? "Falha no upload.")
+        } else if (r.data) {
+          props.setAnexos((s) => [...s, r.data!])
+        }
+      } finally {
+        setUploading((s) => s.filter((k) => k !== tempKey))
+      }
+    }
+    e.target.value = ""
+  }
+
+  async function onRemove(anexoId: string) {
+    const r = await excluirAnexo(anexoId)
+    if (!r.ok) {
+      toast.error(r.error ?? "Falha ao remover anexo.")
+      return
+    }
+    props.setAnexos((s) => s.filter((a) => a.id !== anexoId))
+  }
+
+  async function onAbrir(anexoId: string) {
+    const r = await obterUrlAnexo(anexoId)
+    if (!r.ok) {
+      toast.error(r.error ?? "Não foi possível abrir o arquivo.")
+      return
+    }
+    if (!r.data) return
+    window.open(r.data.url, "_blank", "noopener,noreferrer")
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-white">Anexos da venda</p>
+            <p className="mt-0.5 text-xs text-white/55">
+              Comprovantes, vouchers, prints de reserva. Até{" "}
+              {MAX_ANEXOS_POR_VENDA} arquivos, 10 MB cada (PDF ou imagem).
+            </p>
+          </div>
+          <div className="text-xs text-white/45 tabular-nums">
+            {props.anexos.length} / {MAX_ANEXOS_POR_VENDA}
+          </div>
+        </div>
+
+        {!props.readOnly && (
+          <div className="mt-4">
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              accept={acceptedTypes}
+              onChange={onPick}
+              className="hidden"
+              disabled={limiteAtingido}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => inputRef.current?.click()}
+              disabled={limiteAtingido || uploading.length > 0}
+              className="border-nexus-bright/30 bg-nexus-bright/[0.05] text-nexus-bright hover:border-nexus-bright/50 hover:bg-nexus-bright/15"
+            >
+              <Paperclip className="mr-2 h-4 w-4" />
+              {limiteAtingido ? "Limite atingido" : "Selecionar arquivos"}
+            </Button>
+            {uploading.length > 0 && (
+              <span className="ml-3 inline-flex items-center gap-1.5 text-xs text-white/55">
+                <Spinner className="h-3 w-3" />
+                Enviando {uploading.length}…
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {props.anexos.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.02] py-10 text-center text-sm text-white/45">
+          Nenhum anexo enviado ainda.
+          {!props.readOnly && " Use o botão acima pra adicionar."}
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {props.anexos.map((a) => (
+            <AnexoCard
+              key={a.id}
+              anexo={a}
+              onAbrir={() => onAbrir(a.id)}
+              onRemover={props.readOnly ? undefined : () => onRemove(a.id)}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function AnexoCard({
+  anexo,
+  onAbrir,
+  onRemover,
+}: {
+  anexo: AnexoVenda
+  onAbrir: () => void
+  onRemover?: () => void
+}) {
+  const isPdf = anexo.mimeType === "application/pdf"
+  const tamanhoMB = (anexo.tamanhoBytes / (1024 * 1024)).toFixed(2)
+
+  return (
+    <li className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+      <div
+        className={
+          "flex h-9 w-9 shrink-0 items-center justify-center rounded-md border " +
+          (isPdf
+            ? "border-rose-400/30 bg-rose-400/[0.08] text-rose-300"
+            : "border-nexus-bright/30 bg-nexus-bright/[0.08] text-nexus-bright")
+        }
+      >
+        <Paperclip className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={onAbrir}
+          className="block w-full truncate text-left text-sm font-medium text-white hover:text-nexus-bright"
+          title={anexo.nomeArquivo}
+        >
+          {anexo.nomeArquivo}
+        </button>
+        <p className="mt-0.5 text-[11px] text-white/45">
+          {isPdf ? "PDF" : "Imagem"} · {tamanhoMB} MB
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onAbrir}
+        title="Abrir em nova aba"
+        aria-label="Abrir em nova aba"
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 text-white/55 transition-colors hover:border-white/20 hover:bg-white/[0.04] hover:text-white"
+      >
+        <ExternalLink className="h-4 w-4" />
+      </button>
+      {onRemover && (
+        <button
+          type="button"
+          onClick={onRemover}
+          title="Remover anexo"
+          aria-label="Remover anexo"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-rose-500/25 bg-rose-500/[0.08] text-rose-300 transition-colors hover:border-rose-500/50 hover:bg-rose-500/15"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      )}
+    </li>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bloco de anexos na revisão (Step 6) — somente leitura
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AnexosRevisao({ anexos }: { anexos: AnexoVenda[] }) {
+  async function onAbrir(anexoId: string) {
+    const r = await obterUrlAnexo(anexoId)
+    if (!r.ok) {
+      toast.error(r.error ?? "Não foi possível abrir o arquivo.")
+      return
+    }
+    if (!r.data) return
+    window.open(r.data.url, "_blank", "noopener,noreferrer")
+  }
+
+  return (
+    <ul className="space-y-2">
+      {anexos.map((a) => (
+        <AnexoCard key={a.id} anexo={a} onAbrir={() => onAbrir(a.id)} />
+      ))}
+    </ul>
+  )
 }

@@ -39,9 +39,12 @@ export default async function PerfilDetailPage({
   const agendaEnabled = await isFeatureEnabled("agenda")
 
   const [perfilRes, empresasRes] = await Promise.all([
-    supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
       .from("perfis_acesso")
-      .select("id, nome, sistema, ativo, empresa_id, tipo, permissoes")
+      .select(
+        "id, nome, sistema, ativo, empresa_id, tipo, permissoes, chave_sistema",
+      )
       .eq("id", id)
       .maybeSingle(),
     supabase
@@ -104,7 +107,8 @@ export default async function PerfilDetailPage({
   const podeExcluir =
     can(user, "perfis", "excluir") && !perfil.sistema && (usuariosCount ?? 0) === 0
   const podeEditar =
-    can(user, "perfis", "editar") && perfil.nome !== "Administrador"
+    can(user, "perfis", "editar") &&
+    (perfil as { chave_sistema?: string | null }).chave_sistema !== "admin"
 
   const permissoes = (perfil.permissoes as PermissoesValue) ?? {}
   const tipo = perfil.tipo as PerfilTipo
@@ -289,7 +293,10 @@ export default async function PerfilDetailPage({
           value={permissoes}
           onChange={() => {}}
           disabled
-          readOnlyAllTrue={perfil.nome === "Administrador"}
+          readOnlyAllTrue={
+            (perfil as { chave_sistema?: string | null }).chave_sistema ===
+            "admin"
+          }
           agendaEnabled={agendaEnabled}
         />
       </div>

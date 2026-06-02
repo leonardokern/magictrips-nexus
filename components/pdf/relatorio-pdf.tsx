@@ -557,7 +557,14 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
                       width="25%"
                     />
                     {p.pgtoDataDebito && (
-                      <Campo label="Data débito" value={formatDate(p.pgtoDataDebito)} width="25%" />
+                      <Campo label="Data de entrada" value={formatDate(p.pgtoDataDebito)} width="25%" />
+                    )}
+                    {p.pgtoPrimeiraParcelaExtra > 0 && (
+                      <Campo
+                        label="Taxa 1ª parcela"
+                        value={formatBRL(p.pgtoPrimeiraParcelaExtra)}
+                        width="25%"
+                      />
                     )}
                   </View>
                 </View>
@@ -597,8 +604,8 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
                       {c.fornecedorDestino && (
                         <Campo label="Destino" value={c.fornecedorDestino} width="25%" />
                       )}
-                      {c.plataformaLink && c.tipo !== "link_externo" && (
-                        <Campo label="Plataforma / Link" value={c.plataformaLink} width="33.33%" />
+                      {c.plataforma && (
+                        <Campo label="Plataforma" value={c.plataforma} width="25%" />
                       )}
                       {c.taxaAdquirente != null && c.taxaAdquirente > 0 && (
                         <Campo label="Taxa adquirente" value={`${c.taxaAdquirente}%`} color="#92400e" width="25%" />
@@ -620,6 +627,35 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
                         >
                           {c.plataformaLink}
                         </Link>
+                      </View>
+                    )}
+                    {/* Detalhamento das parcelas — quando o operador
+                        customizou valor e/ou data por parcela. */}
+                    {c.parcelasDetalhe && c.parcelasDetalhe.length > 0 && (
+                      <View style={{ marginTop: 5 }}>
+                        <Text style={{ fontSize: 6.5, color: CORES.textoSuave, marginBottom: 2 }}>
+                          PARCELAS PLANEJADAS
+                        </Text>
+                        {c.parcelasDetalhe.map((p) => (
+                          <View
+                            key={p.ordem}
+                            style={{
+                              flexDirection: "row",
+                              justifyContent: "space-between",
+                              paddingVertical: 1.5,
+                              borderBottomWidth: 0.25,
+                              borderBottomColor: CORES.divisor,
+                            }}
+                          >
+                            <Text style={{ fontSize: 7.5, color: CORES.textoSuave }}>
+                              Parcela {p.ordem}
+                              {p.data ? `  ·  ${formatDate(p.data)}` : ""}
+                            </Text>
+                            <Text style={{ fontSize: 7.5, color: CORES.texto }}>
+                              {formatBRL(p.valor)}
+                            </Text>
+                          </View>
+                        ))}
                       </View>
                     )}
                     {c.observacoes && (
@@ -677,6 +713,31 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
                     <Text style={[s.tdSuave, { flex: 2 }]}>{formatDate(p.dataNascimento)}</Text>
                   </View>
                 ))}
+              </View>
+            </View>
+          )}
+
+          {/* ── Anexos (listagem nominal) ────────────────────────────── */}
+          {v.anexos.length > 0 && (
+            <View style={s.section}>
+              <Text style={s.sectionTitle}>Anexos ({v.anexos.length})</Text>
+              <View style={s.table}>
+                <View style={s.tableHead}>
+                  <Text style={[s.th, { flex: 4 }]}>Nome do arquivo</Text>
+                  <Text style={[s.th, { flex: 1 }]}>Tipo</Text>
+                  <Text style={[s.th, { flex: 1, textAlign: "right" }]}>Tamanho</Text>
+                </View>
+                {v.anexos.map((a, i) => {
+                  const isPdf = a.mimeType === "application/pdf"
+                  const tamanhoMB = (a.tamanhoBytes / (1024 * 1024)).toFixed(2)
+                  return (
+                    <View key={i} style={i % 2 === 0 ? s.tableRow : s.tableRowAlt}>
+                      <Text style={[s.td, { flex: 4 }]}>{a.nomeArquivo}</Text>
+                      <Text style={[s.tdSuave, { flex: 1 }]}>{isPdf ? "PDF" : "Imagem"}</Text>
+                      <Text style={[s.tdSuave, { flex: 1, textAlign: "right" }]}>{tamanhoMB} MB</Text>
+                    </View>
+                  )
+                })}
               </View>
             </View>
           )}
