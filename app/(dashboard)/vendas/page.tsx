@@ -17,6 +17,10 @@ import { formatBRL } from "@/lib/utils/sum-parser"
 import { NovaVendaButton } from "@/components/vendas/nova-venda-button"
 import { VendaRowActions } from "@/components/vendas/venda-row-actions"
 import { VendasSearchInput } from "@/components/vendas/vendas-search-input"
+import {
+  ExportarVendasButton,
+  type VendaSelecionavel,
+} from "@/components/vendas/exportar-vendas-modal"
 import { getStatusLabel, getStatusChip } from "@/lib/utils/venda-status"
 
 export const metadata: Metadata = { title: "Vendas" }
@@ -147,6 +151,35 @@ export default async function VendasPage({
     : pendentesTodos
   const aprovadas = (aprovadasRes.data ?? []).map((v) => ({ ...v, ...calcular(v) }))
   const totalAprovadas = aprovadasRes.count ?? 0
+
+  // Lista completa de vendas validadas (sem paginação) — usada APENAS pelo
+  // modal de exportação Excel. Não onera a render quando o usuário não tem
+  // permissão de exportar — só carrega pra Admin/Gerente. Sem busca aplicada
+  // — exportação é sobre a base inteira; o operador filtra dentro do modal.
+  let vendasParaExportar: VendaSelecionavel[] = []
+  if (podeAprovar) {
+    const { data } = await supabase
+      .from("vendas")
+      .select(SELECT_LISTA)
+      .eq("status", "aprovado")
+      .order("data_aprovacao", { ascending: false, nullsFirst: false })
+      .limit(1000)
+    vendasParaExportar = (data ?? []).map((v) => {
+      const calc = calcular(v)
+      const clienteObj = Array.isArray(v.cliente) ? v.cliente[0] : v.cliente
+      const agenteObj = Array.isArray(v.agente) ? v.agente[0] : v.agente
+      return {
+        id: v.id,
+        identificador: v.identificador,
+        dataVenda: v.data_venda ?? "",
+        cliente: clienteObj?.nome ?? "—",
+        agente: agenteObj?.nome ?? "—",
+        valor: calc.total,
+        rav: calc.ravTotal,
+        comissao: calc.comissao,
+      }
+    })
+  }
   const totalPaginas = Math.max(1, Math.ceil(totalAprovadas / PAGE_SIZE))
 
   return (
@@ -251,6 +284,11 @@ export default async function VendasPage({
           totalItens: totalAprovadas,
           pageSize: PAGE_SIZE,
         }}
+        headerExtra={
+          podeAprovar && vendasParaExportar.length > 0 ? (
+            <ExportarVendasButton vendas={vendasParaExportar} />
+          ) : undefined
+        }
       />
     </div>
   )
@@ -314,6 +352,7 @@ function VendasSection({
   icone: Icone,
   contador,
   paginacao,
+  headerExtra,
 }: {
   titulo: string
   descricao: string
@@ -334,6 +373,8 @@ function VendasSection({
     totalItens: number
     pageSize: number
   }
+  /** Ação opcional à direita do título (ex: botão de exportar Excel). */
+  headerExtra?: React.ReactNode
 }) {
   const cfg = ACENTO_CONFIG[acento]
   return (
@@ -364,6 +405,9 @@ function VendasSection({
           </div>
           <p className="mt-0.5 text-xs text-white/45">{descricao}</p>
         </div>
+        {headerExtra && (
+          <div className="ml-auto shrink-0 self-center">{headerExtra}</div>
+        )}
       </div>
 
       {/* Desktop: tabela */}
