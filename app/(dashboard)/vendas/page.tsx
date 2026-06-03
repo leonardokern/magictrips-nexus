@@ -36,7 +36,7 @@ const SELECT_LISTA = `
   empresa:empresas(nome, slug),
   cliente:clientes(nome),
   agente:usuarios!vendas_usuario_id_fkey(nome),
-  produtos:venda_produtos(valor_venda, rav, rav_extra_fornecedor)
+  produtos:venda_produtos(valor_venda, rav, rav_extra_cliente, rav_extra_fornecedor)
 ` as const
 
 type SearchParams = { page?: string; q?: string }
@@ -128,11 +128,22 @@ export default async function VendasPage({
   const mostraComissao = podeAprovar
 
   function calcular<T extends { produtos: unknown; comissao_percentual?: number | null }>(v: T) {
-    type ProdRow = { valor_venda: number; rav: number | null; rav_extra_fornecedor: number | null }
+    // RAV total = base + extra cliente + extra fornecedor.
+    // Comissão = RAV total × % do agente (regra unificada com wizard/PDF).
+    type ProdRow = {
+      valor_venda: number
+      rav: number | null
+      rav_extra_cliente: number | null
+      rav_extra_fornecedor: number | null
+    }
     const prods = (v.produtos as ProdRow[] | null) ?? []
     const total = prods.reduce((a, p) => a + Number(p.valor_venda ?? 0), 0)
     const ravTotal = prods.reduce(
-      (a, p) => a + Number(p.rav ?? 0) + Number(p.rav_extra_fornecedor ?? 0),
+      (a, p) =>
+        a +
+        Number(p.rav ?? 0) +
+        Number(p.rav_extra_cliente ?? 0) +
+        Number(p.rav_extra_fornecedor ?? 0),
       0,
     )
     const pctComissao = Number(v.comissao_percentual ?? 0)

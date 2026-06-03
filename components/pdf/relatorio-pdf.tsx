@@ -283,8 +283,18 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
 
   const totalVenda    = v.produtos.reduce((a, p) => a + p.valorVenda, 0)
   const totalCusto    = v.produtos.reduce((a, p) => a + p.valorCusto, 0)
-  const totalRav      = v.produtos.reduce((a, p) => a + p.rav, 0)
-  const totalComissao = v.produtos.reduce((a, p) => a + p.comissao, 0)
+  // RAV total = base + extra cliente + extra fornecedor (mesma fórmula
+  // usada no wizard, lista, dashboards e resumo panel).
+  const totalRav      = v.produtos.reduce(
+    (a, p) => a + p.rav + p.ravExtraCliente + p.ravExtraFornecedor,
+    0,
+  )
+  // Comissão recomputada com a regra atual (% × RAV total) — não somar
+  // `p.comissao` armazenado, que pode estar com a base antiga.
+  const totalComissao =
+    v.comissaoPercentual != null
+      ? (totalRav * v.comissaoPercentual) / 100
+      : v.produtos.reduce((a, p) => a + p.comissao, 0)
   const margemRav     = totalVenda > 0 ? ((totalRav / totalVenda) * 100).toFixed(1) : "—"
   const totalCobranca = v.cobranca.reduce((a, c) => a + c.valor, 0)
 

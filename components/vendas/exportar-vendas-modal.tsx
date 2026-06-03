@@ -1,7 +1,15 @@
 "use client"
 
 import { useEffect, useMemo, useState, useTransition } from "react"
-import { CalendarRange, Check, Download, FileSpreadsheet, Loader2 } from "lucide-react"
+import {
+  CalendarRange,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  FileSpreadsheet,
+  Loader2,
+} from "lucide-react"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -11,11 +19,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { LoaderButton } from "@/components/ui/loader-button"
 import { formatBRL } from "@/lib/utils/sum-parser"
 import { cn } from "@/lib/utils"
+
+const PAGE_SIZES = [20, 50, 100] as const
+type PageSize = (typeof PAGE_SIZES)[number]
 
 export type VendaSelecionavel = {
   id: string
@@ -81,11 +99,32 @@ function formatDataBR(iso: string): string {
 export function ExportarVendasModal({ open, onOpenChange, vendas }: Props) {
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [isPending, startTransition] = useTransition()
+  const [pageSize, setPageSize] = useState<PageSize>(20)
+  const [pageAtual, setPageAtual] = useState(1)
 
-  // Reset seleção quando o modal abre
+  // Reset seleção + paginação quando o modal abre
   useEffect(() => {
-    if (open) setSelecionados(new Set())
+    if (open) {
+      setSelecionados(new Set())
+      setPageAtual(1)
+    }
   }, [open])
+
+  // Quando o pageSize muda, volta pra primeira página
+  useEffect(() => {
+    setPageAtual(1)
+  }, [pageSize])
+
+  // ── Paginação ────────────────────────────────────────────────────────────
+  const totalItens = vendas.length
+  const totalPaginas = Math.max(1, Math.ceil(totalItens / pageSize))
+  const pageClamp = Math.min(pageAtual, totalPaginas)
+  const sliceInicio = (pageClamp - 1) * pageSize
+  const sliceFim = sliceInicio + pageSize
+  const vendasPagina = useMemo(
+    () => vendas.slice(sliceInicio, sliceFim),
+    [vendas, sliceInicio, sliceFim],
+  )
 
   const totalSelecionado = selecionados.size
 
@@ -114,6 +153,22 @@ export function ExportarVendasModal({ open, onOpenChange, vendas }: Props) {
 
   function selecionarTodos() {
     setSelecionados(new Set(vendas.map((v) => v.id)))
+  }
+
+  function selecionarPagina() {
+    setSelecionados((s) => {
+      const next = new Set(s)
+      for (const v of vendasPagina) next.add(v.id)
+      return next
+    })
+  }
+
+  function desmarcarPagina() {
+    setSelecionados((s) => {
+      const next = new Set(s)
+      for (const v of vendasPagina) next.delete(v.id)
+      return next
+    })
   }
 
   function limparSelecao() {
@@ -169,6 +224,10 @@ export function ExportarVendasModal({ open, onOpenChange, vendas }: Props) {
   }
 
   const todasSelecionadas = vendas.length > 0 && totalSelecionado === vendas.length
+  // Estado do checkbox do header da tabela — reflete só a página atual.
+  // "true" se todas as linhas visíveis estão marcadas; senão "false".
+  const todasDaPaginaSelecionadas =
+    vendasPagina.length > 0 && vendasPagina.every((v) => selecionados.has(v.id))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -218,8 +277,9 @@ export function ExportarVendasModal({ open, onOpenChange, vendas }: Props) {
             onClick={selecionarTodos}
             disabled={todasSelecionadas}
             className="h-8 text-xs text-white/70 hover:bg-white/[0.04] hover:text-white"
+            title={`Marcar todas as ${vendas.length} vendas`}
           >
-            Marcar todos
+            Marcar todas ({vendas.length})
           </Button>
           <Button
             type="button"
@@ -249,12 +309,15 @@ export function ExportarVendasModal({ open, onOpenChange, vendas }: Props) {
                 <thead>
                   <tr className="border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/45">
                     <th className="w-10 px-3 py-2 text-left">
+                      {/* Checkbox do header atua só na página atual —
+                          marcar/desmarcar todas as N linhas visíveis,
+                          preservando seleções de outras páginas. */}
                       <Checkbox
-                        checked={todasSelecionadas}
+                        checked={todasDaPaginaSelecionadas}
                         onCheckedChange={(v) =>
-                          v === true ? selecionarTodos() : limparSelecao()
+                          v === true ? selecionarPagina() : desmarcarPagina()
                         }
-                        aria-label="Selecionar todas"
+                        aria-label="Selecionar página atual"
                       />
                     </th>
                     <th className="px-3 py-2 text-left">ID</th>
@@ -267,7 +330,7 @@ export function ExportarVendasModal({ open, onOpenChange, vendas }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {vendas.map((v) => {
+                  {vendasPagina.map((v) => {
                     const checked = selecionados.has(v.id)
                     return (
                       <tr
@@ -309,6 +372,63 @@ export function ExportarVendasModal({ open, onOpenChange, vendas }: Props) {
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* ── Paginação ───────────────────────────────────────────────── */}
+          {vendas.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-white/55">
+              <div className="flex items-center gap-2">
+                <span>Mostrar</span>
+                <Select
+                  value={String(pageSize)}
+                  onValueChange={(v) => setPageSize(Number(v) as PageSize)}
+                >
+                  <SelectTrigger className="h-8 w-[72px] border-white/10 bg-white/[0.04] text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAGE_SIZES.map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        {n}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span>por página · total {totalItens}</span>
+              </div>
+
+              {totalPaginas > 1 && (
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setPageAtual(Math.max(1, pageClamp - 1))}
+                    disabled={pageClamp <= 1}
+                    className="h-8 w-8 p-0 text-white/70 hover:bg-white/[0.04]"
+                    aria-label="Página anterior"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <span className="tabular-nums px-2">
+                    Página {pageClamp} de {totalPaginas}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      setPageAtual(Math.min(totalPaginas, pageClamp + 1))
+                    }
+                    disabled={pageClamp >= totalPaginas}
+                    className="h-8 w-8 p-0 text-white/70 hover:bg-white/[0.04]"
+                    aria-label="Próxima página"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -561,7 +561,7 @@ export function ComprovantePDF({ venda: v, logoPath }: { venda: VendaParaPDF; lo
                             ? `${c.parcelas}x de ${formatBRL(c.valorParcela ?? c.valor / c.parcelas)}`
                             : "À vista"}
                           {c.dataPrimeiroRecebimento && c.tipo !== "cartao_credito" && c.tipo !== "cartao_debito"
-                            ? ` · Venc. ${formatDate(c.dataPrimeiroRecebimento)}`
+                            ? ` · ${c.parcelas > 1 ? "Primeiro Venc." : "Venc."} ${formatDate(c.dataPrimeiroRecebimento)}`
                             : ""}
                         </Text>
                       </View>

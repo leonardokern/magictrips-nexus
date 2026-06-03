@@ -48,6 +48,7 @@ import {
 import { ClienteCombobox, type ClienteOption } from "./cliente-combobox"
 import { CartaoCombobox } from "./cartao-combobox"
 import { IconTooltip } from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
 import { criarVenda, editarEAprovarVenda, resubmeterVenda } from "@/app/(dashboard)/vendas/actions"
 import { salvarRascunho, descartarRascunho } from "@/app/(dashboard)/vendas/rascunho-actions"
 import {
@@ -340,13 +341,40 @@ function novoItemCobranca(): CobrancaItemState {
   }
 }
 
+/**
+ * Garante que um item de cobrança recebido de fora (ex: rascunho persistido
+ * em versão anterior do schema) tenha TODOS os campos requeridos pelo state
+ * atual. Mescla com o template do `novoItemCobranca` — campos ausentes
+ * recebem default; campos presentes prevalecem.
+ *
+ * Sem isso, drafts antigos quebram em runtime quando tentamos `.map` em
+ * `parcelas_detalhe` (que vinha como undefined).
+ */
+function normalizarCobrancaItem(
+  it: Partial<CobrancaItemState>,
+): CobrancaItemState {
+  const base = novoItemCobranca()
+  return {
+    ...base,
+    ...it,
+    // Override defensivo nos arrays/objetos pra garantir tipo correto
+    parcelas_detalhe: Array.isArray(it.parcelas_detalhe)
+      ? it.parcelas_detalhe
+      : [],
+    plataforma:
+      it.plataforma === "PagSeguro" || it.plataforma === "Cielo"
+        ? it.plataforma
+        : "",
+  }
+}
+
 /** Recalcula `parcelas_detalhe` distribuindo o valor total igualmente.
  *  Mantém datas já preenchidas; cria entradas faltantes com data vazia. */
 function redistribuirParcelas(it: CobrancaItemState): ParcelaDetalhe[] {
-  if (it.num_parcelas <= 1) return []
+  const n = Math.max(1, it.num_parcelas)
   const total = parseValorComSoma(it.valor_total_str) || 0
-  const base = total / it.num_parcelas
-  return Array.from({ length: it.num_parcelas }).map((_, i) => {
+  const base = total / n
+  return Array.from({ length: n }).map((_, i) => {
     const existente = it.parcelas_detalhe[i]
     return {
       ordem: i + 1,
@@ -513,9 +541,11 @@ export function VendaWizard(props: Props) {
     }))
   })
 
-  // Cobrança
+  // Cobrança — normaliza rascunhos antigos que possam não ter os campos
+  // mais recentes (parcelas_detalhe, plataforma). Garante shape consistente
+  // independente da versão do schema que gerou o draft.
   const [cobrancaItens, setCobrancaItens] = useState<CobrancaItemState[]>(
-    () => d?.cobrancaItens ?? [novoItemCobranca()],
+    () => (d?.cobrancaItens ?? [novoItemCobranca()]).map(normalizarCobrancaItem),
   )
   const [cobrancaObs, setCobrancaObs] = useState(() => d?.cobrancaObs ?? "")
 
@@ -669,6 +699,29 @@ export function VendaWizard(props: Props) {
         e[`cobranca_${i}_outro_descricao`] = "Informe a forma de pagamento."
       if (it.tipo === "link_externo" && !it.plataforma_link.trim())
         e[`cobranca_${i}_link`] = "Cole o link de pagamento gerado."
+
+      // Parcelas (tipos parceláveis: PIX/boleto/cartão/faturado). Cada parcela
+      // exige valor > 0 E data ISO preenchida. Usa o mesmo fallback do render
+      // (redistribuirParcelas) pra cobrir o caso em que o usuário não tocou
+      // ainda no detalhamento — o valor auto-fill conta, mas a data não.
+      const ehParcelavel = it.tipo !== "outro" && it.tipo !== "link_externo"
+      if (ehParcelavel) {
+        const parcelas =
+          it.parcelas_detalhe.length === it.num_parcelas
+            ? it.parcelas_detalhe
+            : redistribuirParcelas(it)
+        parcelas.forEach((p, j) => {
+          const valorP = parseValorComSoma(p.valor_str)
+          if (!valorP || valorP <= 0) {
+            e[`cobranca_${i}_parcela_${j}_valor`] =
+              `Valor da parcela ${j + 1} obrigatório.`
+          }
+          if (!p.data) {
+            e[`cobranca_${i}_parcela_${j}_data`] =
+              `Data da parcela ${j + 1} obrigatória.`
+          }
+        })
+      }
     })
     return e
   }
@@ -1090,34 +1143,43 @@ export function VendaWizard(props: Props) {
     // PIX, boleto, faturado e cartão podem ser parcelados.
     const semParcelas = (tipo: CobrancaTipo) =>
       tipo === "outro" || tipo === "link_externo"
-    const itensCobranca = cobrancaItens.map((it) => ({
-      tipo: it.tipo,
-      valor_total: parseValorComSoma(it.valor_total_str),
-      num_parcelas: semParcelas(it.tipo) ? 1 : it.num_parcelas,
-      valor_parcela: semParcelas(it.tipo) ? null : (() => {
-        const total = parseValorComSoma(it.valor_total_str) || 0
-        const n = it.num_parcelas || 1
-        return total > 0 ? total / n : null
-      })(),
-      plataforma_link: it.plataforma_link || null,
-      plataforma: it.plataforma || null,
-      parcelas_detalhe: semParcelas(it.tipo) || it.num_parcelas <= 1
+    const itensCobranca = cobrancaItens.map((it) => {
+      const isAvulso = semParcelas(it.tipo)
+      const parcelasDet = isAvulso
         ? []
         : it.parcelas_detalhe.map((p, i) => ({
             ordem: i + 1,
             valor: parseValorComSoma(p.valor_str) || 0,
             data: p.data || null,
-          })),
-      taxa_adquirente: it.taxa_adquirente_str
-        ? parseValorComSoma(it.taxa_adquirente_str)
-        : null,
-      valor_liquido: it.valor_liquido_str
-        ? parseValorComSoma(it.valor_liquido_str)
-        : null,
-      data_inicio: it.data_inicio || null,
-      data_primeiro_recebimento: it.data_primeiro_recebimento || null,
-      observacoes: it.tipo === "outro" ? it.outro_descricao || null : null,
-    }))
+          }))
+      // Compatibilidade: alguns consumidores legados (geração de contas a
+      // receber, relatórios) usam `data_primeiro_recebimento` direto.
+      // Pra parceladas, copia da primeira parcela; senão usa o campo legado.
+      const dataPrimeiro =
+        parcelasDet[0]?.data ?? it.data_primeiro_recebimento ?? null
+      return {
+        tipo: it.tipo,
+        valor_total: parseValorComSoma(it.valor_total_str),
+        num_parcelas: isAvulso ? 1 : it.num_parcelas,
+        valor_parcela: isAvulso ? null : (() => {
+          const total = parseValorComSoma(it.valor_total_str) || 0
+          const n = it.num_parcelas || 1
+          return total > 0 ? total / n : null
+        })(),
+        plataforma_link: it.plataforma_link || null,
+        plataforma: it.plataforma || null,
+        parcelas_detalhe: parcelasDet,
+        taxa_adquirente: it.taxa_adquirente_str
+          ? parseValorComSoma(it.taxa_adquirente_str)
+          : null,
+        valor_liquido: it.valor_liquido_str
+          ? parseValorComSoma(it.valor_liquido_str)
+          : null,
+        data_inicio: it.data_inicio || null,
+        data_primeiro_recebimento: dataPrimeiro || null,
+        observacoes: it.tipo === "outro" ? it.outro_descricao || null : null,
+      }
+    })
 
     const cobrancaTotal = itensCobranca.reduce(
       (acc, it) => acc + (it.valor_total || 0),
@@ -1361,7 +1423,10 @@ export function VendaWizard(props: Props) {
               link: it.tipo === "link_externo" ? it.plataforma_link.trim() : null,
               plataforma: it.plataforma || null,
               parcelasDetalhe:
-                it.num_parcelas > 1 && it.parcelas_detalhe.length > 0
+                // Tipos avulsos (outro / link_externo) não têm parcelas.
+                it.tipo !== "outro" &&
+                it.tipo !== "link_externo" &&
+                it.parcelas_detalhe.length > 0
                   ? it.parcelas_detalhe.map((p, j) => ({
                       ordem: p.ordem ?? j + 1,
                       valor: parseValorComSoma(p.valor_str) || 0,
@@ -2042,16 +2107,24 @@ function Step2Produtos(props: {
     return raw.replace(/[^0-9.,+ ]/g, "")
   }
 
-  /** Recalcula o string de comissão do vendedor baseado em RAV + RAV Extra
-   *  Cliente, multiplicado pelo % do agente. RAV Extra Fornecedor NÃO entra na
-   *  base — é receita exclusiva da agência. Retorna o string atual do prev
-   *  quando não há % definido (regra sobrescrita pelo Admin no aprovo). */
-  function recomputarComissao(ravStr: string, ravExtraClienteStr: string): string {
+  /** Recalcula o string de comissão do vendedor com base no RAV TOTAL
+   *  (rav base + rav extra cliente + rav extra fornecedor), multiplicado
+   *  pelo % do agente. Todas as superfícies (lista, dashboards, PDF, resumo)
+   *  usam essa mesma base. Retorna "" quando não há % definido (regra
+   *  sobrescrita pelo Admin no aprovo). */
+  function recomputarComissao(
+    ravStr: string,
+    ravExtraClienteStr: string,
+    ravExtraFornecedorStr: string,
+  ): string {
     if (props.comissaoPercentual == null) return ""
     const rav = parseValorComSoma(ravStr)
     const ravExtraCliente = parseValorComSoma(ravExtraClienteStr)
-    const base = (Number.isFinite(rav) ? rav : 0) +
-      (Number.isFinite(ravExtraCliente) ? ravExtraCliente : 0)
+    const ravExtraFornecedor = parseValorComSoma(ravExtraFornecedorStr)
+    const base =
+      (Number.isFinite(rav) ? rav : 0) +
+      (Number.isFinite(ravExtraCliente) ? ravExtraCliente : 0) +
+      (Number.isFinite(ravExtraFornecedor) ? ravExtraFornecedor : 0)
     if (base <= 0) return ""
     const comissao = (base * props.comissaoPercentual) / 100
     return comissao.toFixed(2).replace(".", ",")
@@ -2079,9 +2152,14 @@ function Step2Produtos(props: {
       const pgtoTotalStr = pgtoTotal > 0
         ? new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pgtoTotal)
         : ""
-      // Auto-calcular comissão usando o novo RAV + RAV Extra Cliente existente
+      // Auto-calcular comissão usando RAV total = base + extra cliente +
+      // extra fornecedor.
       const comissaoStr = props.comissaoPercentual != null
-        ? recomputarComissao(ravStr, prev.rav_extra_cliente_str)
+        ? recomputarComissao(
+            ravStr,
+            prev.rav_extra_cliente_str,
+            prev.rav_extra_fornecedor_str,
+          )
         : prev.comissao_vendedor_str
       return { [key]: value, rav_str: ravStr, pgto_valor_total_str: pgtoTotalStr, comissao_vendedor_str: comissaoStr }
     })
@@ -2586,6 +2664,7 @@ function Step2Produtos(props: {
                           comissao_vendedor_str: recomputarComissao(
                             v,
                             prev.rav_extra_cliente_str,
+                            prev.rav_extra_fornecedor_str,
                           ),
                         }))
                       }
@@ -2608,6 +2687,7 @@ function Step2Produtos(props: {
                           comissao_vendedor_str: recomputarComissao(
                             prev.rav_str,
                             v,
+                            prev.rav_extra_fornecedor_str,
                           ),
                         }))
                       }
@@ -2621,7 +2701,16 @@ function Step2Produtos(props: {
                     <CurrencyInput
                       value={p.rav_extra_fornecedor_str}
                       onChange={(v) =>
-                        patch(p.id, () => ({ rav_extra_fornecedor_str: v }))
+                        patch(p.id, (prev) => ({
+                          rav_extra_fornecedor_str: v,
+                          // RAV extra fornecedor agora entra na base de
+                          // comissão — recalcula sempre que muda.
+                          comissao_vendedor_str: recomputarComissao(
+                            prev.rav_str,
+                            prev.rav_extra_cliente_str,
+                            v,
+                          ),
+                        }))
                       }
                     />
                   </Field>
@@ -2977,8 +3066,13 @@ function Step3Cobranca(props: {
         )
         const restante = props.totalVenda - valorOutrosItens - valorItem
         const restanteAbs = props.totalVenda - valorOutrosItens
+        // Sempre mostra o atalho "Preencher com restante" — quando não há
+        // restante (ou esta cobrança já cobre tudo), fica desabilitado pra
+        // dar feedback de que o saldo está zerado.
         const podePreencherRestante =
           restanteAbs > 0 && Math.abs(restante) >= 0.01
+        const totalCoberto =
+          props.totalVenda > 0 && Math.abs(restanteAbs) < 0.01
 
         function setTipo(novoTipo: CobrancaTipo) {
           const reseta =
@@ -2989,35 +3083,29 @@ function Step3Cobranca(props: {
         }
 
         function setNumParcelas(novo: number) {
-          const next: Partial<CobrancaItemState> = { num_parcelas: novo }
-          if (novo <= 1) {
-            next.parcelas_detalhe = []
-          } else {
-            // Cresceu: estende com auto-fill. Encolheu: trunca.
-            const total = parseValorComSoma(it.valor_total_str) || 0
-            const base = total / novo
-            const existentes = it.parcelas_detalhe.slice(0, novo)
-            const novas: ParcelaDetalhe[] = Array.from({ length: novo }).map((_, j) => {
-              const ja = existentes[j]
-              return {
-                ordem: j + 1,
-                valor_str: ja?.valor_str ?? (base > 0 ? formatBRL(base) : ""),
-                data: ja?.data ?? "",
-              }
-            })
-            next.parcelas_detalhe = novas
-          }
-          patch(i, next)
+          // Ao adicionar/remover parcela, REDISTRIBUI o valor total
+          // igualmente entre todas as parcelas. Datas existentes são
+          // preservadas (o operador pode ter planejado as datas mesmo
+          // antes de saber o número final de parcelas).
+          const total = parseValorComSoma(it.valor_total_str) || 0
+          const base = total / Math.max(1, novo)
+          const novas: ParcelaDetalhe[] = Array.from({ length: novo }).map((_, j) => ({
+            ordem: j + 1,
+            valor_str: base > 0 ? formatBRL(base) : "",
+            data: it.parcelas_detalhe[j]?.data ?? "",
+          }))
+          patch(i, { num_parcelas: novo, parcelas_detalhe: novas })
         }
 
         function setValorTotal(v: string) {
           // Sempre que o valor total mudar, refaz a distribuição mantendo as
           // datas. Operador pode customizar valores depois.
           const next: Partial<CobrancaItemState> = { valor_total_str: v }
-          if (!semParcelas && it.num_parcelas > 1) {
+          if (!semParcelas) {
             const total = parseValorComSoma(v) || 0
-            const base = total / it.num_parcelas
-            next.parcelas_detalhe = Array.from({ length: it.num_parcelas }).map(
+            const n = Math.max(1, it.num_parcelas)
+            const base = total / n
+            next.parcelas_detalhe = Array.from({ length: n }).map(
               (_, j) => ({
                 ordem: j + 1,
                 valor_str: base > 0 ? formatBRL(base) : "",
@@ -3029,6 +3117,46 @@ function Step3Cobranca(props: {
         }
 
         function patchParcela(idx: number, dados: Partial<ParcelaDetalhe>) {
+          // Auto-fill mensal: quando a parcela 1 recebe uma data PELA
+          // PRIMEIRA VEZ (antes vazia, agora preenchida), propagamos a
+          // mesma data nas parcelas seguintes adicionando um mês por
+          // parcela. Em alterações subsequentes da parcela 1 NÃO propaga
+          // — assumimos que o operador já ajustou as demais e quer apenas
+          // mudar a primeira. O operador pode editar qualquer parcela
+          // manualmente a qualquer momento.
+          const isFirstFillParcela1 =
+            idx === 0 &&
+            typeof dados.data === "string" &&
+            dados.data !== "" &&
+            !it.parcelas_detalhe[0]?.data
+
+          if (isFirstFillParcela1 && dados.data) {
+            const partes = dados.data.split("-").map(Number)
+            const [ano, mes, dia] = partes
+            if (ano && mes && dia) {
+              patch(i, {
+                parcelas_detalhe: it.parcelas_detalhe.map((p, j) => {
+                  if (j === 0) return { ...p, ...dados }
+                  // Soma `j` meses preservando o mesmo dia. Se o mês
+                  // alvo não tem o dia (ex: 31 jan + 1 mês = fev), usa
+                  // o último dia válido daquele mês.
+                  const mesAlvo = mes + j // 1-indexed
+                  const anoAlvo = ano + Math.floor((mesAlvo - 1) / 12)
+                  const mesNormalizado = ((mesAlvo - 1) % 12) + 1
+                  const ultimoDiaMes = new Date(
+                    anoAlvo,
+                    mesNormalizado,
+                    0,
+                  ).getDate()
+                  const diaFinal = Math.min(dia, ultimoDiaMes)
+                  const iso = `${anoAlvo}-${String(mesNormalizado).padStart(2, "0")}-${String(diaFinal).padStart(2, "0")}`
+                  return { ...p, data: iso }
+                }),
+              })
+              return
+            }
+          }
+
           patch(i, {
             parcelas_detalhe: it.parcelas_detalhe.map((p, j) =>
               j === idx ? { ...p, ...dados } : p,
@@ -3059,8 +3187,14 @@ function Step3Cobranca(props: {
               )}
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Field label="Forma de pagamento">
+            {/* Grid 12-col pra ter granularidade fina. Padrão: cada Field
+                ocupa 3/12 (1/4), então 4 campos cabem numa linha. Em mobile
+                cada campo ocupa 12/12 (linha cheia). */}
+            <div className="grid gap-3 sm:grid-cols-12">
+              <Field
+                label="Forma de pagamento"
+                className="col-span-12 sm:col-span-3"
+              >
                 <Select
                   value={it.tipo}
                   onValueChange={(v) => setTipo(v as CobrancaTipo)}
@@ -3102,6 +3236,7 @@ function Step3Cobranca(props: {
                 <Field
                   label="Forma de pagamento (Outro)"
                   error={props.errors[`cobranca_${i}_outro_descricao`]}
+                  className="col-span-12 sm:col-span-3"
                 >
                   <Input
                     value={it.outro_descricao}
@@ -3111,76 +3246,86 @@ function Step3Cobranca(props: {
                 </Field>
               )}
 
-              {/* Valor + botão "Restante" — só aparece quando há diferença */}
+              {/* Valor + atalho "Preencher com restante" embaixo, só aparece
+                  quando há diferença a preencher. Mantém a linha enxuta e a
+                  ação fica explícita sem disputar espaço com o input. */}
               <Field
                 label="Valor"
                 error={props.errors[`cobranca_${i}_valor`]}
+                className="col-span-12 sm:col-span-3"
               >
-                <div className="flex items-stretch gap-1.5">
-                  <CurrencyInput
-                    value={it.valor_total_str}
-                    onChange={setValorTotal}
-                  />
-                  {podePreencherRestante && (
-                    <IconTooltip label={`Preencher com ${formatBRL(restanteAbs)}`}>
-                      <button
-                        type="button"
-                        onClick={preencherRestante}
-                        className="inline-flex h-10 shrink-0 items-center gap-1 rounded-md border border-nexus-bright/30 bg-nexus-bright/[0.08] px-2.5 text-[11px] font-medium text-nexus-bright transition-colors hover:border-nexus-bright/50 hover:bg-nexus-bright/15"
-                      >
-                        <Plus className="h-3 w-3" />
-                        Restante
-                      </button>
-                    </IconTooltip>
-                  )}
-                </div>
+                <CurrencyInput
+                  value={it.valor_total_str}
+                  onChange={setValorTotal}
+                />
+                {/* Sempre mostra o atalho quando há um total da venda definido.
+                    Desabilita visualmente quando já não há restante a cobrir
+                    (totalCoberto) ou quando esta cobrança já cobre o saldo. */}
+                {props.totalVenda > 0 && (
+                  <button
+                    type="button"
+                    onClick={preencherRestante}
+                    disabled={!podePreencherRestante}
+                    className={cn(
+                      "mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium transition-colors",
+                      podePreencherRestante
+                        ? "text-nexus-bright hover:text-nexus-bright-soft hover:underline"
+                        : "cursor-not-allowed text-white/35",
+                    )}
+                  >
+                    <Plus className="h-3 w-3" />
+                    {totalCoberto
+                      ? "Valor total já coberto"
+                      : podePreencherRestante
+                        ? `Preencher com restante (${formatBRL(restanteAbs)})`
+                        : "Sem restante a preencher"}
+                  </button>
+                )}
               </Field>
 
               {!semParcelas && (
-                <>
-                  <Field label="Número de parcelas">
-                    <div className="flex h-10 items-center overflow-hidden rounded-md border border-white/[0.08]">
-                      <button
-                        type="button"
-                        onClick={() => setNumParcelas(Math.max(1, it.num_parcelas - 1))}
-                        disabled={it.num_parcelas <= 1}
-                        className="flex h-full w-9 shrink-0 items-center justify-center border-r border-white/[0.08] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-30"
-                        aria-label="Diminuir parcelas"
-                      >
-                        <Minus className="h-3.5 w-3.5" />
-                      </button>
-                      <span className="flex-1 text-center text-sm tabular-nums text-white">
-                        {it.num_parcelas}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setNumParcelas(Math.min(360, it.num_parcelas + 1))}
-                        disabled={it.num_parcelas >= 360}
-                        className="flex h-full w-9 shrink-0 items-center justify-center border-l border-white/[0.08] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-30"
-                        aria-label="Aumentar parcelas"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </Field>
-
-                  {it.num_parcelas <= 1 && (
-                    <Field label="Data do pagamento">
-                      <DateInput
-                        value={it.data_primeiro_recebimento}
-                        onChange={(iso) =>
-                          patch(i, { data_primeiro_recebimento: iso })
-                        }
-                      />
-                    </Field>
-                  )}
-                </>
+                <Field
+                  label="Parcelas"
+                  className="col-span-12 sm:col-span-2"
+                >
+                  <div className="flex h-10 items-center overflow-hidden rounded-md border border-white/[0.08]">
+                    <button
+                      type="button"
+                      onClick={() => setNumParcelas(Math.max(1, it.num_parcelas - 1))}
+                      disabled={it.num_parcelas <= 1}
+                      className="flex h-full w-9 shrink-0 items-center justify-center border-r border-white/[0.08] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-30"
+                      aria-label="Diminuir parcelas"
+                    >
+                      <Minus className="h-3.5 w-3.5" />
+                    </button>
+                    <span className="flex-1 text-center text-sm tabular-nums text-white">
+                      {it.num_parcelas}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setNumParcelas(Math.min(360, it.num_parcelas + 1))}
+                      disabled={it.num_parcelas >= 360}
+                      className="flex h-full w-9 shrink-0 items-center justify-center border-l border-white/[0.08] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-30"
+                      aria-label="Aumentar parcelas"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </Field>
               )}
 
               {/* Plataforma — Select restrito a PagSeguro / Cielo.
                   Aplicável a qualquer tipo, inclusive link_externo (informa
-                  qual plataforma gerou o link). */}
-              <Field label="Plataforma">
+                  qual plataforma gerou o link).
+                  Tamanho dinâmico: 4/12 quando há "Parcelas" (3+3+2+4=12) e
+                  3/12 quando não há (3+3+3=9 — sobra espaço pro link). */}
+              <Field
+                label="Plataforma"
+                className={cn(
+                  "col-span-12",
+                  semParcelas ? "sm:col-span-3" : "sm:col-span-4",
+                )}
+              >
                 <Select
                   value={it.plataforma || "_nenhuma"}
                   onValueChange={(v) =>
@@ -3222,56 +3367,91 @@ function Step3Cobranca(props: {
               )}
             </div>
 
-            {/* ── Parcelas detalhadas ──────────────────────────────────── */}
-            {!semParcelas && it.num_parcelas > 1 && (
+            {/* ── Parcelas detalhadas ─────────────────────────────────────
+                Sempre que o tipo aceita parcelas (exclui outro/link_externo),
+                mostramos o detalhamento — mesmo com 1 parcela. Isso padroniza
+                o layout: data e valor sempre aparecem juntos por parcela. */}
+            {!semParcelas && (
               <div className="mt-4 space-y-2 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
                 <div className="flex items-center justify-between">
                   <p className="text-[11px] uppercase tracking-wider text-white/55">
-                    Detalhamento das parcelas
+                    Detalhamento {it.num_parcelas > 1 ? "das parcelas" : "da parcela"}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      patch(i, { parcelas_detalhe: redistribuirParcelas(it) })
-                    }
-                    className="text-[11px] text-nexus-bright/80 hover:text-nexus-bright"
-                  >
-                    Redistribuir valores
-                  </button>
+                  {it.num_parcelas > 1 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        patch(i, { parcelas_detalhe: redistribuirParcelas(it) })
+                      }
+                      className="text-[11px] text-nexus-bright/80 hover:text-nexus-bright"
+                    >
+                      Redistribuir valores
+                    </button>
+                  )}
                 </div>
                 <div className="space-y-2">
                   {(it.parcelas_detalhe.length === it.num_parcelas
                     ? it.parcelas_detalhe
                     : redistribuirParcelas(it)
-                  ).map((parc, j) => (
-                    <div
-                      key={j}
-                      className="grid grid-cols-12 items-center gap-2 rounded-md border border-white/[0.04] bg-white/[0.02] px-3 py-2"
-                    >
-                      <div className="col-span-2 text-[11px] uppercase tracking-wider text-white/45">
-                        Parcela {parc.ordem}
+                  ).map((parc, j) => {
+                    const errValor =
+                      props.errors[`cobranca_${i}_parcela_${j}_valor`]
+                    const errData =
+                      props.errors[`cobranca_${i}_parcela_${j}_data`]
+                    const temErro = !!(errValor || errData)
+                    return (
+                      <div
+                        key={j}
+                        className={cn(
+                          "grid grid-cols-12 items-center gap-2 rounded-md border px-3 py-2 transition-colors",
+                          temErro
+                            ? "border-destructive/40 bg-destructive/[0.04]"
+                            : "border-white/[0.04] bg-white/[0.02]",
+                        )}
+                      >
+                        <div className="col-span-2 text-[11px] uppercase tracking-wider text-white/45">
+                          Parcela {parc.ordem}
+                        </div>
+                        <div className="col-span-5">
+                          <CurrencyInput
+                            value={parc.valor_str}
+                            onChange={(v) => patchParcela(j, { valor_str: v })}
+                          />
+                          {errValor && (
+                            <p className="mt-1 text-[10px] text-destructive">
+                              {errValor}
+                            </p>
+                          )}
+                        </div>
+                        <div className="col-span-5">
+                          <DateInput
+                            value={parc.data}
+                            onChange={(iso) => patchParcela(j, { data: iso })}
+                          />
+                          {errData && (
+                            <p className="mt-1 text-[10px] text-destructive">
+                              {errData}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      <div className="col-span-5">
-                        <CurrencyInput
-                          value={parc.valor_str}
-                          onChange={(v) => patchParcela(j, { valor_str: v })}
-                        />
-                      </div>
-                      <div className="col-span-5">
-                        <DateInput
-                          value={parc.data}
-                          onChange={(iso) => patchParcela(j, { data: iso })}
-                        />
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
                 {(() => {
-                  const somaParcelas = (
+                  // Usa o mesmo fallback do render: se o state ainda não tem
+                  // o array completo (ex: acabou de selecionar o tipo e
+                  // parcelas_detalhe está vazio), usa o auto-fill pra calcular
+                  // a soma — assim o aviso fica coerente com o que o usuário
+                  // está vendo na tela.
+                  const parcelasEfetivas =
                     it.parcelas_detalhe.length === it.num_parcelas
                       ? it.parcelas_detalhe
-                      : []
-                  ).reduce((acc, p) => acc + (parseValorComSoma(p.valor_str) || 0), 0)
+                      : redistribuirParcelas(it)
+                  const somaParcelas = parcelasEfetivas.reduce(
+                    (acc, p) => acc + (parseValorComSoma(p.valor_str) || 0),
+                    0,
+                  )
                   const diff = somaParcelas - valorItem
                   if (Math.abs(diff) < 0.01) return null
                   return (
@@ -3765,7 +3945,9 @@ function Step6Revisao(props: {
 }) {
   const totalVenda = props.produtos.reduce((a, p) => a + p.valorVenda, 0)
   const totalCusto = props.produtos.reduce((a, p) => a + p.valorCusto, 0)
-  const totalComissao = props.produtos.reduce((a, p) => a + p.comissao, 0)
+  // Comissão recalculada AQUI = RAV total × % do agente. Vendas antigas
+  // gravadas com base diferente (sem rav_extra_fornecedor) também exibem
+  // o valor correto pela regra atual.
   // RAV total = RAV base (venda - custo) + RAV Extra Cliente + RAV Extra Fornecedor
   const totalRavBase = props.produtos.reduce((a, p) => a + p.rav, 0)
   const totalRavExtraCliente = props.produtos.reduce(
@@ -3777,6 +3959,10 @@ function Step6Revisao(props: {
     0,
   )
   const totalRav = totalRavBase + totalRavExtraCliente + totalRavExtraFornecedor
+  const totalComissao =
+    props.comissaoPercentual != null
+      ? (totalRav * props.comissaoPercentual) / 100
+      : 0
   const lucroBruto = totalVenda - totalCusto - totalComissao
   const totalCobranca = props.cobranca.reduce((a, c) => a + c.valor, 0)
 

@@ -298,7 +298,6 @@ type Props = {
 export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraRelatorio }: Props) {
   const totalVenda = d.produtos.reduce((a, p) => a + p.valorVenda, 0)
   const totalCusto = d.produtos.reduce((a, p) => a + p.valorCusto, 0)
-  const totalComissao = d.produtos.reduce((a, p) => a + p.comissao, 0)
   // RAV total = RAV base (venda - custo) + RAV Extra Cliente + RAV Extra Fornecedor
   const totalRavBase = d.produtos.reduce((a, p) => a + p.rav, 0)
   const totalRavExtraCliente = d.produtos.reduce(
@@ -310,6 +309,11 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
     0,
   )
   const totalRav = totalRavBase + totalRavExtraCliente + totalRavExtraFornecedor
+  // Comissão = RAV total × % do agente. Recalculada AQUI em vez de somar
+  // `p.comissao` armazenado em DB — garante que vendas antigas (gravadas com
+  // base que excluía rav_extra_fornecedor) também exibam o valor correto
+  // pela regra atual.
+  const totalComissao = ((d.comissaoPercentual ?? 0) * totalRav) / 100
   const totalCobranca = d.cobranca.reduce((a, c) => a + c.valor, 0)
   const margemRav =
     totalVenda > 0 ? ((totalRav / totalVenda) * 100).toFixed(1) : null
