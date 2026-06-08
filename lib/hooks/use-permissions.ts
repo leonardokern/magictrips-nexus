@@ -3,6 +3,7 @@ import type { CurrentUser, Permissoes } from "./use-current-user"
 export type Modulo =
   | "dashboard"
   | "clientes"
+  | "propostas"
   | "vendas"
   | "financeiro"
   | "cartoes"

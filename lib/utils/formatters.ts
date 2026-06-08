@@ -49,6 +49,20 @@ export function formatCnpjPartial(raw: string): string {
 }
 
 /**
+ * Formata telefone progressivamente enquanto o usuário digita.
+ * Mantém apenas dígitos e aplica a máscara até 11 dígitos.
+ * "(11) 9" → "(11) 9"   |   "(11) 91234-5678" (11 dígitos)
+ */
+export function formatTelefonePartial(raw: string): string {
+  const d = onlyDigits(raw).slice(0, 11)
+  if (d.length === 0) return ""
+  if (d.length <= 2)  return `(${d}`
+  if (d.length <= 6)  return `(${d.slice(0, 2)}) ${d.slice(2)}`
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
+}
+
+/**
  * Formata telefone brasileiro:
  *  - 11 dígitos (celular): "(11) 91234-5678"
  *  - 10 dígitos (fixo):    "(11) 1234-5678"

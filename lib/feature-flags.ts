@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server"
  * Catálogo de chaves conhecidas. Adicionar aqui ao criar nova flag pra ter
  * autocompletar e detectar uso de chave inválida em build.
  */
-export type FeatureFlagKey = "agenda"
+export type FeatureFlagKey = "agenda" | "propostas"
 
 export type Ambiente = "dev" | "prod"
 

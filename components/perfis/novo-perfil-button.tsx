@@ -10,9 +10,11 @@ type Empresa = { id: string; nome: string; slug: string }
 export function NovoPerfilButton({
   empresas,
   agendaEnabled,
+  propostasEnabled,
 }: {
   empresas: Empresa[]
   agendaEnabled?: boolean
+  propostasEnabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
   return (
@@ -30,6 +32,7 @@ export function NovoPerfilButton({
         onOpenChange={setOpen}
         empresas={empresas}
         agendaEnabled={agendaEnabled}
+        propostasEnabled={propostasEnabled}
       />
     </>
   )

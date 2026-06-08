@@ -64,8 +64,9 @@ type Props = ModeProps & {
   initialStep?: 1 | 2 | 3
   /** Quando true, todos os campos ficam disabled e o botão Salvar some. */
   readOnly?: boolean
-  /** Flag de feature — quando false, oculta módulos ainda não liberados. */
+  /** Flags de feature — quando false, oculta módulos ainda não liberados. */
   agendaEnabled?: boolean
+  propostasEnabled?: boolean
 }
 
 type FormState = {
@@ -336,6 +337,7 @@ export function PerfilFormModal(props: Props) {
                 onChange={(val) => update("permissoes", val)}
                 disabled={isPending || props.readOnly}
                 agendaEnabled={props.agendaEnabled}
+                propostasEnabled={props.propostasEnabled}
               />
             )}
             {step === 3 && (
@@ -561,11 +563,13 @@ function Step2({
   onChange,
   disabled,
   agendaEnabled,
+  propostasEnabled,
 }: {
   permissoes: PermissoesValue
   onChange: (next: PermissoesValue) => void
   disabled?: boolean
   agendaEnabled?: boolean
+  propostasEnabled?: boolean
 }) {
   return (
     <div className="space-y-3">
@@ -578,6 +582,7 @@ function Step2({
         onChange={onChange}
         disabled={disabled}
         agendaEnabled={agendaEnabled}
+        propostasEnabled={propostasEnabled}
       />
     </div>
   )

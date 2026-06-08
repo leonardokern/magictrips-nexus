@@ -46,7 +46,10 @@ export default async function DashboardLayout({
     .limit(20)
 
   // Navigation organizada em seções — facilita escalar quando entrar mais módulos
-  const agendaFlag = await isFeatureEnabled("agenda")
+  const [agendaFlag, propostasFlag] = await Promise.all([
+    isFeatureEnabled("agenda"),
+    isFeatureEnabled("propostas"),
+  ])
 
   const sections: NavSection[] = [
     {
@@ -61,6 +64,9 @@ export default async function DashboardLayout({
     {
       label: "Operação",
       items: [
+        ...(propostasFlag && perms.can("propostas", "ler")
+          ? [{ href: "/propostas", label: "Propostas", icon: "propostas" } as NavItem]
+          : []),
         ...(perms.can("vendas", "ler")
           ? [{ href: "/vendas", label: "Vendas", icon: "vendas", badge: vendasPendentesCount || undefined } as NavItem]
           : []),

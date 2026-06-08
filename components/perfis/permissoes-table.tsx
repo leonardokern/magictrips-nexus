@@ -10,8 +10,9 @@ type Props = {
   /** Marca tudo como true e desabilita interação (Administrador). */
   readOnlyAllTrue?: boolean
   disabled?: boolean
-  /** Flag de feature — quando false, oculta módulos ainda não liberados. */
+  /** Flags de feature — quando false, oculta módulos ainda não liberados. */
   agendaEnabled?: boolean
+  propostasEnabled?: boolean
 }
 
 // Colunas em ordem de exibição. Manter alinhado com o catálogo em
@@ -31,10 +32,13 @@ export function PermissoesTable({
   readOnlyAllTrue,
   disabled,
   agendaEnabled,
+  propostasEnabled,
 }: Props) {
-  const modulos = agendaEnabled
-    ? MODULOS_PERMISSAO
-    : MODULOS_PERMISSAO.filter((m) => m.key !== "agenda")
+  const modulos = MODULOS_PERMISSAO.filter((m) => {
+    if (m.key === "agenda" && !agendaEnabled) return false
+    if (m.key === "propostas" && !propostasEnabled) return false
+    return true
+  })
   function toggle(modulo: string, acao: string, checked: boolean) {
     if (readOnlyAllTrue || disabled) return
     onChange({

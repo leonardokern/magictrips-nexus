@@ -33,21 +33,15 @@ const EMPRESA_COR: Record<string, string> = {
 const COR_FALLBACK = "#46B1E0"
 
 const MESES_PT_CURTO = [
-  "jan",
-  "fev",
-  "mar",
-  "abr",
-  "mai",
-  "jun",
-  "jul",
-  "ago",
-  "set",
-  "out",
-  "nov",
-  "dez",
+  "jan", "fev", "mar", "abr", "mai", "jun",
+  "jul", "ago", "set", "out", "nov", "dez",
 ]
 
-type Search = { periodo?: string }
+type Search = {
+  periodo?: string
+  from?: string
+  to?: string
+}
 
 export default async function DashboardPage({
   searchParams,
@@ -59,7 +53,7 @@ export default async function DashboardPage({
   const podeCriarVenda = can(user, "vendas", "criar")
 
   const periodo = parsePeriodo(searchParams.periodo)
-  const range = computeRange(periodo)
+  const range = computeRange(periodo, searchParams.from, searchParams.to)
 
   // Agente: dashboard próprio (vendas dele, comissões, top clientes dele)
   if (user.perfil.tipo === "agente") {
@@ -110,6 +104,9 @@ export default async function DashboardPage({
       `
       valor_venda,
       valor_custo,
+      rav,
+      rav_extra_cliente,
+      rav_extra_fornecedor,
       tipo_produto_id,
       tipo_produto_nome,
       vendas:venda_id (
@@ -133,6 +130,7 @@ export default async function DashboardPage({
   type LinhaProduto = {
     valor_venda: number
     valor_custo: number
+    rav: number
     tipo_produto_id: string
     tipo_produto_nome: string
     venda_id: string
@@ -158,9 +156,15 @@ export default async function DashboardPage({
   for (const l of linhas ?? []) {
     const v = l.vendas as unknown as VendaJoin | null
     if (!v || !v.data_aprovacao) continue
+    // RAV total = rav base + extras (líquido pra empresa)
+    const ravBase = Number(l.rav ?? 0)
+    const ravExtraCli = Number(l.rav_extra_cliente ?? 0)
+    const ravExtraFor = Number(l.rav_extra_fornecedor ?? 0)
+    const ravTotal = ravBase + ravExtraCli + ravExtraFor
     dados.push({
       valor_venda: Number(l.valor_venda ?? 0),
       valor_custo: Number(l.valor_custo ?? 0),
+      rav: ravTotal,
       tipo_produto_id: l.tipo_produto_id,
       tipo_produto_nome: l.tipo_produto_nome,
       venda_id: v.id,
@@ -178,50 +182,37 @@ export default async function DashboardPage({
   const custo = sum(dados, (d) => d.valor_custo)
   const margem = receita - custo
   const margemPct = receita > 0 ? (margem / receita) * 100 : 0
+  const ravTotal = sum(dados, (d) => d.rav)
+  const ravPct = receita > 0 ? (ravTotal / receita) * 100 : 0
   const numVendas = new Set(dados.map((d) => d.venda_id)).size
 
   // ── Série mensal ────────────────────────────────────────────────────────────
   const serieMensal = buildSerieMensal(dados, range)
 
-  // ── Margem por Empresa (donut) ──────────────────────────────────────────────
-  const margemPorEmpresa = aggregate(
+  // ── Empresa ────────────────────────────────────────────────────────────────
+  // Receita por empresa (donut) + RAV por empresa (lista lateral)
+  const porEmpresa = aggregate(
     dados,
     (d) => d.empresa_id,
     (d) => ({
       label: d.empresa_nome,
       slug: d.empresa_slug,
-      value: d.valor_venda - d.valor_custo,
-    }),
-  ).sort((a, b) => b.value - a.value)
-  const donutEmpresas = margemPorEmpresa.map((e) => ({
-    label: e.label,
-    value: Math.max(0, Math.round(e.value)),
-    color: EMPRESA_COR[e.slug] ?? COR_FALLBACK,
-  }))
-  const donutTotal = donutEmpresas.reduce((acc, d) => acc + d.value, 0)
-
-  // ── TOP 5 Tipo de Produto por Receita e por Margem ──────────────────────────
-  const porTipo = aggregate(
-    dados,
-    (d) => d.tipo_produto_id,
-    (d) => ({
-      label: d.tipo_produto_nome,
       receita: d.valor_venda,
+      rav: d.rav,
       margem: d.valor_venda - d.valor_custo,
     }),
+  ).sort((a, b) => b.receita - a.receita)
+  const donutReceitaEmpresa = porEmpresa.map((e) => ({
+    label: e.label,
+    value: Math.max(0, Math.round(e.receita)),
+    color: EMPRESA_COR[e.slug] ?? COR_FALLBACK,
+  }))
+  const donutReceitaTotal = donutReceitaEmpresa.reduce(
+    (acc, d) => acc + d.value,
+    0,
   )
-  const top5Receita = porTipo
-    .slice()
-    .sort((a, b) => b.receita - a.receita)
-    .slice(0, 5)
-    .map((t) => ({ label: t.label, value: Math.round(t.receita) }))
-  const top5Margem = porTipo
-    .slice()
-    .sort((a, b) => b.margem - a.margem)
-    .slice(0, 5)
-    .map((t) => ({ label: t.label, value: Math.round(t.margem) }))
 
-  // ── Tabela: Agentes (flat) ──────────────────────────────────────────────────
+  // ── Por agente (foco principal do cliente) ─────────────────────────────────
   const porAgente = aggregate(
     dados,
     (d) => d.usuario_id,
@@ -229,18 +220,53 @@ export default async function DashboardPage({
       label: d.agente_nome,
       receita: d.valor_venda,
       custo: d.valor_custo,
+      rav: d.rav,
+    }),
+  ).map((a) => ({
+    ...a,
+    margem: a.receita - a.custo,
+    margemRavPct: a.receita > 0 ? (a.rav / a.receita) * 100 : 0,
+  }))
+
+  // Contagem de vendas distintas por agente (key = nome do agente)
+  const vendasPorAgente = new Map<string, Set<string>>()
+  for (const d of dados) {
+    const s = vendasPorAgente.get(d.agente_nome) ?? new Set<string>()
+    s.add(d.venda_id)
+    vendasPorAgente.set(d.agente_nome, s)
+  }
+
+  // Bar charts: Venda (receita) por agente + RAV por agente (TOP 10)
+  const porAgenteOrdenado = porAgente.slice().sort((a, b) => b.receita - a.receita)
+  const barVendaAgente = porAgenteOrdenado
+    .slice(0, 10)
+    .map((a) => ({ label: a.label, value: Math.max(0, Math.round(a.receita)) }))
+  const barRavAgente = porAgente
+    .slice()
+    .sort((a, b) => b.rav - a.rav)
+    .slice(0, 10)
+    .map((a) => ({ label: a.label, value: Math.max(0, Math.round(a.rav)) }))
+
+  // ── TOP 5 Tipo de Produto por Receita e por RAV ─────────────────────────────
+  const porTipo = aggregate(
+    dados,
+    (d) => d.tipo_produto_id,
+    (d) => ({
+      label: d.tipo_produto_nome,
+      receita: d.valor_venda,
+      rav: d.rav,
     }),
   )
-    .map((a) => ({
-      ...a,
-      margem: a.receita - a.custo,
-    }))
+  const top5Receita = porTipo
+    .slice()
     .sort((a, b) => b.receita - a.receita)
-
-  // ── Margem por Agente (bar horizontal) ──────────────────────────────────────
-  const barMargemAgente = porAgente
-    .slice(0, 10)
-    .map((a) => ({ label: a.label, value: Math.max(0, Math.round(a.margem)) }))
+    .slice(0, 5)
+    .map((t) => ({ label: t.label, value: Math.round(t.receita) }))
+  const top5Rav = porTipo
+    .slice()
+    .sort((a, b) => b.rav - a.rav)
+    .slice(0, 5)
+    .map((t) => ({ label: t.label, value: Math.round(t.rav) }))
 
   return (
     <div className="space-y-6">
@@ -251,16 +277,21 @@ export default async function DashboardPage({
             Início
           </h2>
           <p className="mt-1 text-sm text-white/55">
-            Receita, custo e margem das vendas aprovadas — {range ? labelPeriodo(periodo) : "todos os tempos"}.
+            Receita, custo, margem e RAV das vendas aprovadas —{" "}
+            {labelPeriodo(periodo, range)}.
           </p>
         </div>
         <div className="flex items-center gap-3">
           {podeCriarVenda && <NovaVendaButton />}
-          <DashboardPeriodoFilter current={periodo} />
+          <DashboardPeriodoFilter
+            current={periodo}
+            from={searchParams.from}
+            to={searchParams.to}
+          />
         </div>
       </div>
 
-      {/* Linha 1 — KPIs financeiros */}
+      {/* Linha 1 — KPIs financeiros principais (Receita / Custo / Margem) */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard
           titulo="Receita"
@@ -285,61 +316,58 @@ export default async function DashboardPage({
         />
       </div>
 
-      {/* Linha 2 — Receita por mês (2/3) + Margem por Empresa (1/3) */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="border-white/[0.06] bg-white/[0.02] lg:col-span-2">
-          <CardHeader className="pb-2">
-            <div className="flex items-start justify-between">
-              <div>
-                <CardTitle className="text-base font-semibold text-white">
-                  Receita por mês
-                </CardTitle>
-                <p className="mt-0.5 text-xs text-white/45">
-                  {labelPeriodo(periodo)}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-xl font-semibold tabular-nums text-white">
-                  {formatBRL(receita)}
-                </p>
-                <p className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-white/45">
-                  total
-                </p>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="h-64">
-              {serieMensal.length === 0 ? (
-                <EmptyChart label="Sem vendas aprovadas no período." />
-              ) : (
-                <AreaChartCard data={serieMensal} tooltipSuffix="" />
-              )}
-            </div>
-          </CardContent>
-        </Card>
+      {/* Linha 2 — Foco do cliente: Venda por agente + RAV por agente */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ChartCard
+          titulo="Venda por agente"
+          subtitulo={`Receita por vendedor · ${labelPeriodo(periodo, range)}`}
+        >
+          {barVendaAgente.length === 0 ? (
+            <EmptyChart label="Nenhuma venda aprovada no período." />
+          ) : (
+            <HorizontalBarChartCard data={barVendaAgente} />
+          )}
+        </ChartCard>
+        <ChartCard
+          titulo="RAV por agente"
+          subtitulo={`Remuneração da agência · ${labelPeriodo(periodo, range)}`}
+        >
+          {barRavAgente.length === 0 ? (
+            <EmptyChart label="Sem RAV no período." />
+          ) : (
+            <HorizontalBarChartCard
+              data={barRavAgente}
+              primaryColor="#10b981"
+            />
+          )}
+        </ChartCard>
+      </div>
 
+      {/* Linha 3 — Foco do cliente: Receita da empresa + Margem RAV da empresa */}
+      <div className="grid gap-4 lg:grid-cols-3">
         <Card className="border-white/[0.06] bg-white/[0.02]">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-semibold text-white">
-              Margem por empresa
+              Receita por empresa
             </CardTitle>
-            <p className="mt-0.5 text-xs text-white/45">{labelPeriodo(periodo)}</p>
+            <p className="mt-0.5 text-xs text-white/45">
+              {labelPeriodo(periodo, range)}
+            </p>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="h-40">
-              {donutTotal > 0 ? (
+              {donutReceitaTotal > 0 ? (
                 <DonutChartCard
-                  data={donutEmpresas}
-                  centerValue={formatBRL(donutTotal)}
-                  centerLabel="margem"
+                  data={donutReceitaEmpresa}
+                  centerValue={formatBRL(donutReceitaTotal)}
+                  centerLabel="receita"
                 />
               ) : (
-                <EmptyChart label="Sem margem positiva no período." />
+                <EmptyChart label="Sem receita no período." />
               )}
             </div>
             <div className="space-y-1.5">
-              {donutEmpresas.map((d) => (
+              {donutReceitaEmpresa.map((d) => (
                 <div
                   key={d.label}
                   className="flex items-center justify-between text-xs"
@@ -359,65 +387,47 @@ export default async function DashboardPage({
             </div>
           </CardContent>
         </Card>
-      </div>
 
-      {/* Linha 3 — TOP 5 Tipo de Produto (Receita) + TOP 5 (Margem) */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard
-          titulo="TOP 5 Tipo de Produto"
-          subtitulo={`por receita · ${labelPeriodo(periodo)}`}
-        >
-          {top5Receita.length === 0 ? (
-            <EmptyChart label="Nenhum produto no período." />
-          ) : (
-            <HorizontalBarChartCard data={top5Receita} />
-          )}
-        </ChartCard>
-        <ChartCard
-          titulo="TOP 5 Tipo de Produto"
-          subtitulo={`por margem · ${labelPeriodo(periodo)}`}
-        >
-          {top5Margem.length === 0 ? (
-            <EmptyChart label="Nenhum produto no período." />
-          ) : (
-            <HorizontalBarChartCard
-              data={top5Margem}
-              primaryColor="#10b981"
-            />
-          )}
-        </ChartCard>
-      </div>
-
-      {/* Linha 4 — Tabela agentes + Margem por agente (bar) */}
-      <div className="grid gap-4 lg:grid-cols-3">
         <Card className="border-white/[0.06] bg-white/[0.02] lg:col-span-2">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base font-semibold text-white">
-              Por agente
-            </CardTitle>
-            <p className="mt-0.5 text-xs text-white/45">
-              Receita, custo e margem por vendedor · {labelPeriodo(periodo)}
-            </p>
+            <div className="flex items-start justify-between">
+              <div>
+                <CardTitle className="text-base font-semibold text-white">
+                  Margem RAV por empresa
+                </CardTitle>
+                <p className="mt-0.5 text-xs text-white/45">
+                  RAV total + % sobre a receita · {labelPeriodo(periodo, range)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-xl font-semibold tabular-nums text-white">
+                  {formatBRL(ravTotal)}
+                </p>
+                <p className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-emerald-300/85">
+                  {ravPct.toFixed(1).replace(".", ",")}% da receita
+                </p>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="overflow-hidden rounded-lg border border-white/[0.06]">
               <Table>
                 <TableHeader>
                   <TableRow className="border-white/[0.06] hover:bg-transparent">
-                    <TableHead className="text-white/55">Agente</TableHead>
+                    <TableHead className="text-white/55">Empresa</TableHead>
                     <TableHead className="text-right text-white/55">
                       Receita
                     </TableHead>
                     <TableHead className="text-right text-white/55">
-                      Custo
+                      RAV
                     </TableHead>
                     <TableHead className="text-right text-white/55">
-                      Margem
+                      Margem RAV
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {porAgente.length === 0 ? (
+                  {porEmpresa.length === 0 ? (
                     <TableRow className="border-white/[0.06] hover:bg-transparent">
                       <TableCell
                         colSpan={4}
@@ -427,8 +437,131 @@ export default async function DashboardPage({
                       </TableCell>
                     </TableRow>
                   ) : (
-                    <>
-                      {porAgente.map((a) => (
+                    porEmpresa.map((e) => {
+                      const pct =
+                        e.receita > 0 ? (e.rav / e.receita) * 100 : 0
+                      return (
+                        <TableRow
+                          key={e.slug || e.label}
+                          className="border-white/[0.06] hover:bg-white/[0.025]"
+                        >
+                          <TableCell className="font-medium text-white">
+                            <span className="flex items-center gap-2">
+                              <span
+                                className="inline-block h-2 w-2 shrink-0 rounded-full"
+                                style={{
+                                  backgroundColor:
+                                    EMPRESA_COR[e.slug] ?? COR_FALLBACK,
+                                }}
+                              />
+                              {e.label}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-white/85">
+                            {formatBRL(e.receita)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-emerald-300">
+                            {formatBRL(e.rav)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums font-medium text-white">
+                            {pct.toFixed(1).replace(".", ",")}%
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Linha 4 — Receita por mês (área) */}
+      <Card className="border-white/[0.06] bg-white/[0.02]">
+        <CardHeader className="pb-2">
+          <div className="flex items-start justify-between">
+            <div>
+              <CardTitle className="text-base font-semibold text-white">
+                Receita por mês
+              </CardTitle>
+              <p className="mt-0.5 text-xs text-white/45">
+                {labelPeriodo(periodo, range)}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-xl font-semibold tabular-nums text-white">
+                {formatBRL(receita)}
+              </p>
+              <p className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-white/45">
+                total
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="h-64">
+            {serieMensal.length === 0 ? (
+              <EmptyChart label="Sem vendas aprovadas no período." />
+            ) : (
+              <AreaChartCard data={serieMensal} tooltipSuffix="" />
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Linha 5 — Tabela completa por agente (Vendas, Receita, RAV, Margem) */}
+      <Card className="border-white/[0.06] bg-white/[0.02]">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold text-white">
+            Detalhamento por agente
+          </CardTitle>
+          <p className="mt-0.5 text-xs text-white/45">
+            Vendas, receita, RAV e margem por vendedor ·{" "}
+            {labelPeriodo(periodo, range)}
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-hidden rounded-lg border border-white/[0.06]">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-white/[0.06] hover:bg-transparent">
+                  <TableHead className="text-white/55">Agente</TableHead>
+                  <TableHead className="text-right text-white/55">
+                    Vendas
+                  </TableHead>
+                  <TableHead className="text-right text-white/55">
+                    Receita
+                  </TableHead>
+                  <TableHead className="text-right text-white/55">
+                    Custo
+                  </TableHead>
+                  <TableHead className="text-right text-white/55">
+                    Margem
+                  </TableHead>
+                  <TableHead className="text-right text-white/55">
+                    RAV
+                  </TableHead>
+                  <TableHead className="text-right text-white/55">
+                    Margem RAV
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {porAgenteOrdenado.length === 0 ? (
+                  <TableRow className="border-white/[0.06] hover:bg-transparent">
+                    <TableCell
+                      colSpan={7}
+                      className="h-20 text-center text-sm text-white/40"
+                    >
+                      Nenhuma venda aprovada no período.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  <>
+                    {porAgenteOrdenado.map((a) => {
+                      const qtdVendas = vendasPorAgente.get(a.label)?.size ?? 0
+                      return (
                         <TableRow
                           key={`${a.label}-${a.receita}`}
                           className="border-white/[0.06] hover:bg-white/[0.025]"
@@ -436,48 +569,79 @@ export default async function DashboardPage({
                           <TableCell className="font-medium text-white">
                             {a.label}
                           </TableCell>
+                          <TableCell className="text-right tabular-nums text-white/75">
+                            {qtdVendas}
+                          </TableCell>
                           <TableCell className="text-right tabular-nums text-white/85">
                             {formatBRL(a.receita)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums text-rose-300/85">
                             {formatBRL(a.custo)}
                           </TableCell>
-                          <TableCell className="text-right tabular-nums font-medium text-emerald-300">
+                          <TableCell className="text-right tabular-nums text-emerald-300/85">
                             {formatBRL(a.margem)}
                           </TableCell>
+                          <TableCell className="text-right tabular-nums font-medium text-emerald-300">
+                            {formatBRL(a.rav)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-white/85">
+                            {a.margemRavPct.toFixed(1).replace(".", ",")}%
+                          </TableCell>
                         </TableRow>
-                      ))}
-                      <TableRow className="border-t border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.03]">
-                        <TableCell className="font-semibold uppercase tracking-wider text-[10px] text-white/55">
-                          Total
-                        </TableCell>
-                        <TableCell className="text-right font-semibold tabular-nums text-white">
-                          {formatBRL(receita)}
-                        </TableCell>
-                        <TableCell className="text-right font-semibold tabular-nums text-rose-300">
-                          {formatBRL(custo)}
-                        </TableCell>
-                        <TableCell className="text-right font-semibold tabular-nums text-emerald-300">
-                          {formatBRL(margem)}
-                        </TableCell>
-                      </TableRow>
-                    </>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
+                      )
+                    })}
+                    <TableRow className="border-t border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.03]">
+                      <TableCell className="font-semibold uppercase tracking-wider text-[10px] text-white/55">
+                        Total
+                      </TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums text-white">
+                        {numVendas}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums text-white">
+                        {formatBRL(receita)}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums text-rose-300">
+                        {formatBRL(custo)}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums text-emerald-300">
+                        {formatBRL(margem)}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums text-emerald-300">
+                        {formatBRL(ravTotal)}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold tabular-nums text-white">
+                        {ravPct.toFixed(1).replace(".", ",")}%
+                      </TableCell>
+                    </TableRow>
+                  </>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
 
+      {/* Linha 6 — TOP 5 Tipo de Produto (Receita) + TOP 5 (RAV) */}
+      <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard
-          titulo="Margem por agente"
-          subtitulo={labelPeriodo(periodo)}
+          titulo="TOP 5 Tipo de Produto"
+          subtitulo={`por receita · ${labelPeriodo(periodo, range)}`}
         >
-          {barMargemAgente.length === 0 ? (
-            <EmptyChart label="Sem agentes com venda no período." />
+          {top5Receita.length === 0 ? (
+            <EmptyChart label="Nenhum produto no período." />
+          ) : (
+            <HorizontalBarChartCard data={top5Receita} />
+          )}
+        </ChartCard>
+        <ChartCard
+          titulo="TOP 5 Tipo de Produto"
+          subtitulo={`por RAV · ${labelPeriodo(periodo, range)}`}
+        >
+          {top5Rav.length === 0 ? (
+            <EmptyChart label="Nenhum produto no período." />
           ) : (
             <HorizontalBarChartCard
-              data={barMargemAgente}
+              data={top5Rav}
               primaryColor="#10b981"
             />
           )}
@@ -577,33 +741,60 @@ function EmptyChart({ label }: { label: string }) {
 
 function parsePeriodo(raw?: string): PeriodoValue {
   if (raw === "ultimos-3m") return "ultimos-3m"
+  if (raw === "mes-passado") return "mes-passado"
   if (raw === "ano-atual") return "ano-atual"
   if (raw === "todos") return "todos"
+  if (raw === "custom") return "custom"
   return "mes-atual"
 }
 
-function labelPeriodo(p: PeriodoValue): string {
+function labelPeriodo(
+  p: PeriodoValue,
+  range: { from: Date; to: Date } | null,
+): string {
   switch (p) {
     case "mes-atual":
       return capitalize(monthYearLabel(new Date()))
+    case "mes-passado": {
+      const d = new Date()
+      d.setMonth(d.getMonth() - 1)
+      return capitalize(monthYearLabel(d))
+    }
     case "ultimos-3m":
       return "Últimos 3 meses"
     case "ano-atual":
       return `Ano de ${new Date().getFullYear()}`
     case "todos":
       return "Todos os tempos"
+    case "custom":
+      return range
+        ? `${formatDateBR(range.from)} → ${formatDateBR(range.to)}`
+        : "Período personalizado"
   }
 }
 
-function computeRange(p: PeriodoValue): { from: Date; to: Date } | null {
+function computeRange(
+  p: PeriodoValue,
+  fromIso?: string,
+  toIso?: string,
+): { from: Date; to: Date } | null {
   if (p === "todos") return null
   const hoje = new Date()
+
   if (p === "mes-atual") {
     return {
       from: new Date(hoje.getFullYear(), hoje.getMonth(), 1, 0, 0, 0),
       to: new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0, 23, 59, 59),
     }
   }
+
+  if (p === "mes-passado") {
+    return {
+      from: new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1, 0, 0, 0),
+      to: new Date(hoje.getFullYear(), hoje.getMonth(), 0, 23, 59, 59),
+    }
+  }
+
   if (p === "ultimos-3m") {
     const from = new Date(hoje.getFullYear(), hoje.getMonth() - 2, 1, 0, 0, 0)
     return {
@@ -611,15 +802,49 @@ function computeRange(p: PeriodoValue): { from: Date; to: Date } | null {
       to: new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0, 23, 59, 59),
     }
   }
-  // ano-atual
-  return {
-    from: new Date(hoje.getFullYear(), 0, 1, 0, 0, 0),
-    to: new Date(hoje.getFullYear(), 11, 31, 23, 59, 59),
+
+  if (p === "ano-atual") {
+    return {
+      from: new Date(hoje.getFullYear(), 0, 1, 0, 0, 0),
+      to: new Date(hoje.getFullYear(), 11, 31, 23, 59, 59),
+    }
   }
+
+  if (p === "custom" && fromIso && toIso) {
+    const from = parseIsoDate(fromIso)
+    const to = parseIsoDate(toIso)
+    if (!from || !to || from > to) {
+      // Range inválido → fallback pra mês atual
+      return {
+        from: new Date(hoje.getFullYear(), hoje.getMonth(), 1, 0, 0, 0),
+        to: new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0, 23, 59, 59),
+      }
+    }
+    return {
+      from: new Date(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0),
+      to: new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59),
+    }
+  }
+
+  return null
+}
+
+function parseIsoDate(iso: string): Date | null {
+  // YYYY-MM-DD → Date local
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!m) return null
+  const [, y, mo, d] = m
+  return new Date(Number(y), Number(mo) - 1, Number(d))
 }
 
 function monthYearLabel(d: Date): string {
   return `${MESES_PT_CURTO[d.getMonth()]}/${d.getFullYear()}`
+}
+
+function formatDateBR(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, "0")
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  return `${dd}/${mm}/${d.getFullYear()}`
 }
 
 function capitalize(s: string): string {
@@ -646,7 +871,6 @@ function aggregate<T, R extends { label: string; [k: string]: unknown }>(
       map.set(k, { ...shaped })
       continue
     }
-    // Soma todos os campos numéricos
     for (const [field, val] of Object.entries(shaped)) {
       if (typeof val === "number") {
         (existing as Record<string, unknown>)[field] =
@@ -661,14 +885,12 @@ function buildSerieMensal(
   dados: { data_aprovacao: string; valor_venda: number }[],
   range: { from: Date; to: Date } | null,
 ): { label: string; value: number }[] {
-  // Determina os buckets de mês a renderizar
   let inicio: Date
   let fim: Date
   if (range) {
     inicio = new Date(range.from.getFullYear(), range.from.getMonth(), 1)
     fim = new Date(range.to.getFullYear(), range.to.getMonth(), 1)
   } else {
-    // "Todos": pega min/max das datas reais
     if (dados.length === 0) return []
     const dates = dados.map((d) => new Date(d.data_aprovacao))
     const min = new Date(Math.min(...dates.map((d) => d.getTime())))
@@ -697,3 +919,4 @@ function buildSerieMensal(
 
   return buckets.map((b) => ({ label: b.label, value: Math.round(b.value) }))
 }
+

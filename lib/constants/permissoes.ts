@@ -59,6 +59,12 @@ export const MODULOS_PERMISSAO: ModuloDef[] = [
     acoes: CRUD_BASE,
   },
   {
+    key: "propostas",
+    label: "Propostas",
+    description: "Criação de propostas comerciais com PDF executivo para clientes e prospects.",
+    acoes: CRUD_BASE,
+  },
+  {
     key: "vendas",
     label: "Vendas",
     description: "Relatório de venda, ciclo de aprovação, cancelamento.",

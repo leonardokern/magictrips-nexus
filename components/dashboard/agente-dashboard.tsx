@@ -552,12 +552,19 @@ function labelPeriodo(p: PeriodoValue): string {
   switch (p) {
     case "mes-atual":
       return `${MESES_PT[hoje.getMonth()]} / ${hoje.getFullYear()}`
+    case "mes-passado": {
+      const d = new Date(hoje)
+      d.setMonth(d.getMonth() - 1)
+      return `${MESES_PT[d.getMonth()]} / ${d.getFullYear()}`
+    }
     case "ultimos-3m":
       return "Últimos 3 meses"
     case "ano-atual":
       return `Ano de ${hoje.getFullYear()}`
     case "todos":
       return "Todos os tempos"
+    case "custom":
+      return "Período personalizado"
   }
 }
 

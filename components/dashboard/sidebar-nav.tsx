@@ -7,6 +7,7 @@ import {
   Building2,
   CalendarDays,
   CreditCard,
+  FileText,
   History,
   LayoutDashboard,
   Package,
@@ -39,6 +40,7 @@ export type NavSection = {
 
 const ICONS: Record<string, LucideIcon> = {
   dashboard: LayoutDashboard,
+  propostas: FileText,
   vendas: ShoppingCart,
   clientes: Users,
   receber: Wallet,

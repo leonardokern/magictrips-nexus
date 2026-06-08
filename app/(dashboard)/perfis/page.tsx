@@ -31,7 +31,10 @@ export default async function PerfisPage() {
   }
 
   const supabase = await createClient()
-  const agendaEnabled = await isFeatureEnabled("agenda")
+  const [agendaEnabled, propostasEnabled] = await Promise.all([
+    isFeatureEnabled("agenda"),
+    isFeatureEnabled("propostas"),
+  ])
 
   const [{ data: perfis }, { data: empresas }] = await Promise.all([
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -114,7 +117,7 @@ export default async function PerfisPage() {
         </div>
 
         {can(user, "perfis", "criar") && (
-          <NovoPerfilButton empresas={empresas ?? []} agendaEnabled={agendaEnabled} />
+          <NovoPerfilButton empresas={empresas ?? []} agendaEnabled={agendaEnabled} propostasEnabled={propostasEnabled} />
         )}
       </div>
 
@@ -192,6 +195,7 @@ export default async function PerfisPage() {
                         usuariosCount={usuariosCount}
                         podeEditar={podeEditar}
                         agendaEnabled={agendaEnabled}
+                        propostasEnabled={propostasEnabled}
                       />
                     </TableCell>
                   </TableRow>
