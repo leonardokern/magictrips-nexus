@@ -50,7 +50,7 @@ export function ClientesFilters({
   return (
     <div className="flex flex-wrap items-center gap-3">
       <Input
-        placeholder="Buscar por nome, CPF ou e-mail..."
+        placeholder="Buscar por nome, CPF, CNPJ, passaporte ou e-mail..."
         defaultValue={q ?? ""}
         onChange={(e) => {
           const value = e.target.value

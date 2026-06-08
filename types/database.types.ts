@@ -362,6 +362,7 @@ export type Database = {
           nome_fantasia: string | null
           observacoes: string | null
           origem: string | null
+          passaporte: string | null
           razao_social: string | null
           responsavel: string | null
           status: string
@@ -385,6 +386,7 @@ export type Database = {
           nome_fantasia?: string | null
           observacoes?: string | null
           origem?: string | null
+          passaporte?: string | null
           razao_social?: string | null
           responsavel?: string | null
           status?: string
@@ -408,6 +410,7 @@ export type Database = {
           nome_fantasia?: string | null
           observacoes?: string | null
           origem?: string | null
+          passaporte?: string | null
           razao_social?: string | null
           responsavel?: string | null
           status?: string
@@ -461,6 +464,10 @@ export type Database = {
       cobranca_cliente_itens: {
         Row: {
           cobranca_id: string
+          comprovante_mime_type: string | null
+          comprovante_nome_arquivo: string | null
+          comprovante_storage_path: string | null
+          comprovante_tamanho_bytes: number | null
           created_at: string
           data_inicio: string | null
           data_primeiro_recebimento: string | null
@@ -479,6 +486,10 @@ export type Database = {
         }
         Insert: {
           cobranca_id: string
+          comprovante_mime_type?: string | null
+          comprovante_nome_arquivo?: string | null
+          comprovante_storage_path?: string | null
+          comprovante_tamanho_bytes?: number | null
           created_at?: string
           data_inicio?: string | null
           data_primeiro_recebimento?: string | null
@@ -497,6 +508,10 @@ export type Database = {
         }
         Update: {
           cobranca_id?: string
+          comprovante_mime_type?: string | null
+          comprovante_nome_arquivo?: string | null
+          comprovante_storage_path?: string | null
+          comprovante_tamanho_bytes?: number | null
           created_at?: string
           data_inicio?: string | null
           data_primeiro_recebimento?: string | null
@@ -1113,6 +1128,240 @@ export type Database = {
           },
         ]
       }
+      proposta_cotacoes: {
+        Row: {
+          created_at: string
+          dados_extraidos: Json | null
+          empresa_id: string
+          erro_mensagem: string | null
+          id: string
+          mime_type: string
+          nome_arquivo: string
+          proposta_id: string | null
+          status: string
+          storage_path: string | null
+          tamanho_bytes: number | null
+          tipo_entrada: string
+          updated_at: string
+          url_origem: string | null
+          usuario_id: string
+        }
+        Insert: {
+          created_at?: string
+          dados_extraidos?: Json | null
+          empresa_id: string
+          erro_mensagem?: string | null
+          id?: string
+          mime_type: string
+          nome_arquivo: string
+          proposta_id?: string | null
+          status?: string
+          storage_path?: string | null
+          tamanho_bytes?: number | null
+          tipo_entrada?: string
+          updated_at?: string
+          url_origem?: string | null
+          usuario_id: string
+        }
+        Update: {
+          created_at?: string
+          dados_extraidos?: Json | null
+          empresa_id?: string
+          erro_mensagem?: string | null
+          id?: string
+          mime_type?: string
+          nome_arquivo?: string
+          proposta_id?: string | null
+          status?: string
+          storage_path?: string | null
+          tamanho_bytes?: number | null
+          tipo_entrada?: string
+          updated_at?: string
+          url_origem?: string | null
+          usuario_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proposta_cotacoes_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proposta_cotacoes_proposta_id_fkey"
+            columns: ["proposta_id"]
+            isOneToOne: false
+            referencedRelation: "propostas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proposta_cotacoes_usuario_id_fkey"
+            columns: ["usuario_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      proposta_produtos: {
+        Row: {
+          created_at: string
+          data_fim: string | null
+          data_inicio: string | null
+          descricao: string | null
+          destino: string | null
+          fornecedor_id: string | null
+          fornecedor_nome: string | null
+          id: string
+          observacoes: string | null
+          ordem: number
+          pax: number
+          proposta_id: string
+          tipo_produto_id: string | null
+          tipo_produto_nome: string
+          valor_venda: number
+        }
+        Insert: {
+          created_at?: string
+          data_fim?: string | null
+          data_inicio?: string | null
+          descricao?: string | null
+          destino?: string | null
+          fornecedor_id?: string | null
+          fornecedor_nome?: string | null
+          id?: string
+          observacoes?: string | null
+          ordem?: number
+          pax?: number
+          proposta_id: string
+          tipo_produto_id?: string | null
+          tipo_produto_nome?: string
+          valor_venda?: number
+        }
+        Update: {
+          created_at?: string
+          data_fim?: string | null
+          data_inicio?: string | null
+          descricao?: string | null
+          destino?: string | null
+          fornecedor_id?: string | null
+          fornecedor_nome?: string | null
+          id?: string
+          observacoes?: string | null
+          ordem?: number
+          pax?: number
+          proposta_id?: string
+          tipo_produto_id?: string | null
+          tipo_produto_nome?: string
+          valor_venda?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proposta_produtos_fornecedor_id_fkey"
+            columns: ["fornecedor_id"]
+            isOneToOne: false
+            referencedRelation: "fornecedores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proposta_produtos_proposta_id_fkey"
+            columns: ["proposta_id"]
+            isOneToOne: false
+            referencedRelation: "propostas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proposta_produtos_tipo_produto_id_fkey"
+            columns: ["tipo_produto_id"]
+            isOneToOne: false
+            referencedRelation: "tipos_produto"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      propostas: {
+        Row: {
+          cliente_email: string | null
+          cliente_id: string | null
+          cliente_nome: string | null
+          cliente_telefone: string | null
+          created_at: string
+          data_proposta: string
+          destino: string | null
+          empresa_id: string
+          id: string
+          identificador: string
+          observacoes: string | null
+          origem: string | null
+          status: string
+          updated_at: string
+          usuario_id: string
+          validade: string | null
+          valor_total: number
+        }
+        Insert: {
+          cliente_email?: string | null
+          cliente_id?: string | null
+          cliente_nome?: string | null
+          cliente_telefone?: string | null
+          created_at?: string
+          data_proposta?: string
+          destino?: string | null
+          empresa_id: string
+          id?: string
+          identificador: string
+          observacoes?: string | null
+          origem?: string | null
+          status?: string
+          updated_at?: string
+          usuario_id: string
+          validade?: string | null
+          valor_total?: number
+        }
+        Update: {
+          cliente_email?: string | null
+          cliente_id?: string | null
+          cliente_nome?: string | null
+          cliente_telefone?: string | null
+          created_at?: string
+          data_proposta?: string
+          destino?: string | null
+          empresa_id?: string
+          id?: string
+          identificador?: string
+          observacoes?: string | null
+          origem?: string | null
+          status?: string
+          updated_at?: string
+          usuario_id?: string
+          validade?: string | null
+          valor_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "propostas_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "propostas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "propostas_usuario_id_fkey"
+            columns: ["usuario_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tipos_produto: {
         Row: {
           ativo: boolean
@@ -1318,6 +1567,7 @@ export type Database = {
           id: string
           nome: string
           ordem: number
+          passaporte: string | null
           venda_id: string
         }
         Insert: {
@@ -1327,6 +1577,7 @@ export type Database = {
           id?: string
           nome: string
           ordem?: number
+          passaporte?: string | null
           venda_id: string
         }
         Update: {
@@ -1336,6 +1587,7 @@ export type Database = {
           id?: string
           nome?: string
           ordem?: number
+          passaporte?: string | null
           venda_id?: string
         }
         Relationships: [
@@ -1764,6 +2016,10 @@ export type Database = {
       excluir_venda: {
         Args: { p_motivo?: string; p_venda_id: string }
         Returns: undefined
+      }
+      gerar_identificador_proposta: {
+        Args: { p_empresa_id: string }
+        Returns: string
       }
       gerar_parcelas_receber: {
         Args: { p_venda_id: string }

@@ -668,6 +668,24 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
                         ))}
                       </View>
                     )}
+                    {/* Comprovante de pagamento — nome do arquivo + nota */}
+                    {c.comprovanteStoragePath && c.comprovanteNomeArquivo && (
+                      <View
+                        style={{
+                          marginTop: 4,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <Text style={{ fontSize: 6.5, color: CORES.textoSuave }}>
+                          COMPROVANTE
+                        </Text>
+                        <Text style={{ fontSize: 7.5, color: CORES.texto }}>
+                          {c.comprovanteNomeArquivo}
+                        </Text>
+                      </View>
+                    )}
                     {c.observacoes && (
                       <Text style={{ fontSize: 7, color: CORES.textoSuave, marginTop: 3 }}>
                         Obs: {c.observacoes}
@@ -715,12 +733,14 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
                   <Text style={[s.th, { flex: 3 }]}>Nome</Text>
                   <Text style={[s.th, { flex: 2 }]}>CPF</Text>
                   <Text style={[s.th, { flex: 2 }]}>Nascimento</Text>
+                  <Text style={[s.th, { flex: 2 }]}>Passaporte</Text>
                 </View>
                 {v.passageiros.map((p, i) => (
                   <View key={i} style={i % 2 === 0 ? s.tableRow : s.tableRowAlt}>
                     <Text style={[s.td, { flex: 3 }]}>{p.nome || "—"}</Text>
                     <Text style={[s.tdSuave, { flex: 2 }]}>{formatCPF(p.cpf)}</Text>
                     <Text style={[s.tdSuave, { flex: 2 }]}>{formatDate(p.dataNascimento)}</Text>
+                    <Text style={[s.tdSuave, { flex: 2 }]}>{p.passaporte || "—"}</Text>
                   </View>
                 ))}
               </View>

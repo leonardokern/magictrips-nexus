@@ -141,6 +141,11 @@ export const cobrancaItemSchema = z.object({
   data_primeiro_recebimento: z.string().nullable().optional(),
   fornecedor_destino: z.string().trim().max(120).nullable().optional(),
   observacoes: z.string().trim().max(500).nullable().optional(),
+  /** Comprovante de pagamento — obrigatório no nível da UI/wizard. */
+  comprovante_storage_path: z.string().trim().nullable().optional(),
+  comprovante_nome_arquivo: z.string().trim().nullable().optional(),
+  comprovante_mime_type: z.string().trim().nullable().optional(),
+  comprovante_tamanho_bytes: z.number().int().nonnegative().nullable().optional(),
 })
 
 export type ParcelaDetalheInput = z.infer<typeof parcelaDetalheSchema>

@@ -516,6 +516,7 @@ export function ComprovantePDF({ venda: v, logoPath }: { venda: VendaParaPDF; lo
                   <Text style={[styles.th, { flex: 2 }]}>
                     Data de nascimento
                   </Text>
+                  <Text style={[styles.th, { flex: 2 }]}>Passaporte</Text>
                 </View>
                 {v.passageiros.map((p, i) => (
                   <View
@@ -528,6 +529,9 @@ export function ComprovantePDF({ venda: v, logoPath }: { venda: VendaParaPDF; lo
                     </Text>
                     <Text style={[styles.tdSuave, { flex: 2 }]}>
                       {formatDate(p.dataNascimento)}
+                    </Text>
+                    <Text style={[styles.tdSuave, { flex: 2 }]}>
+                      {p.passaporte || "—"}
                     </Text>
                   </View>
                 ))}

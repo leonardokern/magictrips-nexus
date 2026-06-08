@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Check, ChevronsUpDown, Search } from "lucide-react"
+import { Check, ChevronDown, Search } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
@@ -72,10 +72,11 @@ export function CartaoCombobox({
         onClick={() => !disabled && setOpen((s) => !s)}
         disabled={disabled}
         className={cn(
-          "flex h-10 w-full items-center justify-between rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-left text-sm",
-          "transition-colors hover:bg-white/[0.06]",
+          // Mesmo visual do <Input> padrão do shadcn: border-input + bg-background
+          "flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-left text-sm",
+          "ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
           disabled && "cursor-not-allowed opacity-60",
-          !selecionado && "text-white/40",
+          !selecionado && "text-muted-foreground",
         )}
       >
         {selecionado ? (
@@ -88,11 +89,11 @@ export function CartaoCombobox({
         ) : (
           <span>{placeholder}</span>
         )}
-        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-white/40" />
+        <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 top-12 z-30 max-h-80 overflow-hidden rounded-xl border border-white/[0.08] bg-card/95 shadow-2xl backdrop-blur-xl">
+        <div className="absolute left-0 right-0 top-12 z-30 max-h-80 overflow-hidden rounded-md border border-input bg-popover text-popover-foreground shadow-md">
           <div className="border-b border-white/[0.06] p-2">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-white/40" />
@@ -101,7 +102,7 @@ export function CartaoCombobox({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Buscar cartão por nome…"
-                className="h-9 border-white/10 bg-white/[0.04] pl-8 text-sm"
+                className="h-9 pl-8 text-sm"
               />
             </div>
           </div>

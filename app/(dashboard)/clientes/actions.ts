@@ -200,6 +200,7 @@ export type ClienteOverview = {
     nome: string | null
     cpf: string | null
     data_nascimento: string | null
+    passaporte: string | null
     tipo_pessoa: string
     razao_social: string | null
     nome_fantasia: string | null
@@ -241,7 +242,7 @@ export async function getClienteOverview(
   const { data: cliente, error: cErr } = await supabase
     .from("clientes")
     .select(
-      "id, nome, cpf, data_nascimento, tipo_pessoa, razao_social, nome_fantasia, cnpj, responsavel, email, telefone, endereco, status, tipo, observacoes, created_at, empresa:empresa_id(nome)",
+      "id, nome, cpf, data_nascimento, passaporte, tipo_pessoa, razao_social, nome_fantasia, cnpj, responsavel, email, telefone, endereco, status, tipo, observacoes, created_at, empresa:empresa_id(nome)",
     )
     .eq("id", id)
     .single()
@@ -374,6 +375,7 @@ function montarPayloadCliente(values: ClienteFormValues) {
     cpf,
     cnpj,
     data_nascimento: isPJ ? null : values.data_nascimento || null,
+    passaporte: isPJ ? null : values.passaporte?.trim() || null,
     email: values.email,
     telefone: values.telefone,
     endereco: sanitizeEndereco(values.endereco),

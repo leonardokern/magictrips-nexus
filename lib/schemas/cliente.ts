@@ -57,6 +57,14 @@ export const clienteBaseSchema = z
       .regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida")
       .optional()
       .or(z.literal("")),
+    /** Número do passaporte — opcional. PF apenas. Sempre uppercase, máx 10 chars. */
+    passaporte: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .max(10, "Passaporte aceita até 10 caracteres")
+      .optional()
+      .or(z.literal("")),
 
     // PJ
     razao_social: z.string().trim().max(200).optional().or(z.literal("")),
@@ -89,7 +97,7 @@ export const clienteBaseSchema = z
   })
   .superRefine((v, ctx) => {
     if (v.tipo_pessoa === "fisica") {
-      // PF exige nome + CPF válido. CNPJ e razão social NÃO entram.
+      // PF exige nome + CPF válido + data de nascimento. Passaporte é opcional.
       if (!v.nome || v.nome.trim().length < 2) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -103,6 +111,13 @@ export const clienteBaseSchema = z
           code: z.ZodIssueCode.custom,
           path: ["cpf"],
           message: "CPF inválido",
+        })
+      }
+      if (!v.data_nascimento || v.data_nascimento === "") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["data_nascimento"],
+          message: "Data de nascimento obrigatória",
         })
       }
     } else {

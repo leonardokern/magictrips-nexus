@@ -12,6 +12,9 @@ export type ClienteOption = {
   cpf: string
   email: string
   empresa_id: string
+  /** Usados no Step 4 ao pré-preencher passageiro com dados do cliente. */
+  data_nascimento?: string | null
+  passaporte?: string | null
 }
 
 type Props = {

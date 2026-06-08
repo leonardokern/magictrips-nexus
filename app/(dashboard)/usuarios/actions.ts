@@ -158,11 +158,14 @@ export async function updateUsuario(
   }
 
   // Update das empresas via RPC (replace completo).
-  // A RPC tem restrição de Admin no banco — usuários não-Admin com permissão
-  // "editar" podem editar nome/perfil, mas não alterar vínculos de empresa
-  // (na prática o seletor fica oculto quando há só 1 empresa, então os IDs
-  // chegam iguais ao que já está salvo; pular não tem efeito colateral).
-  if (v.empresa_ids !== undefined && user.perfil.chave_sistema === "admin") {
+  // A RPC `atualizar_empresas_usuario` aceita Admin OR Gerente (migration 060).
+  // O gate aqui é apenas semântico: só faz sentido enviar empresa_ids quando
+  // o usuário corrente tem privilégio de gestão de identidade.
+  if (
+    v.empresa_ids !== undefined &&
+    (user.perfil.chave_sistema === "admin" ||
+      user.perfil.chave_sistema === "gerente")
+  ) {
     const { error: empErr } = await supabase.rpc("atualizar_empresas_usuario", {
       p_user_id: id,
       p_empresa_ids: v.empresa_ids,

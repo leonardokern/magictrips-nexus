@@ -8,6 +8,7 @@ import { formatBRL } from "@/lib/utils/sum-parser"
 import { COBRANCA_TIPO_LABEL, PGTO_FORMA_LABEL } from "@/lib/schemas/venda"
 import type { VendaDetalhes } from "@/app/(dashboard)/vendas/actions"
 import { obterUrlAnexo } from "@/app/(dashboard)/vendas/anexos-actions"
+import { RevisaoComprovanteLink } from "./comprovante-cobranca-upload"
 import { cn } from "@/lib/utils"
 
 function formatDateBR(iso: string | null): string {
@@ -600,7 +601,7 @@ function PassageiroCard({
   pax: Passageiro
   ordem: number
 }) {
-  const temExtra = !!pax.cpf || !!pax.dataNascimento
+  const temExtra = !!pax.cpf || !!pax.dataNascimento || !!pax.passaporte
 
   return (
     <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-3.5">
@@ -614,7 +615,7 @@ function PassageiroCard({
       </div>
 
       {temExtra && (
-        <div className="mt-2.5 grid grid-cols-2 gap-x-6 gap-y-2">
+        <div className="mt-2.5 grid grid-cols-3 gap-x-6 gap-y-2">
           {pax.cpf && (
             <MiniStat label="CPF" value={formatCPF(pax.cpf)} />
           )}
@@ -623,6 +624,9 @@ function PassageiroCard({
               label="Nascimento"
               value={formatDateBR(pax.dataNascimento)}
             />
+          )}
+          {pax.passaporte && (
+            <MiniStat label="Passaporte" value={pax.passaporte} />
           )}
         </div>
       )}
@@ -806,6 +810,17 @@ function CobrancaItemCard({ item: c }: { item: CobrancaItem }) {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Comprovante de pagamento — link clicável */}
+      {c.comprovanteStoragePath && c.comprovanteNomeArquivo && (
+        <div className="mt-2.5 border-t border-white/[0.05] pt-2.5">
+          <RevisaoComprovanteLink
+            storagePath={c.comprovanteStoragePath}
+            nomeArquivo={c.comprovanteNomeArquivo}
+            mimeType={c.comprovanteMimeType ?? "application/pdf"}
+          />
         </div>
       )}
 

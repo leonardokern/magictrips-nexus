@@ -90,17 +90,28 @@ export default async function ClientesPage({
   let query = supabase
     .from("clientes")
     .select(
-      "id, nome, email, telefone, cpf, tipo, status, empresa_id, tipo_pessoa, cnpj, razao_social, nome_fantasia, responsavel, data_nascimento, observacoes, dia_faturamento, endereco, origem",
+      "id, nome, email, telefone, cpf, tipo, status, empresa_id, tipo_pessoa, cnpj, razao_social, nome_fantasia, responsavel, data_nascimento, passaporte, observacoes, dia_faturamento, endereco, origem",
       { count: "exact" },
     )
     .order("nome")
     .range(from, to)
 
   if (q) {
-    // Buscar por nome OU email OU CPF (CPF é dígitos puros no banco)
+    // Buscar por nome, email, CPF, razão social, nome fantasia, CNPJ
+    // e PASSAPORTE. CPF/CNPJ são dígitos puros no banco — extrai os
+    // dígitos do termo pra comparar.
     const cpfDigits = q.replace(/\D/g, "")
-    const ors: string[] = [`nome.ilike.%${q}%`, `email.ilike.%${q}%`]
-    if (cpfDigits.length > 0) ors.push(`cpf.ilike.%${cpfDigits}%`)
+    const ors: string[] = [
+      `nome.ilike.%${q}%`,
+      `email.ilike.%${q}%`,
+      `razao_social.ilike.%${q}%`,
+      `nome_fantasia.ilike.%${q}%`,
+      `passaporte.ilike.%${q}%`,
+    ]
+    if (cpfDigits.length > 0) {
+      ors.push(`cpf.ilike.%${cpfDigits}%`)
+      ors.push(`cnpj.ilike.%${cpfDigits}%`)
+    }
     query = query.or(ors.join(","))
   }
   if (tipo) query = query.eq("tipo", tipo)
@@ -180,9 +191,15 @@ export default async function ClientesPage({
                 const linhaPrincipal = isPJ
                   ? c.razao_social ?? c.nome
                   : c.nome
+                // PF: CPF + passaporte (quando preenchido). PJ: responsável OU CNPJ.
                 const linhaSecundaria = isPJ
                   ? c.responsavel ?? formatCnpj(c.cnpj)
-                  : formatCpf(c.cpf)
+                  : [
+                      formatCpf(c.cpf),
+                      c.passaporte ? `Passp. ${c.passaporte}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
 
                 const end = (c.endereco ?? {}) as {
                   rua?: string
@@ -261,6 +278,7 @@ export default async function ClientesPage({
                             nome: c.nome ?? "",
                             cpf: c.cpf ?? "",
                             data_nascimento: c.data_nascimento ?? "",
+                            passaporte: c.passaporte ?? "",
                             razao_social: c.razao_social ?? "",
                             nome_fantasia: c.nome_fantasia ?? "",
                             cnpj: c.cnpj ?? "",
@@ -303,7 +321,12 @@ export default async function ClientesPage({
             const linhaPrincipal = isPJ ? c.razao_social ?? c.nome : c.nome
             const linhaSecundaria = isPJ
               ? c.responsavel ?? formatCnpj(c.cnpj)
-              : formatCpf(c.cpf)
+              : [
+                  formatCpf(c.cpf),
+                  c.passaporte ? `Passp. ${c.passaporte}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
 
             const end = (c.endereco ?? {}) as {
               rua?: string
@@ -364,6 +387,7 @@ export default async function ClientesPage({
                         nome: c.nome ?? "",
                         cpf: c.cpf ?? "",
                         data_nascimento: c.data_nascimento ?? "",
+                        passaporte: c.passaporte ?? "",
                         razao_social: c.razao_social ?? "",
                         nome_fantasia: c.nome_fantasia ?? "",
                         cnpj: c.cnpj ?? "",

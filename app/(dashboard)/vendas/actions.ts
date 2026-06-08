@@ -257,11 +257,17 @@ export type VendaDetalhes = {
     dataPrimeiroRecebimento: string | null
     fornecedorDestino: string | null
     observacoes: string | null
+    /** Comprovante de pagamento — null se não anexado. */
+    comprovanteStoragePath: string | null
+    comprovanteNomeArquivo: string | null
+    comprovanteMimeType: string | null
+    comprovanteTamanhoBytes: number | null
   }[]
   passageiros: {
     nome: string
     cpf: string | null
     dataNascimento: string | null
+    passaporte: string | null
   }[]
   anexos: {
     id: string
@@ -386,7 +392,7 @@ export async function getVendaDetalhes(
       .order("ordem"),
     supabase
       .from("venda_passageiros")
-      .select("nome, cpf, data_nascimento")
+      .select("nome, cpf, data_nascimento, passaporte")
       .eq("venda_id", id)
       .order("ordem"),
     supabase
@@ -397,7 +403,9 @@ export async function getVendaDetalhes(
           plataforma_link, plataforma, parcelas_detalhe,
           taxa_adquirente, valor_liquido,
           data_inicio, data_primeiro_recebimento,
-          fornecedor_destino, observacoes
+          fornecedor_destino, observacoes,
+          comprovante_storage_path, comprovante_nome_arquivo,
+          comprovante_mime_type, comprovante_tamanho_bytes
         )`,
       )
       .eq("venda_id", id)
@@ -514,6 +522,10 @@ export async function getVendaDetalhes(
             data_primeiro_recebimento: string | null
             fornecedor_destino: string | null
             observacoes: string | null
+            comprovante_storage_path: string | null
+            comprovante_nome_arquivo: string | null
+            comprovante_mime_type: string | null
+            comprovante_tamanho_bytes: number | null
           }>
         ) ?? []
       ).map((it) => ({
@@ -534,11 +546,16 @@ export async function getVendaDetalhes(
         dataPrimeiroRecebimento: it.data_primeiro_recebimento ?? null,
         fornecedorDestino: it.fornecedor_destino ?? null,
         observacoes: it.observacoes ?? null,
+        comprovanteStoragePath: it.comprovante_storage_path ?? null,
+        comprovanteNomeArquivo: it.comprovante_nome_arquivo ?? null,
+        comprovanteMimeType: it.comprovante_mime_type ?? null,
+        comprovanteTamanhoBytes: it.comprovante_tamanho_bytes ?? null,
       })),
       passageiros: (passageiros ?? []).map((p) => ({
         nome: p.nome,
         cpf: p.cpf ?? null,
         dataNascimento: p.data_nascimento ?? null,
+        passaporte: p.passaporte ?? null,
       })),
       anexos: (anexosRows ?? []).map((a) => ({
         id: a.id,
@@ -616,6 +633,7 @@ export type VendaParaPDF = {
     nome: string
     cpf: string | null
     dataNascimento: string | null
+    passaporte: string | null
   }[]
   // Cobrança com todos os campos
   cobranca: {
@@ -634,6 +652,11 @@ export type VendaParaPDF = {
     dataPrimeiroRecebimento: string | null
     fornecedorDestino: string | null
     observacoes: string | null
+    /** Comprovante de pagamento — null se não anexado. */
+    comprovanteStoragePath: string | null
+    comprovanteNomeArquivo: string | null
+    comprovanteMimeType: string | null
+    comprovanteTamanhoBytes: number | null
   }[]
   // Anexos da venda (PDF/imagens) — listados nominalmente no PDF.
   anexos: {
@@ -694,7 +717,7 @@ export async function getVendaParaPDF(
       .order("ordem"),
     supabase
       .from("venda_passageiros")
-      .select("nome, cpf, data_nascimento")
+      .select("nome, cpf, data_nascimento, passaporte")
       .eq("venda_id", id)
       .order("ordem"),
     supabase
@@ -705,7 +728,9 @@ export async function getVendaParaPDF(
           plataforma_link, plataforma, parcelas_detalhe,
           taxa_adquirente, valor_liquido,
           data_inicio, data_primeiro_recebimento,
-          fornecedor_destino, observacoes
+          fornecedor_destino, observacoes,
+          comprovante_storage_path, comprovante_nome_arquivo,
+          comprovante_mime_type, comprovante_tamanho_bytes
         )`,
       )
       .eq("venda_id", id)
@@ -858,6 +883,7 @@ export async function getVendaParaPDF(
         nome: p.nome,
         cpf: p.cpf ?? null,
         dataNascimento: p.data_nascimento ?? null,
+        passaporte: p.passaporte ?? null,
       })),
       cobranca: (
         (
@@ -879,6 +905,10 @@ export async function getVendaParaPDF(
             data_primeiro_recebimento: string | null
             fornecedor_destino: string | null
             observacoes: string | null
+            comprovante_storage_path: string | null
+            comprovante_nome_arquivo: string | null
+            comprovante_mime_type: string | null
+            comprovante_tamanho_bytes: number | null
           }>
         ) ?? []
       ).map((it) => ({
@@ -899,6 +929,10 @@ export async function getVendaParaPDF(
         dataPrimeiroRecebimento: it.data_primeiro_recebimento ?? null,
         fornecedorDestino: it.fornecedor_destino ?? null,
         observacoes: it.observacoes ?? null,
+        comprovanteStoragePath: it.comprovante_storage_path ?? null,
+        comprovanteNomeArquivo: it.comprovante_nome_arquivo ?? null,
+        comprovanteMimeType: it.comprovante_mime_type ?? null,
+        comprovanteTamanhoBytes: it.comprovante_tamanho_bytes ?? null,
       })),
       anexos: (anexosRows ?? []).map((a) => ({
         nomeArquivo: a.nome_arquivo,
@@ -946,7 +980,7 @@ export async function getDadosNovaVenda(): Promise<ActionResult<DadosNovaVenda>>
   ] = await Promise.all([
     supabase
       .from("clientes")
-      .select("id, nome, cpf, email, empresa_id")
+      .select("id, nome, cpf, email, empresa_id, data_nascimento, passaporte")
       .eq("status", "ativo")
       .order("nome"),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1085,6 +1119,8 @@ export type VendaParaEditar = {
     clienteNovo: {
       tipo_pessoa: "fisica" | "juridica"
       nome: string; cpf: string; data_nascimento: string
+      /** Número do passaporte — opcional. PF apenas. */
+      passaporte: string
       razao_social: string; nome_fantasia: string; cnpj: string; responsavel: string
       email: string; telefone: string
       tipo: "regular" | "faturado"; dia_faturamento: string
@@ -1126,9 +1162,14 @@ export type VendaParaEditar = {
       parcelas_detalhe: { ordem: number; valor_str: string; data: string }[]
       taxa_adquirente_str: string; valor_liquido_str: string
       data_inicio: string; data_primeiro_recebimento: string; observacoes: string
+      /** Comprovante de pagamento (obrigatório no nível da UI). */
+      comprovante_storage_path: string
+      comprovante_nome_arquivo: string
+      comprovante_mime_type: string
+      comprovante_tamanho_bytes: number
     }[]
     cobrancaObs: string
-    passageiros: { id: string; nome: string; cpf: string; data_nascimento: string }[]
+    passageiros: { id: string; nome: string; cpf: string; data_nascimento: string; passaporte: string }[]
   }
 }
 
@@ -1172,12 +1213,12 @@ export async function getVendaParaEditar(
         .order("ordem"),
       supabase
         .from("venda_passageiros")
-        .select("nome, cpf, data_nascimento")
+        .select("nome, cpf, data_nascimento, passaporte")
         .eq("venda_id", id)
         .order("ordem"),
       supabase
         .from("cobranca_cliente")
-        .select("observacoes, itens:cobranca_cliente_itens(tipo, valor_total, num_parcelas, valor_parcela, plataforma_link, plataforma, parcelas_detalhe, taxa_adquirente, valor_liquido, data_inicio, data_primeiro_recebimento, observacoes)")
+        .select("observacoes, itens:cobranca_cliente_itens(tipo, valor_total, num_parcelas, valor_parcela, plataforma_link, plataforma, parcelas_detalhe, taxa_adquirente, valor_liquido, data_inicio, data_primeiro_recebimento, observacoes, comprovante_storage_path, comprovante_nome_arquivo, comprovante_mime_type, comprovante_tamanho_bytes)")
         .eq("venda_id", id)
         .maybeSingle(),
     ])
@@ -1194,6 +1235,10 @@ export async function getVendaParaEditar(
     taxa_adquirente: number | null; valor_liquido: number | null
     data_inicio: string | null; data_primeiro_recebimento: string | null
     observacoes: string | null
+    comprovante_storage_path: string | null
+    comprovante_nome_arquivo: string | null
+    comprovante_mime_type: string | null
+    comprovante_tamanho_bytes: number | null
   }
   const itensRaw = (cobranca?.itens as unknown as ItemRaw[] | null) ?? []
 
@@ -1204,7 +1249,7 @@ export async function getVendaParaEditar(
     dataVenda:        v.data_venda ?? "",
     clienteValue:     v.cliente_id ?? null,
     clienteNovo: {
-      tipo_pessoa: "fisica", nome: "", cpf: "", data_nascimento: "",
+      tipo_pessoa: "fisica", nome: "", cpf: "", data_nascimento: "", passaporte: "",
       razao_social: "", nome_fantasia: "", cnpj: "", responsavel: "",
       email: "", telefone: "", tipo: "regular", dia_faturamento: "",
     },
@@ -1265,6 +1310,10 @@ export async function getVendaParaEditar(
       data_inicio:              it.data_inicio ?? "",
       data_primeiro_recebimento: it.data_primeiro_recebimento ?? "",
       observacoes:              it.tipo !== "outro" ? (it.observacoes ?? "") : "",
+      comprovante_storage_path:  it.comprovante_storage_path ?? "",
+      comprovante_nome_arquivo:  it.comprovante_nome_arquivo ?? "",
+      comprovante_mime_type:     it.comprovante_mime_type ?? "",
+      comprovante_tamanho_bytes: Number(it.comprovante_tamanho_bytes ?? 0),
     })),
     cobrancaObs: cobranca?.observacoes ?? "",
     passageiros: (passageiros ?? []).map((p) => ({
@@ -1272,6 +1321,7 @@ export async function getVendaParaEditar(
       nome:            p.nome ?? "",
       cpf:             p.cpf ?? "",
       data_nascimento: p.data_nascimento ?? "",
+      passaporte:      p.passaporte ?? "",
     })),
   }
 

@@ -11,6 +11,27 @@ export function onlyDigits(s: string | null | undefined): string {
 }
 
 /**
+ * Capitaliza a primeira letra de cada palavra e mantém as demais em
+ * minúscula. Útil pra normalizar nomes ao sair do campo:
+ *   "JOÃO PEDRO da SILVA"  →  "João Pedro Da Silva"
+ *
+ * Preserva espaços (inclusive sequências) e acentos. Usa `pt-BR` no
+ * `toLocaleUpperCase` pra garantir comportamento correto com chars
+ * Unicode (ç, ã, é, ñ, etc).
+ */
+export function toTitleCase(input: string | null | undefined): string {
+  if (!input) return ""
+  return input
+    .toLowerCase()
+    .split(/(\s+)/)
+    .map((parte) => {
+      if (!parte || /^\s+$/.test(parte)) return parte
+      return parte.charAt(0).toLocaleUpperCase("pt-BR") + parte.slice(1)
+    })
+    .join("")
+}
+
+/**
  * Formata CPF: "12345678900" → "123.456.789-00"
  * Aceita string com ou sem máscara.
  */

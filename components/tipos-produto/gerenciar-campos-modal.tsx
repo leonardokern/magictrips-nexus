@@ -79,10 +79,10 @@ export function GerenciarCamposModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl">
-        <DialogHeader>
-          <div className="flex items-start justify-between gap-4 pr-14">
-            <div>
+      <DialogContent className="flex max-h-[92vh] w-[95vw] max-w-4xl flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="shrink-0 border-b border-white/[0.06] px-6 py-4 pr-14">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
               <DialogTitle>Gerenciar campos</DialogTitle>
               <DialogDescription className="mt-1 max-w-xl">
                 Catálogo de campos extras que podem ser vinculados a um tipo de
@@ -94,10 +94,11 @@ export function GerenciarCamposModal({
           </div>
         </DialogHeader>
 
+        <div className="flex-1 overflow-y-auto px-6 py-5">
         {loading ? (
           <ModalLoader label="Carregando campos…" />
         ) : (
-          <div className="max-h-[60vh] overflow-auto overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
+          <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-[#0b1424]">
                 <TableRow className="border-white/[0.06] hover:bg-transparent">
@@ -202,6 +203,7 @@ export function GerenciarCamposModal({
             </Table>
           </div>
         )}
+        </div>
       </DialogContent>
     </Dialog>
   )

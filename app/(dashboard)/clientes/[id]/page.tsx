@@ -55,7 +55,7 @@ export default async function ClienteDetailPage({
   const { data: cliente } = await supabase
     .from("clientes")
     .select(
-      "id, nome, email, telefone, cpf, data_nascimento, endereco, origem, tipo, dia_faturamento, status, observacoes, created_at, updated_at, empresa_id, tipo_pessoa, cnpj, razao_social, nome_fantasia, responsavel",
+      "id, nome, email, telefone, cpf, data_nascimento, passaporte, endereco, origem, tipo, dia_faturamento, status, observacoes, created_at, updated_at, empresa_id, tipo_pessoa, cnpj, razao_social, nome_fantasia, responsavel",
     )
     .eq("id", id)
     .maybeSingle()
@@ -113,6 +113,7 @@ export default async function ClienteDetailPage({
                 nome: cliente.nome,
                 cpf: cliente.cpf ?? "",
                 data_nascimento: cliente.data_nascimento ?? "",
+                passaporte: cliente.passaporte ?? "",
                 razao_social: cliente.razao_social ?? "",
                 nome_fantasia: cliente.nome_fantasia ?? "",
                 cnpj: cliente.cnpj ?? "",
@@ -166,6 +167,9 @@ export default async function ClienteDetailPage({
               <Row icon={<User2 className="h-4 w-4 text-muted-foreground" />} label="Nascimento">
                 {formatDateBr(cliente.data_nascimento)}
               </Row>
+            )}
+            {cliente.passaporte && (
+              <Row label="Passaporte">{cliente.passaporte}</Row>
             )}
             {cliente.origem && (
               <Row label="Origem">{cliente.origem}</Row>

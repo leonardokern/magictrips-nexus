@@ -47,6 +47,10 @@ import {
 } from "@/components/ui/select"
 import { ClienteCombobox, type ClienteOption } from "./cliente-combobox"
 import { CartaoCombobox } from "./cartao-combobox"
+import {
+  ComprovanteCobrancaUpload,
+  RevisaoComprovanteLink,
+} from "./comprovante-cobranca-upload"
 import { IconTooltip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { criarVenda, editarEAprovarVenda, resubmeterVenda } from "@/app/(dashboard)/vendas/actions"
@@ -73,7 +77,7 @@ import {
 import { formatBRL, parseValorComSoma } from "@/lib/utils/sum-parser"
 import { DateInput } from "@/components/ui/date-input"
 import { CurrencyInput } from "@/components/ui/currency-input"
-import { formatCnpj, formatCpf, formatTelefone, onlyDigits } from "@/lib/utils/formatters"
+import { formatCnpj, formatCpf, formatTelefone, onlyDigits, toTitleCase } from "@/lib/utils/formatters"
 import { cnpjValido, cpfValido, emailValido } from "@/lib/utils/validators"
 import {
   lookupClientePorCpf,
@@ -250,6 +254,11 @@ type CobrancaItemState = {
   data_inicio: string
   data_primeiro_recebimento: string
   observacoes: string
+  /** Comprovante de pagamento — obrigatório por item. */
+  comprovante_storage_path: string
+  comprovante_nome_arquivo: string
+  comprovante_mime_type: string
+  comprovante_tamanho_bytes: number
 }
 
 type PassageiroState = {
@@ -257,6 +266,9 @@ type PassageiroState = {
   nome: string
   cpf: string
   data_nascimento: string
+  /** Número do passaporte do passageiro — opcional. Usado em vendas
+   *  internacionais. Sempre uppercase, máx 10 chars (igual cliente). */
+  passaporte: string
   usandoDadosCliente?: boolean
 }
 
@@ -266,6 +278,8 @@ type ClienteNovoState = {
   nome: string
   cpf: string
   data_nascimento: string
+  /** Número do passaporte — opcional. PF apenas. */
+  passaporte: string
   // PJ
   razao_social: string
   nome_fantasia: string
@@ -321,6 +335,7 @@ function novoPassageiro(nome = ""): PassageiroState {
     nome,
     cpf: "",
     data_nascimento: "",
+    passaporte: "",
   }
 }
 
@@ -338,6 +353,10 @@ function novoItemCobranca(): CobrancaItemState {
     data_inicio: "",
     data_primeiro_recebimento: "",
     observacoes: "",
+    comprovante_storage_path: "",
+    comprovante_nome_arquivo: "",
+    comprovante_mime_type: "",
+    comprovante_tamanho_bytes: 0,
   }
 }
 
@@ -475,6 +494,7 @@ export function VendaWizard(props: Props) {
         nome: "",
         cpf: "",
         data_nascimento: "",
+        passaporte: "",
         razao_social: "",
         nome_fantasia: "",
         cnpj: "",
@@ -597,6 +617,9 @@ export function VendaWizard(props: Props) {
         if (clienteNovo.nome.trim().length < 2)
           e.novo_nome = "Informe o nome do cliente."
         if (!cpfValido(clienteNovo.cpf)) e.novo_cpf = "CPF inválido."
+        if (!clienteNovo.data_nascimento)
+          e.novo_data_nascimento = "Data de nascimento obrigatória."
+        // Passaporte é opcional. Validação só de formato se preenchido.
       } else {
         if (clienteNovo.razao_social.trim().length < 2)
           e.novo_razao_social = "Razão social obrigatória."
@@ -699,6 +722,9 @@ export function VendaWizard(props: Props) {
         e[`cobranca_${i}_outro_descricao`] = "Informe a forma de pagamento."
       if (it.tipo === "link_externo" && !it.plataforma_link.trim())
         e[`cobranca_${i}_link`] = "Cole o link de pagamento gerado."
+      // Comprovante de pagamento — obrigatório por item de cobrança
+      if (!it.comprovante_storage_path)
+        e[`cobranca_${i}_comprovante`] = "Anexe o comprovante de pagamento."
 
       // Parcelas (tipos parceláveis: PIX/boleto/cartão/faturado). Cada parcela
       // exige valor > 0 E data ISO preenchida. Usa o mesmo fallback do render
@@ -1178,6 +1204,11 @@ export function VendaWizard(props: Props) {
         data_inicio: it.data_inicio || null,
         data_primeiro_recebimento: dataPrimeiro || null,
         observacoes: it.tipo === "outro" ? it.outro_descricao || null : null,
+        // Comprovante de pagamento (upload já feito; só persiste o path)
+        comprovante_storage_path: it.comprovante_storage_path || null,
+        comprovante_nome_arquivo: it.comprovante_nome_arquivo || null,
+        comprovante_mime_type: it.comprovante_mime_type || null,
+        comprovante_tamanho_bytes: it.comprovante_tamanho_bytes || null,
       }
     })
 
@@ -1200,6 +1231,7 @@ export function VendaWizard(props: Props) {
                 telefone: onlyDigits(clienteNovo.telefone),
                 cpf: onlyDigits(clienteNovo.cpf),
                 data_nascimento: clienteNovo.data_nascimento || null,
+                passaporte: clienteNovo.passaporte.trim() || null,
                 tipo: clienteNovo.tipo,
                 dia_faturamento:
                   clienteNovo.tipo === "faturado"
@@ -1240,6 +1272,7 @@ export function VendaWizard(props: Props) {
           nome: p.nome,
           cpf: p.cpf ? onlyDigits(p.cpf) : null,
           data_nascimento: p.data_nascimento || null,
+          passaporte: p.passaporte.trim() || null,
         })),
       cobranca: {
         valor_total: cobrancaTotal,
@@ -1332,6 +1365,16 @@ export function VendaWizard(props: Props) {
               clienteValue === "novo"
                 ? clienteNovo.tipo_pessoa === "fisica" ? clienteNovo.cpf : ""
                 : (props.clientes.find((x) => x.id === clienteValue)?.cpf ?? "")
+            }
+            clienteDataNascimento={
+              clienteValue === "novo"
+                ? clienteNovo.tipo_pessoa === "fisica" ? clienteNovo.data_nascimento : ""
+                : (props.clientes.find((x) => x.id === clienteValue)?.data_nascimento ?? "")
+            }
+            clientePassaporte={
+              clienteValue === "novo"
+                ? clienteNovo.tipo_pessoa === "fisica" ? clienteNovo.passaporte : ""
+                : (props.clientes.find((x) => x.id === clienteValue)?.passaporte ?? "")
             }
             errors={errors}
           />
@@ -1433,11 +1476,19 @@ export function VendaWizard(props: Props) {
                       data: p.data || null,
                     }))
                   : [],
+              comprovante: it.comprovante_storage_path
+                ? {
+                    storagePath: it.comprovante_storage_path,
+                    nomeArquivo: it.comprovante_nome_arquivo,
+                    mimeType: it.comprovante_mime_type,
+                  }
+                : null,
             }))}
             passageiros={passageiros.map((p) => ({
               nome: p.nome,
               cpf: p.cpf,
               dataNascimento: p.data_nascimento,
+              passaporte: p.passaporte,
               usandoDadosCliente: p.usandoDadosCliente ?? false,
             }))}
             // Revisão é sempre minimalista — sem painéis de "Comissão do
@@ -1868,6 +1919,12 @@ function Step1(props: {
                     onChange={(ev) =>
                       props.setClienteNovo((s) => ({ ...s, nome: ev.target.value }))
                     }
+                    onBlur={(ev) =>
+                      props.setClienteNovo((s) => ({
+                        ...s,
+                        nome: toTitleCase(ev.target.value),
+                      }))
+                    }
                     required
                   />
                 </Field>
@@ -1898,6 +1955,33 @@ function Step1(props: {
                       . Selecione o cliente acima.
                     </p>
                   )}
+                </Field>
+
+                <Field
+                  label="Data de nascimento *"
+                  error={e.novo_data_nascimento}
+                >
+                  <DateInput
+                    value={props.clienteNovo.data_nascimento}
+                    onChange={(iso) =>
+                      props.setClienteNovo((s) => ({ ...s, data_nascimento: iso }))
+                    }
+                  />
+                </Field>
+
+                <Field label="Passaporte">
+                  <Input
+                    value={props.clienteNovo.passaporte}
+                    onChange={(ev) =>
+                      props.setClienteNovo((s) => ({
+                        ...s,
+                        passaporte: ev.target.value.toUpperCase(),
+                      }))
+                    }
+                    placeholder="Ex: BR1234567"
+                    maxLength={10}
+                    className="uppercase tracking-wider"
+                  />
                 </Field>
               </>
             ) : (
@@ -1971,8 +2055,13 @@ function Step1(props: {
                 type="email"
                 value={props.clienteNovo.email}
                 onChange={(ev) =>
-                  props.setClienteNovo((s) => ({ ...s, email: ev.target.value.replace(/\s/g, "") }))
+                  props.setClienteNovo((s) => ({
+                    ...s,
+                    // E-mail sempre minúsculo e sem espaços.
+                    email: ev.target.value.replace(/\s/g, "").toLowerCase(),
+                  }))
                 }
+                className="lowercase"
               />
             </Field>
             <Field label="Telefone" error={e.novo_telefone}>
@@ -2398,12 +2487,21 @@ function Step2Produtos(props: {
                 const err = props.errors[`produto_${i}_extra_${campo.id}`]
 
                 // Largura semântica por tipo de campo
+                //   numero / sim_nao  → 2/12 (compactos — stepper / Select)
+                //   data              → 3/12 (largura tipo DD/MM/AAAA)
+                //   texto_curto       → 2/12 (códigos, IDs, localizadores)
+                //   texto (longo)     → 6/12 (descrições, observações)
+                //   dropdown / fornecedor → 4/12
                 const colSpan =
                   campo.tipo_campo === "numero" || campo.tipo_campo === "sim_nao"
                     ? "col-span-6 sm:col-span-2"
                     : campo.tipo_campo === "data"
                       ? "col-span-6 sm:col-span-3"
-                      : "col-span-12 sm:col-span-4"
+                      : campo.tipo_campo === "texto_curto"
+                        ? "col-span-6 sm:col-span-2"
+                        : campo.tipo_campo === "texto"
+                          ? "col-span-12 sm:col-span-6"
+                          : "col-span-12 sm:col-span-4"
 
                 return (
                   <Field
@@ -2458,16 +2556,60 @@ function Step2Produtos(props: {
                         }
                       />
                     ) : campo.tipo_campo === "numero" ? (
-                      <Input
-                        type="number"
-                        value={val}
-                        onChange={(ev) =>
+                      (() => {
+                        // Stepper compacto centralizado: −  N  +
+                        // Inteiro ≥ 0; persistido como string pra compat.
+                        const n = Math.max(0, parseInt(String(val), 10) || 0)
+                        const setN = (next: number) => {
                           patch(p.id, (prev) => ({
-                            valores_extras: { ...prev.valores_extras, [campo.id]: ev.target.value },
+                            valores_extras: {
+                              ...prev.valores_extras,
+                              [campo.id]: String(Math.max(0, next)),
+                            },
                           }))
                         }
-                        placeholder={campo.placeholder ?? ""}
-                      />
+                        return (
+                          // Visual consistente com o <Input> padrão do
+                          // shadcn (border-input + bg-background). Botões
+                          // − e + ficam INTERNOS ao container, dividindo
+                          // o input com bordas finas do mesmo tom.
+                          <div className="flex h-10 w-full items-stretch overflow-hidden rounded-md border border-input bg-background">
+                            <button
+                              type="button"
+                              onClick={() => setN(n - 1)}
+                              disabled={n <= 0}
+                              aria-label="Diminuir"
+                              className="flex w-8 shrink-0 items-center justify-center border-r border-input text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+                            >
+                              <Minus className="h-3.5 w-3.5" />
+                            </button>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={val || "0"}
+                              onChange={(ev) => {
+                                const v = ev.target.value.replace(/[^\d]/g, "")
+                                patch(p.id, (prev) => ({
+                                  valores_extras: {
+                                    ...prev.valores_extras,
+                                    [campo.id]: v,
+                                  },
+                                }))
+                              }}
+                              onFocus={(ev) => ev.target.select()}
+                              className="min-w-0 flex-1 bg-transparent px-1 text-center text-sm tabular-nums text-white outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setN(n + 1)}
+                              aria-label="Aumentar"
+                              className="flex w-8 shrink-0 items-center justify-center border-l border-input text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        )
+                      })()
                     ) : campo.tipo_campo === "sim_nao" ? (
                       <Select
                         value={val || undefined}
@@ -3464,6 +3606,25 @@ function Step3Cobranca(props: {
                 })()}
               </div>
             )}
+
+            {/* ── Comprovante de pagamento (obrigatório) ─────────────── */}
+            <div className="mt-4">
+              <ComprovanteCobrancaUpload
+                storagePath={it.comprovante_storage_path}
+                nomeArquivo={it.comprovante_nome_arquivo}
+                mimeType={it.comprovante_mime_type}
+                tamanhoBytes={it.comprovante_tamanho_bytes}
+                onChange={(next) =>
+                  patch(i, {
+                    comprovante_storage_path: next.storagePath,
+                    comprovante_nome_arquivo: next.nomeArquivo,
+                    comprovante_mime_type: next.mimeType,
+                    comprovante_tamanho_bytes: next.tamanhoBytes,
+                  })
+                }
+                error={props.errors[`cobranca_${i}_comprovante`]}
+              />
+            </div>
           </div>
         )
       })}
@@ -3499,6 +3660,8 @@ function Step4Passageiros(props: {
   pax: number
   clienteNome: string
   clienteCpf: string
+  clienteDataNascimento: string
+  clientePassaporte: string
   errors: Record<string, string>
 }) {
   function adicionar() {
@@ -3515,16 +3678,30 @@ function Step4Passageiros(props: {
 
   function handleUsarDadosCliente(id: string, checked: boolean) {
     if (checked) {
-      // desmarca qualquer outro que estivesse usando
+      // Desmarca qualquer outro passageiro que estivesse usando; aplica
+      // nome + CPF + data de nascimento + passaporte do cliente.
       props.setPassageiros((s) =>
         s.map((px) =>
           px.id === id
-            ? { ...px, usandoDadosCliente: true, nome: props.clienteNome, cpf: props.clienteCpf }
+            ? {
+                ...px,
+                usandoDadosCliente: true,
+                nome: props.clienteNome,
+                cpf: props.clienteCpf,
+                data_nascimento: props.clienteDataNascimento,
+                passaporte: props.clientePassaporte,
+              }
             : { ...px, usandoDadosCliente: false },
         ),
       )
     } else {
-      patch(id, { usandoDadosCliente: false, nome: "", cpf: "" })
+      patch(id, {
+        usandoDadosCliente: false,
+        nome: "",
+        cpf: "",
+        data_nascimento: "",
+        passaporte: "",
+      })
     }
   }
 
@@ -3553,7 +3730,14 @@ function Step4Passageiros(props: {
                   Passageiro {i + 1}
                 </p>
                 {temDadosCliente && (
-                  <label className="flex select-none cursor-pointer items-center gap-1.5 text-xs text-white/55 hover:text-white/80">
+                  <label
+                    className={cn(
+                      "flex select-none items-center gap-1.5 text-xs",
+                      outroUsando
+                        ? "cursor-not-allowed text-white/25"
+                        : "cursor-pointer text-white/55 hover:text-white/80",
+                    )}
+                  >
                     <Checkbox
                       checked={usandoDados}
                       disabled={outroUsando}
@@ -3575,15 +3759,26 @@ function Step4Passageiros(props: {
                 </button>
               )}
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Field label="Nome" error={props.errors[`passageiro_${i}_nome`]}>
+            {/* Grid 12-col, tudo numa linha:
+                  Nome (6) + CPF (2) + Data nasc (2) + Passaporte (2) */}
+            <div className="grid gap-3 sm:grid-cols-12">
+              <Field
+                label="Nome"
+                error={props.errors[`passageiro_${i}_nome`]}
+                className="sm:col-span-6"
+              >
                 <Input
                   value={p.nome}
                   onChange={(ev) => patch(p.id, { nome: ev.target.value })}
+                  onBlur={(ev) => patch(p.id, { nome: toTitleCase(ev.target.value) })}
                   disabled={usandoDados}
                 />
               </Field>
-              <Field label="CPF" error={props.errors[`passageiro_${i}_cpf`]}>
+              <Field
+                label="CPF"
+                error={props.errors[`passageiro_${i}_cpf`]}
+                className="sm:col-span-2"
+              >
                 <Input
                   value={formatCpf(p.cpf)}
                   onChange={(ev) => patch(p.id, { cpf: ev.target.value })}
@@ -3592,10 +3787,23 @@ function Step4Passageiros(props: {
                   disabled={usandoDados}
                 />
               </Field>
-              <Field label="Data de nascimento (opcional)">
+              <Field label="Nascimento" className="sm:col-span-2">
                 <DateInput
                   value={p.data_nascimento}
                   onChange={(iso) => patch(p.id, { data_nascimento: iso })}
+                  disabled={usandoDados}
+                />
+              </Field>
+              <Field label="Passaporte" className="sm:col-span-2">
+                <Input
+                  value={p.passaporte}
+                  onChange={(ev) =>
+                    patch(p.id, { passaporte: ev.target.value.toUpperCase() })
+                  }
+                  placeholder="BR1234567"
+                  maxLength={10}
+                  disabled={usandoDados}
+                  className="uppercase tracking-wider"
                 />
               </Field>
             </div>
@@ -3927,11 +4135,18 @@ function Step6Revisao(props: {
     plataforma?: string | null
     /** Distribuição planejada das parcelas. Vazio = à vista ou auto-divide. */
     parcelasDetalhe?: { ordem: number; valor: number; data: string | null }[]
+    /** Comprovante de pagamento — quando null, mostra "Comprovante pendente". */
+    comprovante?: {
+      storagePath: string
+      nomeArquivo: string
+      mimeType: string
+    } | null
   }[]
   passageiros: {
     nome: string
     cpf: string
     dataNascimento: string
+    passaporte: string
     usandoDadosCliente: boolean
   }[]
   /** Quando true (Admin/Gerente), exibe coluna/linha de comissão na revisão.
@@ -4062,6 +4277,14 @@ function Step6Revisao(props: {
                     ))}
                   </ul>
                 )}
+                {/* Comprovante de pagamento — botão abre em nova aba */}
+                {c.comprovante && (
+                  <RevisaoComprovanteLink
+                    storagePath={c.comprovante.storagePath}
+                    nomeArquivo={c.comprovante.nomeArquivo}
+                    mimeType={c.comprovante.mimeType}
+                  />
+                )}
               </li>
             ))}
             <li className="mt-2 flex items-center justify-between border-t border-white/[0.06] pt-2 font-medium">
@@ -4095,7 +4318,7 @@ function Step6Revisao(props: {
                     )}
                   </div>
                 </div>
-                <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 pl-8 text-[12px] text-white/55">
+                <div className="mt-1.5 grid grid-cols-3 gap-x-4 gap-y-0.5 pl-8 text-[12px] text-white/55">
                   <span>
                     <span className="text-white/35">CPF:</span>{" "}
                     {p.cpf || "—"}
@@ -4103,6 +4326,10 @@ function Step6Revisao(props: {
                   <span>
                     <span className="text-white/35">Nascimento:</span>{" "}
                     {p.dataNascimento ? formatDateBR(p.dataNascimento) : "—"}
+                  </span>
+                  <span>
+                    <span className="text-white/35">Passaporte:</span>{" "}
+                    {p.passaporte || "—"}
                   </span>
                 </div>
               </li>

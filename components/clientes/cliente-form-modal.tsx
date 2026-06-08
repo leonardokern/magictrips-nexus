@@ -37,6 +37,7 @@ import {
   formatCpf,
   formatTelefone,
   onlyDigits,
+  toTitleCase,
 } from "@/lib/utils/formatters"
 import { cnpjValido, cpfValido, emailValido } from "@/lib/utils/validators"
 import { DateInput } from "@/components/ui/date-input"
@@ -76,6 +77,7 @@ const EMPTY: FormState = {
   nome: "",
   cpf: "",
   data_nascimento: "",
+  passaporte: "",
   // PJ
   razao_social: "",
   nome_fantasia: "",
@@ -258,29 +260,23 @@ export function ClienteFormModal(props: Props) {
           <fieldset disabled={props.readOnly} className="space-y-6 disabled:opacity-95">
           {/* Dados principais */}
           <Section icon={<User className="h-3.5 w-3.5" />} title="Dados principais">
-            <div className="grid gap-4 sm:grid-cols-2">
-              {!props.lockEmpresa && (
-                <Field label="Empresa *" error={errors.empresa_id}>
-                  <Select
-                    value={v.empresa_id || undefined}
-                    onValueChange={(val) => update("empresa_id", val)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {props.empresas.map((e) => (
-                        <SelectItem key={e.id} value={e.id}>
-                          {e.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-              )}
+            {/* Grid 6 colunas pra granularidade fina:
+                - Nome / Razão social: col-span-6 (linha cheia)
+                - CPF / Data Nascimento / Passaporte: 2+2+2 (PF)
+                - CNPJ / Responsável: 3+3 (PJ)
+                - E-mail / Telefone: 3+3 */}
+            <div className="grid gap-4 sm:grid-cols-6">
+              {/* Seleção de empresa intencionalmente ocultada:
+                  enquanto não tivermos uma segunda empresa ativa no sistema,
+                  todo cliente vai pra Magic Trips por default (via
+                  defaultEmpresaId). Quando entrar Del Mondo ou outra,
+                  basta voltar a renderizar o Field abaixo (lógica do prop
+                  lockEmpresa segue intacta pra esse momento).
+                  if (!props.lockEmpresa) ... renderize Empresa aqui */}
 
-              {/* Radio Pessoa Física / Jurídica */}
-              <div className="sm:col-span-2">
+              {/* Radio Pessoa Física / Jurídica — ocupa linha cheia
+                  enquanto Empresa está oculta. */}
+              <div className="sm:col-span-6">
                 <Label className="mb-2 block text-[11px] font-medium text-white/70">
                   Tipo de pessoa *
                 </Label>
@@ -311,16 +307,21 @@ export function ClienteFormModal(props: Props) {
                   <Field
                     label="Nome *"
                     error={errors.nome}
-                    className="sm:col-span-2"
+                    className="sm:col-span-6"
                   >
                     <Input
                       value={v.nome ?? ""}
                       onChange={(e) => update("nome", e.target.value)}
+                      onBlur={(e) => update("nome", toTitleCase(e.target.value))}
                       required
                     />
                   </Field>
 
-                  <Field label="CPF *" error={errors.cpf}>
+                  <Field
+                    label="CPF *"
+                    error={errors.cpf}
+                    className="sm:col-span-2"
+                  >
                     <Input
                       value={formatCpf(v.cpf ?? "")}
                       onChange={(e) => update("cpf", e.target.value)}
@@ -342,10 +343,30 @@ export function ClienteFormModal(props: Props) {
                     )}
                   </Field>
 
-                  <Field label="Data de nascimento" error={errors.data_nascimento}>
+                  <Field
+                    label="Data de nascimento *"
+                    error={errors.data_nascimento}
+                    className="sm:col-span-2"
+                  >
                     <DateInput
                       value={v.data_nascimento ?? ""}
                       onChange={(iso) => update("data_nascimento", iso)}
+                    />
+                  </Field>
+
+                  <Field
+                    label="Passaporte"
+                    error={errors.passaporte}
+                    className="sm:col-span-2"
+                  >
+                    <Input
+                      value={v.passaporte ?? ""}
+                      onChange={(e) =>
+                        update("passaporte", e.target.value.toUpperCase())
+                      }
+                      placeholder="Ex: BR1234567"
+                      maxLength={10}
+                      className="uppercase tracking-wider"
                     />
                   </Field>
                 </>
@@ -354,7 +375,7 @@ export function ClienteFormModal(props: Props) {
                   <Field
                     label="Razão social *"
                     error={errors.razao_social}
-                    className="sm:col-span-2"
+                    className="sm:col-span-6"
                   >
                     <Input
                       value={v.razao_social ?? ""}
@@ -366,7 +387,7 @@ export function ClienteFormModal(props: Props) {
                   <Field
                     label="Nome fantasia"
                     error={errors.nome_fantasia}
-                    className="sm:col-span-2"
+                    className="sm:col-span-6"
                   >
                     <Input
                       value={v.nome_fantasia ?? ""}
@@ -374,7 +395,11 @@ export function ClienteFormModal(props: Props) {
                     />
                   </Field>
 
-                  <Field label="CNPJ *" error={errors.cnpj}>
+                  <Field
+                    label="CNPJ *"
+                    error={errors.cnpj}
+                    className="sm:col-span-3"
+                  >
                     <Input
                       value={formatCnpj(v.cnpj ?? "")}
                       onChange={(e) => {
@@ -399,7 +424,11 @@ export function ClienteFormModal(props: Props) {
                     )}
                   </Field>
 
-                  <Field label="Nome do responsável" error={errors.responsavel}>
+                  <Field
+                    label="Nome do responsável"
+                    error={errors.responsavel}
+                    className="sm:col-span-3"
+                  >
                     <Input
                       value={v.responsavel ?? ""}
                       onChange={(e) => update("responsavel", e.target.value)}
@@ -408,22 +437,37 @@ export function ClienteFormModal(props: Props) {
                 </>
               )}
 
-              <Field label="E-mail *" error={errors.email}>
+              <Field
+                label="E-mail *"
+                error={errors.email}
+                className="sm:col-span-3"
+              >
                 <Input
                   type="email"
                   value={v.email}
-                  onChange={(e) => update("email", e.target.value.replace(/\s/g, ""))}
+                  onChange={(e) =>
+                    update(
+                      "email",
+                      // E-mail: sempre minúsculo + sem espaços.
+                      e.target.value.replace(/\s/g, "").toLowerCase(),
+                    )
+                  }
                   onBlur={() => {
                     if (v.email && !emailValido(v.email)) {
                       setErrors((e) => ({ ...e, email: "E-mail inválido" }))
                     }
                   }}
                   placeholder="cliente@email.com.br"
+                  className="lowercase"
                   required
                 />
               </Field>
 
-              <Field label="Telefone *" error={errors.telefone}>
+              <Field
+                label="Telefone *"
+                error={errors.telefone}
+                className="sm:col-span-3"
+              >
                 <Input
                   value={formatTelefone(v.telefone)}
                   onChange={(e) => update("telefone", e.target.value)}

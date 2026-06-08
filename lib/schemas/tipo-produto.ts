@@ -1,7 +1,13 @@
 import { z } from "zod"
 
-/** Tipos de campo aceitos no catálogo. */
+/** Tipos de campo aceitos no catálogo.
+ *
+ *  - `texto`        → texto longo (campo de largura cheia, ideal pra
+ *                     observações, descrições, observações etc.)
+ *  - `texto_curto`  → texto curto (campo compacto, ideal pra códigos,
+ *                     IDs, localizadores, identificadores etc.) */
 export const TIPOS_CAMPO = [
+  "texto_curto",
   "texto",
   "numero",
   "data",
@@ -12,7 +18,8 @@ export const TIPOS_CAMPO = [
 export type TipoCampo = (typeof TIPOS_CAMPO)[number]
 
 export const TIPO_CAMPO_LABEL: Record<TipoCampo, string> = {
-  texto: "Texto",
+  texto_curto: "Texto curto",
+  texto: "Texto longo",
   numero: "Número",
   data: "Data",
   dropdown: "Lista (dropdown)",
@@ -40,6 +47,7 @@ export const ICONES_TIPO_PRODUTO = [
   "brinde",
   "assento",
   "patas",
+  "kit-de-ferramentas",
 ] as const
 
 export const ICONE_LABEL: Record<(typeof ICONES_TIPO_PRODUTO)[number], string> = {
@@ -59,6 +67,7 @@ export const ICONE_LABEL: Record<(typeof ICONES_TIPO_PRODUTO)[number], string> =
   "brinde":                 "Brinde",
   "assento":                "Assento",
   "patas":                  "Pet",
+  "kit-de-ferramentas":     "Equipamentos",
 }
 
 export const tipoProdutoVinculoCampoSchema = z.object({
