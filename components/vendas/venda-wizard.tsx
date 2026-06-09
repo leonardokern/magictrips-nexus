@@ -716,6 +716,10 @@ export function VendaWizard(props: Props) {
 
   function validarStep3(): Record<string, string> {
     const e: Record<string, string> = {}
+    // Quando todos os produtos foram pagos com `cartao_cliente`, o cliente
+    // paga direto no link do fornecedor e a Magic não emite cobrança nenhuma.
+    // Step 3 vira informativo apenas — nada a validar.
+    if (todosCartaoCliente) return e
     if (cobrancaItens.length === 0)
       e.cobranca_itens = "Adicione ao menos uma forma de cobrança."
     cobrancaItens.forEach((it, i) => {
@@ -725,8 +729,10 @@ export function VendaWizard(props: Props) {
         e[`cobranca_${i}_outro_descricao`] = "Informe a forma de pagamento."
       if (it.tipo === "link_externo" && !it.plataforma_link.trim())
         e[`cobranca_${i}_link`] = "Cole o link de pagamento gerado."
-      // Comprovante de pagamento — obrigatório por item de cobrança
-      if (!it.comprovante_storage_path)
+      // Comprovante de pagamento — só obrigatório pra `link_externo`
+      // (PagSeguro/Cielo). Demais formas (PIX, boleto, cartão, faturado,
+      // outro) não exigem comprovante.
+      if (it.tipo === "link_externo" && !it.comprovante_storage_path)
         e[`cobranca_${i}_comprovante`] = "Anexe o comprovante de pagamento."
 
       // Parcelas (tipos parceláveis: PIX/boleto/cartão/faturado). Cada parcela
@@ -790,13 +796,17 @@ export function VendaWizard(props: Props) {
     }
     setErrors({})
     // Passo 3 → 4: avisa se houver valor em aberto entre cobrança e venda.
+    // Pula esse aviso quando a venda é totalmente cartao_cliente (cobrança
+    // dispensada — cliente paga direto ao fornecedor).
     if (step === 3) {
-      const totalCobrado = cobrancaItens.reduce(
-        (acc, it) => acc + (parseValorComSoma(it.valor_total_str) || 0), 0,
-      )
-      if (Math.abs(totalCobrado - totalVenda) >= 0.01) {
-        setConfirmValorAberto(true)
-        return
+      if (!todosCartaoCliente) {
+        const totalCobrado = cobrancaItens.reduce(
+          (acc, it) => acc + (parseValorComSoma(it.valor_total_str) || 0), 0,
+        )
+        if (Math.abs(totalCobrado - totalVenda) >= 0.01) {
+          setConfirmValorAberto(true)
+          return
+        }
       }
       sincronizarPassageiros()
     }
@@ -832,7 +842,7 @@ export function VendaWizard(props: Props) {
       return
     }
     setErrors({})
-    if (step === 3) {
+    if (step === 3 && !todosCartaoCliente) {
       const totalCobrado = cobrancaItens.reduce(
         (acc, it) => acc + (parseValorComSoma(it.valor_total_str) || 0), 0,
       )
@@ -1345,15 +1355,41 @@ export function VendaWizard(props: Props) {
         )}
 
         {step === 3 && (
-          <Step3Cobranca
-            itens={cobrancaItens}
-            setItens={setCobrancaItens}
-            obs={cobrancaObs}
-            setObs={setCobrancaObs}
-            totalVenda={totalVenda}
-            errors={errors}
-            restritoCartaoCliente={todosCartaoCliente}
-          />
+          todosCartaoCliente ? (
+            // Cliente pagou direto com o próprio cartão → não há cobrança
+            // a registrar. Step 3 vira informativo.
+            <div className="rounded-xl border border-nexus-bright/20 bg-nexus-bright/[0.04] p-6">
+              <div className="flex items-start gap-3">
+                <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-nexus-bright" />
+                <div className="space-y-1.5 text-sm leading-relaxed text-white/75">
+                  <p className="font-medium text-white">
+                    Cobrança dispensada — cartão do cliente
+                  </p>
+                  <p>
+                    Todos os produtos desta venda foram registrados com forma de
+                    pagamento <strong className="text-white">Cartão Cliente</strong>.
+                    O fornecedor enviará o link de pagamento diretamente ao
+                    cliente e a Magic recebe apenas a comissão.
+                  </p>
+                  <p className="text-white/55">
+                    Nada precisa ser preenchido neste passo. Clique em{" "}
+                    <strong className="text-white/85">Continuar</strong> para
+                    seguir aos passageiros.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <Step3Cobranca
+              itens={cobrancaItens}
+              setItens={setCobrancaItens}
+              obs={cobrancaObs}
+              setObs={setCobrancaObs}
+              totalVenda={totalVenda}
+              errors={errors}
+              restritoCartaoCliente={false}
+            />
+          )
         )}
 
         {step === 4 && (
@@ -3221,10 +3257,18 @@ function Step3Cobranca(props: {
           props.totalVenda > 0 && Math.abs(restanteAbs) < 0.01
 
         function setTipo(novoTipo: CobrancaTipo) {
-          const reseta =
+          const reseta: Partial<CobrancaItemState> =
             novoTipo === "outro" || novoTipo === "link_externo"
               ? { num_parcelas: 1, parcelas_detalhe: [] }
               : {}
+          // Saindo de `link_externo`: limpa o comprovante anexado.
+          // Mantém os bytes no bucket por simplicidade (sem garbage collect).
+          if (it.tipo === "link_externo" && novoTipo !== "link_externo") {
+            reseta.comprovante_storage_path = ""
+            reseta.comprovante_nome_arquivo = ""
+            reseta.comprovante_mime_type = ""
+            reseta.comprovante_tamanho_bytes = 0
+          }
           patch(i, { tipo: novoTipo, ...reseta })
         }
 
@@ -3611,24 +3655,29 @@ function Step3Cobranca(props: {
               </div>
             )}
 
-            {/* ── Comprovante de pagamento (obrigatório) ─────────────── */}
-            <div className="mt-4">
-              <ComprovanteCobrancaUpload
-                storagePath={it.comprovante_storage_path}
-                nomeArquivo={it.comprovante_nome_arquivo}
-                mimeType={it.comprovante_mime_type}
-                tamanhoBytes={it.comprovante_tamanho_bytes}
-                onChange={(next) =>
-                  patch(i, {
-                    comprovante_storage_path: next.storagePath,
-                    comprovante_nome_arquivo: next.nomeArquivo,
-                    comprovante_mime_type: next.mimeType,
-                    comprovante_tamanho_bytes: next.tamanhoBytes,
-                  })
-                }
-                error={props.errors[`cobranca_${i}_comprovante`]}
-              />
-            </div>
+            {/* ── Comprovante de pagamento ──────────────────────────────
+                Só pra `link_externo` (PagSeguro/Cielo). Demais formas
+                (PIX, boleto, cartão, faturado, outro) não exigem
+                comprovante — operadores conferem por outros meios. */}
+            {it.tipo === "link_externo" && (
+              <div className="mt-4">
+                <ComprovanteCobrancaUpload
+                  storagePath={it.comprovante_storage_path}
+                  nomeArquivo={it.comprovante_nome_arquivo}
+                  mimeType={it.comprovante_mime_type}
+                  tamanhoBytes={it.comprovante_tamanho_bytes}
+                  onChange={(next) =>
+                    patch(i, {
+                      comprovante_storage_path: next.storagePath,
+                      comprovante_nome_arquivo: next.nomeArquivo,
+                      comprovante_mime_type: next.mimeType,
+                      comprovante_tamanho_bytes: next.tamanhoBytes,
+                    })
+                  }
+                  error={props.errors[`cobranca_${i}_comprovante`]}
+                />
+              </div>
+            )}
           </div>
         )
       })}
