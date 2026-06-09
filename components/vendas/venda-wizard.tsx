@@ -727,8 +727,6 @@ export function VendaWizard(props: Props) {
       if (!v || v <= 0) e[`cobranca_${i}_valor`] = "Valor inválido."
       if (it.tipo === "outro" && !it.outro_descricao.trim())
         e[`cobranca_${i}_outro_descricao`] = "Informe a forma de pagamento."
-      if (it.tipo === "link_externo" && !it.plataforma_link.trim())
-        e[`cobranca_${i}_link`] = "Cole o link de pagamento gerado."
       // Comprovante de pagamento — só obrigatório pra `link_externo`
       // (PagSeguro/Cielo). Demais formas (PIX, boleto, cartão, faturado,
       // outro) não exigem comprovante.
@@ -3239,7 +3237,6 @@ function Step3Cobranca(props: {
         // Tipos sem parcelamento: pagamento avulso ou pago em um único momento
         // pelo cliente fora do nosso controle (link_externo).
         const semParcelas = it.tipo === "outro" || it.tipo === "link_externo"
-        const isLinkExterno = it.tipo === "link_externo"
         const valorItem = parseValorComSoma(it.valor_total_str) || 0
         const valorOutrosItens = props.itens.reduce(
           (acc, x, j) =>
@@ -3538,23 +3535,6 @@ function Step3Cobranca(props: {
                 </Select>
               </Field>
 
-              {/* Link de pagamento — só pra link_externo (URL) */}
-              {isLinkExterno && (
-                <Field
-                  label="Link de pagamento"
-                  className="sm:col-span-2"
-                  error={props.errors[`cobranca_${i}_link`]}
-                >
-                  <Input
-                    value={it.plataforma_link}
-                    onChange={(ev) =>
-                      patch(i, { plataforma_link: ev.target.value })
-                    }
-                    placeholder="https://pag.ae/abc123 ou https://cielo.com.br/…"
-                    maxLength={500}
-                  />
-                </Field>
-              )}
             </div>
 
             {/* ── Parcelas detalhadas ─────────────────────────────────────
