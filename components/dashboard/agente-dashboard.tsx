@@ -197,7 +197,7 @@ export async function AgenteDashboard({
                     {labelPeriodo(periodo)}
                   </p>
                 </div>
-                <DashboardPeriodoFilter current={periodo} />
+                <DashboardPeriodoFilter current={periodo} defaultValue="ultimos-30d" />
               </div>
 
               {/* Métrica principal */}
@@ -321,8 +321,10 @@ export async function AgenteDashboard({
             </div>
           )}
 
-          {/* 5 ─ Últimas vendas (feed, não tabela) */}
-          <div>
+          {/* 5 ─ Últimas vendas (feed, não tabela)
+                — pt-3 dá uma respirada extra depois do card "Registrar venda"
+                  (ou da agenda, quando habilitada) */}
+          <div className="pt-3">
             <div className="mb-2.5 flex items-center justify-between">
               <div>
                 <p className="text-sm font-semibold text-white">Últimas vendas</p>
@@ -427,7 +429,7 @@ export async function AgenteDashboard({
                 Suas vendas e comissões — {labelPeriodo(periodo)}.
               </p>
             </div>
-            <DashboardPeriodoFilter current={periodo} />
+            <DashboardPeriodoFilter current={periodo} defaultValue="ultimos-30d" />
           </div>
 
           {/* KPIs + atalho nova venda */}
@@ -764,6 +766,8 @@ function AtalhoNovaVenda() {
 function labelPeriodo(p: PeriodoValue): string {
   const hoje = new Date()
   switch (p) {
+    case "ultimos-30d":
+      return "Últimos 30 dias"
     case "mes-atual":
       return `${MESES_PT[hoje.getMonth()]} / ${hoje.getFullYear()}`
     case "mes-passado": {

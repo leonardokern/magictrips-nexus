@@ -32,9 +32,10 @@ function getFrom(): string {
   return process.env.EMAIL_FROM ?? "Nexus <onboarding@resend.dev>"
 }
 
-function getAppUrl(): string {
-  return process.env.APP_URL ?? "http://localhost:3000"
-}
+// Reexporta o helper centralizado pra manter as chamadas internas
+// (`getAppUrl()`) inalteradas neste arquivo.
+import { getAppUrl as resolveAppUrl } from "@/lib/utils/app-url"
+const getAppUrl = resolveAppUrl
 
 // ─── Sender genérico ────────────────────────────────────────────────────────
 

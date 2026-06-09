@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 
 export const PERIODOS_PRESET = [
+  { value: "ultimos-30d", label: "Últimos 30 dias" },
   { value: "mes-atual", label: "Mês atual" },
   { value: "mes-passado", label: "Mês passado" },
   { value: "ultimos-3m", label: "Últimos 3 meses" },
@@ -29,9 +30,21 @@ type Props = {
   current: PeriodoValue
   from?: string
   to?: string
+  /**
+   * Valor padrão do filtro pra esse dashboard. Quando o usuário escolhe esse
+   * preset, removemos o `?periodo=` da URL — mantém a URL limpa quando ele
+   * está no estado default. Default: "mes-atual" (dashboards gerenciais).
+   * Dashboards de agente passam "ultimos-30d".
+   */
+  defaultValue?: PeriodoValue
 }
 
-export function DashboardPeriodoFilter({ current, from, to }: Props) {
+export function DashboardPeriodoFilter({
+  current,
+  from,
+  to,
+  defaultValue = "mes-atual",
+}: Props) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -63,7 +76,8 @@ export function DashboardPeriodoFilter({ current, from, to }: Props) {
 
   function applyPreset(value: Exclude<PeriodoValue, "custom">) {
     const params = new URLSearchParams(searchParams.toString())
-    if (value === "mes-atual") {
+    if (value === defaultValue) {
+      // Estado default → URL limpa
       params.delete("periodo")
     } else {
       params.set("periodo", value)

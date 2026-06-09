@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
+import { getAppUrl } from "@/lib/utils/app-url"
 
 export type EsqueciSenhaState = {
   error?: string
@@ -20,11 +21,14 @@ export async function esquecerSenhaAction(
   if (!email) return { error: "Informe o e-mail." }
 
   const supabase = await createClient()
-  const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
 
   // Supabase ignora silenciosamente se o e-mail não existir — não revela.
+  // getAppUrl() resolve APP_URL → NEXT_PUBLIC_APP_URL → domínio prod Vercel
+  // → localhost (cadeia em lib/utils/app-url.ts). Importante: o link gerado
+  // pelo Supabase também precisa estar liberado no Auth → URL Configuration
+  // → Redirect URLs no painel Supabase.
   await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${appUrl}/auth/callback?next=/redefinir-senha`,
+    redirectTo: `${getAppUrl()}/auth/callback?next=/redefinir-senha`,
   })
 
   return { success: true }

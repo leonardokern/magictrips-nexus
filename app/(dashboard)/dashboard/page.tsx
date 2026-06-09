@@ -52,7 +52,12 @@ export default async function DashboardPage({
   const podeVerDashboards = can(user, "dashboard", "ver")
   const podeCriarVenda = can(user, "vendas", "criar")
 
-  const periodo = parsePeriodo(searchParams.periodo)
+  // Default do filtro depende do papel:
+  //   - Agente   → "Últimos 30 dias" (foco em performance recente)
+  //   - Gestão   → "Mês atual" (foco no fechamento do mês)
+  const defaultPeriodo: PeriodoValue =
+    user.perfil.tipo === "agente" ? "ultimos-30d" : "mes-atual"
+  const periodo = parsePeriodo(searchParams.periodo, defaultPeriodo)
   const range = computeRange(periodo, searchParams.from, searchParams.to)
 
   // Agente: dashboard próprio (vendas dele, comissões, top clientes dele)
@@ -977,13 +982,18 @@ function EmptyChart({ label }: { label: string }) {
 
 // ─── Helpers de período ──────────────────────────────────────────────────────
 
-function parsePeriodo(raw?: string): PeriodoValue {
+function parsePeriodo(
+  raw: string | undefined,
+  fallback: PeriodoValue = "mes-atual",
+): PeriodoValue {
+  if (raw === "ultimos-30d") return "ultimos-30d"
   if (raw === "ultimos-3m") return "ultimos-3m"
   if (raw === "mes-passado") return "mes-passado"
+  if (raw === "mes-atual") return "mes-atual"
   if (raw === "ano-atual") return "ano-atual"
   if (raw === "todos") return "todos"
   if (raw === "custom") return "custom"
-  return "mes-atual"
+  return fallback
 }
 
 function labelPeriodo(
@@ -991,6 +1001,8 @@ function labelPeriodo(
   range: { from: Date; to: Date } | null,
 ): string {
   switch (p) {
+    case "ultimos-30d":
+      return "Últimos 30 dias"
     case "mes-atual":
       return capitalize(monthYearLabel(new Date()))
     case "mes-passado": {
@@ -1018,6 +1030,15 @@ function computeRange(
 ): { from: Date; to: Date } | null {
   if (p === "todos") return null
   const hoje = new Date()
+
+  if (p === "ultimos-30d") {
+    const from = new Date(hoje)
+    from.setDate(from.getDate() - 29) // inclui hoje → 30 dias no total
+    from.setHours(0, 0, 0, 0)
+    const to = new Date(hoje)
+    to.setHours(23, 59, 59, 999)
+    return { from, to }
+  }
 
   if (p === "mes-atual") {
     return {
