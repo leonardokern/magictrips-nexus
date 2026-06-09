@@ -37,6 +37,7 @@ import {
   formatCnpj,
   formatCpf,
   formatTelefone,
+  formatTelefonePartial,
   onlyDigits,
   toTitleCase,
 } from "@/lib/utils/formatters"
@@ -150,10 +151,16 @@ export function ClienteFormModal(props: Props) {
     // Edit: endereço já existe, libera edição. Create: bloqueia, força CEP.
     setEnderecoManual(props.mode === "edit")
     if (props.mode === "edit") {
+      const ddi = props.initial.telefone_ddi ?? "+55"
       setV({
         ...EMPTY,
         empresa_id: props.defaultEmpresaId ?? "",
         ...props.initial,
+        telefone_ddi: ddi,
+        // Aplica máscara ao número vindo do banco (salvo sem formatação)
+        telefone: ddi === "+55"
+          ? formatTelefonePartial(props.initial.telefone ?? "")
+          : (props.initial.telefone ?? ""),
       })
     } else {
       setV({ ...EMPTY, empresa_id: props.defaultEmpresaId ?? "" })

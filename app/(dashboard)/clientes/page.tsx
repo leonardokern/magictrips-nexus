@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase/server"
 import { requireCurrentUser } from "@/lib/hooks/use-current-user"
 import { can } from "@/lib/hooks/use-permissions"
 import { formatCnpj, formatCpf, formatTelefone } from "@/lib/utils/formatters"
+import { getDDI } from "@/lib/constants/ddi"
 import { ClientesFilters } from "@/components/clientes/clientes-filters"
 import { StatusClienteBadge } from "@/components/clientes/status-badge"
 import { NovoClienteButton } from "@/components/clientes/novo-cliente-button"
@@ -90,7 +91,7 @@ export default async function ClientesPage({
   let query = supabase
     .from("clientes")
     .select(
-      "id, nome, email, telefone, cpf, tipo, status, empresa_id, tipo_pessoa, cnpj, razao_social, nome_fantasia, responsavel, data_nascimento, passaporte, observacoes, dia_faturamento, endereco, origem",
+      "id, nome, email, telefone_ddi, telefone, cpf, tipo, status, empresa_id, tipo_pessoa, cnpj, razao_social, nome_fantasia, responsavel, data_nascimento, passaporte, observacoes, dia_faturamento, endereco, origem",
       { count: "exact" },
     )
     .order("nome")
@@ -240,7 +241,14 @@ export default async function ClientesPage({
                       {c.email}
                     </TableCell>
                     <TableCell className="text-sm text-white/75">
-                      {formatTelefone(c.telefone)}
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="text-base leading-none">{getDDI(c.telefone_ddi ?? "+55").flag}</span>
+                        <span>
+                          {c.telefone_ddi === "+55" || !c.telefone_ddi
+                            ? formatTelefone(c.telefone)
+                            : `${c.telefone_ddi} ${c.telefone}`}
+                        </span>
+                      </span>
                     </TableCell>
                     <TableCell className="text-sm">
                       {linhaRua || linhaCidade ? (
@@ -284,6 +292,7 @@ export default async function ClientesPage({
                             cnpj: c.cnpj ?? "",
                             responsavel: c.responsavel ?? "",
                             email: c.email,
+                            telefone_ddi: c.telefone_ddi ?? "+55",
                             telefone: c.telefone,
                             endereco: end,
                             origem: c.origem ?? "",
@@ -367,8 +376,13 @@ export default async function ClientesPage({
 
                 {/* Linha 4: telefone */}
                 {c.telefone && (
-                  <p className="mt-0.5 text-xs text-white/55">
-                    {formatTelefone(c.telefone)}
+                  <p className="mt-0.5 inline-flex items-center gap-1 text-xs text-white/55">
+                    <span className="text-sm leading-none">{getDDI(c.telefone_ddi ?? "+55").flag}</span>
+                    <span>
+                      {c.telefone_ddi === "+55" || !c.telefone_ddi
+                        ? formatTelefone(c.telefone)
+                        : `${c.telefone_ddi} ${c.telefone}`}
+                    </span>
                   </p>
                 )}
 
@@ -393,6 +407,7 @@ export default async function ClientesPage({
                         cnpj: c.cnpj ?? "",
                         responsavel: c.responsavel ?? "",
                         email: c.email,
+                        telefone_ddi: c.telefone_ddi ?? "+55",
                         telefone: c.telefone,
                         endereco: end,
                         origem: c.origem ?? "",
