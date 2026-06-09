@@ -727,6 +727,10 @@ export function VendaWizard(props: Props) {
       if (!v || v <= 0) e[`cobranca_${i}_valor`] = "Valor inválido."
       if (it.tipo === "outro" && !it.outro_descricao.trim())
         e[`cobranca_${i}_outro_descricao`] = "Informe a forma de pagamento."
+      // Em `link_externo`, plataforma (PagSeguro/Cielo) é obrigatória —
+      // o operador precisa identificar qual gateway gerou o link.
+      if (it.tipo === "link_externo" && !it.plataforma)
+        e[`cobranca_${i}_plataforma`] = "Selecione a plataforma (PagSeguro ou Cielo)."
       // Comprovante de pagamento — só obrigatório pra `link_externo`
       // (PagSeguro/Cielo). Demais formas (PIX, boleto, cartão, faturado,
       // outro) não exigem comprovante.
@@ -779,6 +783,43 @@ export function VendaWizard(props: Props) {
     })
     return e
   }
+
+  // ── Revalidação ao vivo ──────────────────────────────────────────────────
+  // Quando o usuário corrige um campo que estava marcado como erro, a
+  // mensagem desaparece automaticamente. NÃO surge erro novo ao digitar —
+  // apenas REMOVE erros já mostrados que deixaram de ser válidos.
+  //
+  // Funciona pra todos os steps porque os 4 validadores são puros e
+  // independentes — basta unir os retornos e comparar com `errors`.
+  useEffect(() => {
+    setErrors((prev) => {
+      if (Object.keys(prev).length === 0) return prev
+      const atuais = {
+        ...validarStep1(),
+        ...asyncErrors,
+        ...validarStep2(),
+        ...validarStep3(),
+        ...validarStep4(),
+      }
+      const next: Record<string, string> = {}
+      let mudou = false
+      for (const [k, v] of Object.entries(prev)) {
+        if (atuais[k]) {
+          next[k] = atuais[k]!
+          // Atualiza a mensagem se mudou (ex: "CPF obrigatório" → "CPF inválido")
+          if (atuais[k] !== v) mudou = true
+        } else {
+          mudou = true
+        }
+      }
+      return mudou ? next : prev
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    empresaId, dataVenda, clienteValue, clienteNovo, pax, origem, asyncErrors,
+    produtos, cobrancaItens, todosCartaoCliente,
+    passageiros,
+  ])
 
   function avancar() {
     let errs: Record<string, string> = {}
@@ -3502,12 +3543,15 @@ function Step3Cobranca(props: {
               )}
 
               {/* Plataforma — Select restrito a PagSeguro / Cielo.
-                  Aplicável a qualquer tipo, inclusive link_externo (informa
-                  qual plataforma gerou o link).
+                  Em `link_externo` é OBRIGATÓRIA (identifica gateway que
+                  gerou o link). Nos demais tipos é opcional.
                   Tamanho dinâmico: 4/12 quando há "Parcelas" (3+3+2+4=12) e
                   3/12 quando não há (3+3+3=9 — sobra espaço pro link). */}
               <Field
-                label="Plataforma"
+                label={
+                  it.tipo === "link_externo" ? "Plataforma *" : "Plataforma"
+                }
+                error={props.errors[`cobranca_${i}_plataforma`]}
                 className={cn(
                   "col-span-12",
                   semParcelas ? "sm:col-span-3" : "sm:col-span-4",
@@ -3528,7 +3572,12 @@ function Step3Cobranca(props: {
                     <SelectValue placeholder="Selecionar" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="_nenhuma">Nenhuma</SelectItem>
+                    {/* "Nenhuma" só aparece pra tipos onde a plataforma é
+                        opcional — em link_externo o operador é forçado a
+                        escolher PagSeguro ou Cielo. */}
+                    {it.tipo !== "link_externo" && (
+                      <SelectItem value="_nenhuma">Nenhuma</SelectItem>
+                    )}
                     <SelectItem value="PagSeguro">PagSeguro</SelectItem>
                     <SelectItem value="Cielo">Cielo</SelectItem>
                   </SelectContent>
