@@ -71,12 +71,12 @@ export function PhoneInput({
   }, [open])
 
   function handlePhoneChange(raw: string) {
+    // Remove qualquer char fora do conjunto permitido: dígitos, espaço, (, ), -
+    const sanitized = raw.replace(/[^0-9 ()\-]/g, "")
     if (isBR) {
-      // Aplica máscara progressiva para Brasil
-      onChange(formatTelefonePartial(raw))
+      onChange(formatTelefonePartial(sanitized))
     } else {
-      // Internacional: aceita livre, mas limita tamanho razoável
-      onChange(raw.slice(0, 20))
+      onChange(sanitized.slice(0, 20))
     }
   }
 
