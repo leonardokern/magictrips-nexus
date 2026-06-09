@@ -329,7 +329,11 @@ export function VendaRowActions({
                 detalhes={detalhes}
                 mostraComissao={true}
                 vendaId={venda.id}
-                mostraRelatorio={mostraComissao}
+                // Relatório liberado pra qualquer um que enxergue a venda.
+                // Agentes só veem as próprias por RLS — os dados do relatório
+                // (comissão, RAV, custos) são os mesmos que ele já tem acesso
+                // na revisão e no dashboard.
+                mostraRelatorio={true}
               />
             )}
           </div>
