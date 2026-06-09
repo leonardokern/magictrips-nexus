@@ -366,6 +366,7 @@ export type Database = {
           razao_social: string | null
           responsavel: string | null
           status: string
+          telefone_ddi: string
           telefone: string
           tipo: string
           tipo_pessoa: string
@@ -390,6 +391,7 @@ export type Database = {
           razao_social?: string | null
           responsavel?: string | null
           status?: string
+          telefone_ddi?: string
           telefone: string
           tipo?: string
           tipo_pessoa?: string
@@ -414,6 +416,7 @@ export type Database = {
           razao_social?: string | null
           responsavel?: string | null
           status?: string
+          telefone_ddi?: string
           telefone?: string
           tipo?: string
           tipo_pessoa?: string

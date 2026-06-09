@@ -8,7 +8,8 @@ import { emailValido } from "@/lib/utils/validators"
 export const clienteNovoBasicoSchema = z.object({
   nome: z.string().trim().min(2, "Nome muito curto").max(120),
   email: z.string().trim().toLowerCase().refine(emailValido, "E-mail inválido"),
-  telefone: z.string().min(10, "Telefone inválido"),
+  telefone_ddi: z.string().default("+55"),
+  telefone: z.string().min(4, "Telefone inválido"),
   cpf: z.string().length(11, "CPF deve ter 11 dígitos"),
   data_nascimento: z.string().optional().nullable(),
   tipo: z.enum(["regular", "faturado"]).default("regular"),

@@ -78,10 +78,14 @@ export const clienteBaseSchema = z
       .trim()
       .toLowerCase()
       .refine(emailValido, "E-mail inválido"),
-    telefone: z
-      .string()
-      .transform((v) => onlyDigits(v))
-      .refine(telefoneValido, "Telefone deve ter 10 ou 11 dígitos"),
+    /** DDI salvo como "+55", "+351", etc. Default Brasil. */
+    telefone_ddi: z.string().default("+55"),
+    /**
+     * Número sem o DDI.
+     * - Brasil (+55): dígitos apenas (10 ou 11), validado no superRefine.
+     * - Internacional: texto livre mín. 4 chars.
+     */
+    telefone: z.string().min(1, "Telefone obrigatório"),
     endereco: enderecoSchema.optional(),
     origem: z.string().trim().max(100).optional().or(z.literal("")),
     tipo: tipoClienteSchema.default("regular"),
@@ -135,6 +139,25 @@ export const clienteBaseSchema = z
           code: z.ZodIssueCode.custom,
           path: ["cnpj"],
           message: "CNPJ inválido",
+        })
+      }
+    }
+
+    // Telefone: validação condicional pelo DDI
+    if (v.telefone_ddi === "+55") {
+      if (!telefoneValido(v.telefone)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["telefone"],
+          message: "Telefone deve ter 10 ou 11 dígitos",
+        })
+      }
+    } else {
+      if (v.telefone.trim().length < 4) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["telefone"],
+          message: "Telefone muito curto",
         })
       }
     }

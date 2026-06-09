@@ -125,12 +125,39 @@ Este é o **contrato do sistema** — seguir sempre:
 - `Administrador` tem bypass (`can()` sempre `true`)
 - Toda nova permissão exige: catálogo + tipo + migration UPDATE em `perfis_acesso`
 
+## Mobile — layout app-like ⭐
+
+O mobile usa padrões nativos de app, não responsivo adaptado. Pontos críticos:
+
+### Header
+- **Mobile** (`< md`): `sticky top-0`, full-width, `border-b border-white/[0.08] bg-card/90`, `h-16`. Sem bordas arredondadas, sem gap do topo.
+- **Desktop** (`md+`): card flutuante `sticky top-3`, `rounded-2xl border border-white/[0.06] bg-card/60`, `h-20`. O offset de 12px vem **só** do `p-3` do wrapper — **não adicionar `md:mt-3`** no header ou ele fica desalinhado com o sidebar.
+- Wrapper da coluna direita: `md:p-3 md:pl-0` (sem padding no mobile pra o header ir full-bleed).
+
+### Navigation
+`BottomNav` (`components/dashboard/bottom-nav.tsx`) — substitui o hamburger. **`MobileNav` foi removido.** 3 tabs prioritários + "Mais" com bottom sheet via `createPortal`.
+
+### UserMenu mobile
+Chip com avatar `h-7 w-7` + nome abreviado. Helper `formatNomeAbreviado("Leonardo Kern Pereira")` → `"Leonardo K. P."` em `user-menu.tsx` e `layout.tsx`.
+
+### NotificationsButton desktop
+Inner wrapper `<span className="relative flex h-9 w-9 ...">` dentro do botão garante que a altura desktop bata com o UserMenu chip (`py-2` + `h-9` ≈ 52px).
+
+### Dashboards
+Dois árvores JSX: `<div className="md:hidden">` (app-like) + `<div className="hidden md:block">` (original). Hero card mobile: `bg-gradient-to-br from-nexus-deep/60 via-[#0d1a24] to-nexus-bright/10`.
+
+### Filtros de listagem
+Selects de filtro ocultos no mobile com `<div className="hidden md:contents">`. Input de busca sempre visível.
+
+---
+
 ## Pegadinhas conhecidas
 
 - **`gen_salt`/`crypt`**: pgcrypto vive em `extensions` schema no Supabase. RPCs com `SET search_path = public` precisam qualificar como `extensions.gen_salt`/`extensions.crypt` ou falham com `function does not exist`.
 - **`usuarios.empresa_id` não existe mais** — coluna foi removida na migração N:N (021). Audit logs usam NULL em vez de subquery dessa coluna inexistente.
 - **Página `/[recurso]/novo` ou `/[recurso]/[id]/editar`** quase sempre é dead code — usamos modais. Verificar referências antes de criar.
 - **shadcn `cn`** = `twMerge(clsx(...))` — consumer sempre pode sobrescrever defaults do componente base.
+- **Header offset desktop**: o gap de 12px do header vem do `p-3` do wrapper, não de `mt-3` no próprio header. Dobrar com `md:mt-3` deslinha header e sidebar.
 
 ## Comandos comuns
 

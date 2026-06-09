@@ -78,6 +78,7 @@ import { formatBRL, parseValorComSoma } from "@/lib/utils/sum-parser"
 import { DateInput } from "@/components/ui/date-input"
 import { CurrencyInput } from "@/components/ui/currency-input"
 import { formatCnpj, formatCpf, formatTelefone, onlyDigits, toTitleCase } from "@/lib/utils/formatters"
+import { PhoneInput } from "@/components/shared/phone-input"
 import { cnpjValido, cpfValido, emailValido } from "@/lib/utils/validators"
 import {
   lookupClientePorCpf,
@@ -287,6 +288,7 @@ type ClienteNovoState = {
   responsavel: string
   // Comuns
   email: string
+  telefone_ddi: string
   telefone: string
   // Sempre regular no fluxo da venda — faturado vem do CRUD direto
   tipo: "regular" | "faturado"
@@ -500,6 +502,7 @@ export function VendaWizard(props: Props) {
         cnpj: "",
         responsavel: "",
         email: "",
+        telefone_ddi: "+55",
         telefone: "",
         tipo: "regular",
         dia_faturamento: "20",
@@ -1228,7 +1231,8 @@ export function VendaWizard(props: Props) {
                 tipo_pessoa: "fisica" as const,
                 nome: clienteNovo.nome.trim(),
                 email: clienteNovo.email.trim().toLowerCase(),
-                telefone: onlyDigits(clienteNovo.telefone),
+                telefone_ddi: clienteNovo.telefone_ddi,
+                telefone: clienteNovo.telefone_ddi === "+55" ? onlyDigits(clienteNovo.telefone) : clienteNovo.telefone.trim(),
                 cpf: onlyDigits(clienteNovo.cpf),
                 data_nascimento: clienteNovo.data_nascimento || null,
                 passaporte: clienteNovo.passaporte.trim() || null,
@@ -1250,7 +1254,8 @@ export function VendaWizard(props: Props) {
                 cnpj: onlyDigits(clienteNovo.cnpj),
                 responsavel: clienteNovo.responsavel.trim() || null,
                 email: clienteNovo.email.trim().toLowerCase(),
-                telefone: onlyDigits(clienteNovo.telefone),
+                telefone_ddi: clienteNovo.telefone_ddi,
+                telefone: clienteNovo.telefone_ddi === "+55" ? onlyDigits(clienteNovo.telefone) : clienteNovo.telefone.trim(),
                 tipo: clienteNovo.tipo,
                 dia_faturamento:
                   clienteNovo.tipo === "faturado"
@@ -2065,16 +2070,15 @@ function Step1(props: {
               />
             </Field>
             <Field label="Telefone" error={e.novo_telefone}>
-              <Input
-                value={formatTelefone(props.clienteNovo.telefone)}
-                onChange={(ev) =>
-                  props.setClienteNovo((s) => ({
-                    ...s,
-                    telefone: ev.target.value,
-                  }))
+              <PhoneInput
+                ddi={props.clienteNovo.telefone_ddi ?? "+55"}
+                onDdiChange={(ddi) =>
+                  props.setClienteNovo((s) => ({ ...s, telefone_ddi: ddi }))
                 }
-                placeholder="(11) 91234-5678"
-                maxLength={15}
+                value={props.clienteNovo.telefone}
+                onChange={(val) =>
+                  props.setClienteNovo((s) => ({ ...s, telefone: val }))
+                }
               />
             </Field>
             {/* Tipo/Faturamento ficam fora do cadastro ad-hoc: clientes faturados

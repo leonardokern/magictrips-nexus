@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { MapPin, StickyNote, User } from "lucide-react"
+import { PhoneInput } from "@/components/shared/phone-input"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -85,6 +86,7 @@ const EMPTY: FormState = {
   responsavel: "",
   // Comuns
   email: "",
+  telefone_ddi: "+55",
   telefone: "",
   endereco: {},
   origem: "",
@@ -210,7 +212,7 @@ export function ClienteFormModal(props: Props) {
         ...v,
         cpf: onlyDigits(v.cpf ?? ""),
         cnpj: onlyDigits(v.cnpj ?? ""),
-        telefone: onlyDigits(v.telefone),
+        telefone: v.telefone_ddi === "+55" ? onlyDigits(v.telefone) : v.telefone.trim(),
         dia_faturamento:
           v.tipo === "faturado" && v.dia_faturamento
             ? Number(v.dia_faturamento)
@@ -468,11 +470,11 @@ export function ClienteFormModal(props: Props) {
                 error={errors.telefone}
                 className="sm:col-span-3"
               >
-                <Input
-                  value={formatTelefone(v.telefone)}
-                  onChange={(e) => update("telefone", e.target.value)}
-                  placeholder="(11) 91234-5678"
-                  maxLength={15}
+                <PhoneInput
+                  ddi={v.telefone_ddi ?? "+55"}
+                  onDdiChange={(ddi) => update("telefone_ddi", ddi)}
+                  value={v.telefone}
+                  onChange={(val) => update("telefone", val)}
                   required
                 />
               </Field>
