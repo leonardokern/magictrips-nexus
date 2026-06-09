@@ -138,11 +138,30 @@ export async function toggleClienteAtivo(
     return { ok: false, error: "Sem permissão." }
   }
   const supabase = await createClient()
+  const { data: antes } = await supabase
+    .from("clientes")
+    .select("status, empresa_id")
+    .eq("id", id)
+    .single()
+  if (!antes) return { ok: false, error: "Cliente não encontrado." }
+
+  const novoStatus = ativo ? "ativo" : "inativo"
   const { error } = await supabase
     .from("clientes")
-    .update({ status: ativo ? "ativo" : "inativo" })
+    .update({ status: novoStatus })
     .eq("id", id)
   if (error) return { ok: false, error: error.message }
+
+  await supabase.from("audit_logs").insert({
+    usuario_id: user.id,
+    empresa_id: antes.empresa_id,
+    acao: ativo ? "ativar" : "inativar",
+    entidade: "cliente",
+    entidade_id: id,
+    dados_antes: { status: antes.status },
+    dados_depois: { status: novoStatus },
+  })
+
   revalidatePath("/clientes")
   return { ok: true }
 }

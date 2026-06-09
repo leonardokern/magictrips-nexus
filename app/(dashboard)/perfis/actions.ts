@@ -247,7 +247,13 @@ export async function togglePerfilAtivo(
 
   if (error) return { ok: false, error: error.message }
 
-  await logAudit(user.id, "editar", id, antes, { ...antes, ativo })
+  await logAudit(
+    user.id,
+    ativo ? "ativar" : "inativar",
+    id,
+    antes,
+    { ...antes, ativo },
+  )
 
   revalidatePath("/perfis")
   revalidatePath(`/perfis/${id}`)
@@ -317,7 +323,7 @@ function flattenFieldErrors(
 
 async function logAudit(
   usuarioId: string,
-  acao: "criar" | "editar" | "excluir",
+  acao: "criar" | "editar" | "excluir" | "ativar" | "inativar",
   entidadeId: string,
   antes: unknown,
   depois: unknown,

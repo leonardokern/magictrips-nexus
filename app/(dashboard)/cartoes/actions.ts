@@ -138,8 +138,26 @@ export async function toggleCartaoAtivo(
     return { ok: false, error: "Sem permissão." }
   }
   const supabase = await createClient()
+  const { data: antes } = await supabase
+    .from("cartoes")
+    .select("ativo, empresa_id")
+    .eq("id", id)
+    .single()
+  if (!antes) return { ok: false, error: "Cartão não encontrado." }
+
   const { error } = await supabase.from("cartoes").update({ ativo }).eq("id", id)
   if (error) return { ok: false, error: error.message }
+
+  await supabase.from("audit_logs").insert({
+    usuario_id: user.id,
+    empresa_id: antes.empresa_id,
+    acao: ativo ? "ativar" : "inativar",
+    entidade: "cartao",
+    entidade_id: id,
+    dados_antes: { ativo: antes.ativo },
+    dados_depois: { ativo },
+  })
+
   revalidatePath("/cartoes")
   return { ok: true }
 }

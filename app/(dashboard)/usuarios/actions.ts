@@ -232,7 +232,7 @@ export async function toggleUsuarioAtivo(
   await supabase.from("audit_logs").insert({
     usuario_id: user.id,
     empresa_id: null,
-    acao: "editar",
+    acao: ativo ? "ativar" : "inativar",
     entidade: "usuario",
     entidade_id: id,
     dados_antes: { ativo: antes.ativo } as never,

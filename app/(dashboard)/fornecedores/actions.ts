@@ -161,7 +161,7 @@ export async function toggleFornecedorAtivo(
   await logAudit(
     user.id,
     user.empresas[0]?.id ?? null,
-    "editar",
+    ativo ? "ativar" : "inativar",
     id,
     { ativo: antes.ativo },
     { ativo },
@@ -228,7 +228,7 @@ function flattenFieldErrors(
 async function logAudit(
   usuarioId: string,
   empresaId: string | null,
-  acao: "criar" | "editar" | "excluir",
+  acao: "criar" | "editar" | "excluir" | "ativar" | "inativar",
   entidadeId: string,
   antes: unknown,
   depois: unknown,
