@@ -25,7 +25,6 @@ export const DDI_LIST: DDI[] = [
   { code: "+49",  country: "Alemanha",              flag: "🇩🇪" },
   { code: "+34",  country: "Espanha",               flag: "🇪🇸" },
   { code: "+39",  country: "Itália",                flag: "🇮🇹" },
-  { code: "+351", country: "Portugal",              flag: "🇵🇹" },
   // ── América do Sul ────────────────────────────────────────────────────────
   { code: "+51",  country: "Peru",                  flag: "🇵🇪" },
   { code: "+58",  country: "Venezuela",             flag: "🇻🇪" },
