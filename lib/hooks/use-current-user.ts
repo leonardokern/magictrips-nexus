@@ -1,4 +1,5 @@
 import { cache } from "react"
+import { headers } from "next/headers"
 import { createClient } from "@/lib/supabase/server"
 import type { Database } from "@/types/database.types"
 
@@ -39,78 +40,69 @@ export type CurrentUser = {
 }
 
 /**
- * Carrega o usuário logado com perfil + empresas (multi-empresa via N:N).
+ * Carrega o usuário logado com perfil + empresas num único roundtrip via RPC.
+ *
+ * Fluxo otimizado:
+ *  1. Lê x-nexus-user-id do header (injetado pelo middleware) — evita
+ *     uma segunda chamada getUser() ao GoTrue quando o middleware já validou
+ *     a sessão na mesma request.
+ *  2. Se o header não estiver presente (ex: rota pública, SSR direto),
+ *     cai no fallback seguro com getUser().
+ *  3. Chama a RPC get_usuario_completo() — uma única roundtrip ao Postgres
+ *     em vez de 3 (usuarios → perfis_acesso → usuarios_empresas + count).
+ *
  * Memoizado por request via React `cache`.
  */
 export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const supabase = await createClient()
 
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser()
+  // Tenta usar o userId injetado pelo middleware para evitar segundo getUser()
+  const headersList = await headers()
+  let userId = headersList.get("x-nexus-user-id")
 
-  if (!authUser) return null
+  if (!userId) {
+    // Fallback: valida sessão diretamente (rotas públicas, SSR sem middleware, etc.)
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser()
+    if (!authUser) return null
+    userId = authUser.id
+  }
 
+  // Uma única roundtrip ao banco em vez de 3 (ver migration 071)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: u, error: userErr } = await (supabase as any)
-    .from("usuarios")
-    .select("id, nome, email, iniciais, foto_url, ativo, force_password_change, perfil_id")
-    .eq("id", authUser.id)
-    .single()
+  const { data, error } = await (supabase as any).rpc("get_usuario_completo", {
+    p_user_id: userId,
+  })
 
-  if (userErr || !u) return null
+  if (error || !data) return null
 
-  const [perfilRes, empresasRes, todasEmpresasRes] = await Promise.all([
-    // Cast pra any: a coluna `chave_sistema` (migration 059) ainda não está
-    // na geração de tipos do Supabase MCP — usamos cast manual com fallback
-    // seguro no uso (linhas abaixo).
-    (supabase as any)
-      .from("perfis_acesso")
-      .select("id, nome, sistema, permissoes, tipo, chave_sistema")
-      .eq("id", u.perfil_id)
-      .single(),
-    supabase
-      .from("usuarios_empresas")
-      .select("empresa:empresas(id, nome, slug)")
-      .eq("usuario_id", u.id),
-    supabase
-      .from("empresas")
-      .select("id", { count: "exact", head: true })
-      .eq("ativo", true),
-  ])
-
-  if (perfilRes.error || !perfilRes.data) return null
-
-  const empresas: CurrentUserEmpresa[] = (empresasRes.data ?? [])
-    .map((row) => row.empresa)
-    .filter((e): e is CurrentUserEmpresa => e !== null)
-    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
-
-  const totalEmpresas = todasEmpresasRes.count ?? 0
+  const empresas: CurrentUserEmpresa[] = (data.empresas ?? []) as CurrentUserEmpresa[]
+  const totalEmpresas = (data.total_empresas as number) ?? 0
   const acessaTodasEmpresas = empresas.length > 0 && empresas.length >= totalEmpresas
 
   return {
-    id: u.id,
-    nome: u.nome,
-    email: u.email,
-    iniciais: u.iniciais,
-    foto_url: (u.foto_url as string | null) ?? null,
-    ativo: u.ativo,
-    forcePasswordChange: u.force_password_change,
+    id: data.id as string,
+    nome: data.nome as string,
+    email: data.email as string,
+    iniciais: (data.iniciais as string | null) ?? null,
+    foto_url: (data.foto_url as string | null) ?? null,
+    ativo: data.ativo as boolean,
+    forcePasswordChange: data.force_password_change as boolean,
     empresas,
     acessaTodasEmpresas,
     perfil: {
-      id: perfilRes.data.id,
-      nome: perfilRes.data.nome,
-      sistema: perfilRes.data.sistema,
+      id: data.perfil.id as string,
+      nome: data.perfil.nome as string,
+      sistema: data.perfil.sistema as boolean,
       chave_sistema:
-        (perfilRes.data as { chave_sistema?: string | null }).chave_sistema as
+        (data.perfil.chave_sistema as string | null) as
           | "admin"
           | "gerente"
           | "agente"
           | null ?? null,
-      tipo: (perfilRes.data.tipo === "agente" ? "agente" : "operacao"),
-      permissoes: (perfilRes.data.permissoes as Permissoes) ?? {},
+      tipo: data.perfil.tipo === "agente" ? "agente" : "operacao",
+      permissoes: (data.perfil.permissoes as Permissoes) ?? {},
     },
   }
 })

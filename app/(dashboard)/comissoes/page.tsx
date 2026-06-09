@@ -148,7 +148,7 @@ export default async function ComissoesPage() {
                   return (
                     <div
                       key={r.id}
-                      className="grid grid-cols-[1fr_120px] items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-white/[0.025]"
+                      className="grid grid-cols-[1fr_90px] sm:grid-cols-[1fr_120px] items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-white/[0.025]"
                     >
                       <div className="flex items-center gap-2">
                         <span className="text-sm text-white/85">{r.origem}</span>

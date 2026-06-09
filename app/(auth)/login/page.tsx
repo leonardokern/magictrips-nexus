@@ -8,11 +8,11 @@ export const metadata: Metadata = {
 }
 
 type Props = {
-  searchParams: Promise<{ erro?: string }>
+  searchParams: Promise<{ erro?: string; aviso?: string }>
 }
 
 export default async function LoginPage({ searchParams }: Props) {
-  const { erro } = await searchParams
+  const { erro, aviso } = await searchParams
 
   return (
     <BeamsBackground intensity="medium" className="flex min-h-screen items-center justify-center">
@@ -44,6 +44,21 @@ export default async function LoginPage({ searchParams }: Props) {
               </p>
             </div>
 
+            {aviso === "senha-redefinida" && (
+              <div className="mb-4 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
+                Senha redefinida com sucesso! Faça login com a nova senha.
+              </div>
+            )}
+            {erro === "sessao-expirada" && (
+              <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
+                O link expirou. Solicite um novo link de redefinição.
+              </div>
+            )}
+            {erro === "link-invalido" && (
+              <div className="mb-4 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                Link inválido ou expirado. Solicite um novo link.
+              </div>
+            )}
             <LoginForm avisoInativo={erro === "inativo"} />
           </div>
         </div>

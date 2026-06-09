@@ -2,14 +2,21 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 import type { Database } from "@/types/database.types"
 
-// Apenas /login é totalmente pública. /alterar-senha exige sessão (o usuário
-// precisa estar logado pra trocar a própria senha).
-const PUBLIC_ROUTES = ["/login"]
+// /login → página de login
+// /auth  → callback do Supabase (recovery, magic link, etc.)
+// /redefinir-senha → acessível após recovery session (sem login normal)
+const PUBLIC_ROUTES = ["/login", "/auth", "/redefinir-senha"]
 
 type CookieToSet = { name: string; value: string; options: CookieOptions }
 
 /**
  * Atualiza a sessão Supabase (refresh do JWT) e protege rotas.
+ *
+ * Otimizações de performance:
+ *  - Injeta x-nexus-user-id no header da request → getCurrentUser() usa esse
+ *    ID diretamente e pula a segunda chamada getUser() ao GoTrue (~100ms/req).
+ *  - As verificações de ativo/force_password_change são feitas com a mesma
+ *    query que o middleware já faz — sem roundtrip extra.
  *
  * Regras:
  *  - Sem sessão + rota privada → redirect /login
@@ -18,7 +25,17 @@ type CookieToSet = { name: string; value: string; options: CookieOptions }
  *  - Sessão + rota /login → redirect /dashboard
  */
 export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
+  // Headers mutáveis para propagar x-nexus-user-id às RSCs downstream.
+  // Limpa qualquer valor forjado pelo cliente antes de processar.
+  const reqHeaders = new Headers(request.headers)
+  reqHeaders.delete("x-nexus-user-id")
+
+  // Rastreia cookies com opções completas para remontar a response final
+  const pendingCookies: CookieToSet[] = []
+
+  let supabaseResponse = NextResponse.next({
+    request: { headers: reqHeaders },
+  })
 
   const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -29,13 +46,17 @@ export async function updateSession(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet: CookieToSet[]) {
+          // Atualiza cookies na request para o SSR client ler na mesma render
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value),
           )
-          supabaseResponse = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options),
-          )
+          // Usa reqHeaders para que o x-nexus-user-id set depois seja incluído
+          supabaseResponse = NextResponse.next({ request: { headers: reqHeaders } })
+          cookiesToSet.forEach(({ name, value, options }) => {
+            supabaseResponse.cookies.set(name, value, options)
+            // Guarda com opções completas para replicar na response final
+            pendingCookies.push({ name, value, options })
+          })
         },
       },
     },
@@ -76,10 +97,11 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    // Força troca de senha (qualquer rota exceto a própria /alterar-senha)
+    // Força troca de senha (exceto nas rotas de alteração/redefinição)
     if (
       dbUser?.force_password_change &&
       pathname !== "/alterar-senha" &&
+      pathname !== "/redefinir-senha" &&
       pathname !== "/login"
     ) {
       const url = request.nextUrl.clone()
@@ -93,6 +115,17 @@ export async function updateSession(request: NextRequest) {
       url.pathname = "/dashboard"
       return NextResponse.redirect(url)
     }
+
+    // ── Otimização: injeta userId para RSCs não precisarem chamar getUser() ──
+    reqHeaders.set("x-nexus-user-id", user.id)
+
+    // Reconstrói a response final com os headers atualizados.
+    // Se setAll() foi chamado (refresh de JWT), reaplica os cookies com
+    // suas opções completas (path, httpOnly, secure, etc.).
+    supabaseResponse = NextResponse.next({ request: { headers: reqHeaders } })
+    pendingCookies.forEach(({ name, value, options }) =>
+      supabaseResponse.cookies.set(name, value, options),
+    )
   }
 
   return supabaseResponse

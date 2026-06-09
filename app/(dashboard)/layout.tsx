@@ -9,7 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { isFeatureEnabled } from "@/lib/feature-flags"
 import { UserMenu } from "@/components/dashboard/user-menu"
 import { NotificationsButton } from "@/components/dashboard/notifications-button"
-import { MobileNav } from "@/components/dashboard/mobile-nav"
+import { BottomNav } from "@/components/dashboard/bottom-nav"
 import { APP_VERSION } from "@/lib/version"
 import { signOutAction } from "@/app/(dashboard)/actions"
 import { createClient } from "@/lib/supabase/server"
@@ -26,30 +26,27 @@ export default async function DashboardLayout({
 
   const supabase = await createClient()
 
-  // Vendas pendentes de aprovação — só para quem pode aprovar (Admin/Gerente)
-  let vendasPendentesCount = 0
-  if (perms.can("vendas", "aprovar")) {
-    const { count } = await supabase
-      .from("vendas")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pendente_validacao")
-    vendasPendentesCount = count ?? 0
-  }
+  // Todas as queries independentes em paralelo — vendas, lembretes e feature flags
+  // não dependem entre si, apenas de user.id e perms (já resolvidos acima).
+  const [vendasResult, { data: lembretes }, [agendaFlag, propostasFlag]] =
+    await Promise.all([
+      perms.can("vendas", "aprovar")
+        ? supabase
+            .from("vendas")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "pendente_validacao")
+        : Promise.resolve({ count: 0, data: null, error: null }),
+      supabase
+        .from("lembretes")
+        .select("id, tipo, mensagem, referencia_tipo, referencia_id, data_lembrete")
+        .eq("destinatario_id", user.id)
+        .eq("status", "pendente")
+        .order("created_at", { ascending: false })
+        .limit(20),
+      Promise.all([isFeatureEnabled("agenda"), isFeatureEnabled("propostas")]),
+    ])
 
-  // Lembretes pendentes do usuário logado pro bell do header
-  const { data: lembretes } = await supabase
-    .from("lembretes")
-    .select("id, tipo, mensagem, referencia_tipo, referencia_id, data_lembrete")
-    .eq("destinatario_id", user.id)
-    .eq("status", "pendente")
-    .order("created_at", { ascending: false })
-    .limit(20)
-
-  // Navigation organizada em seções — facilita escalar quando entrar mais módulos
-  const [agendaFlag, propostasFlag] = await Promise.all([
-    isFeatureEnabled("agenda"),
-    isFeatureEnabled("propostas"),
-  ])
+  const vendasPendentesCount = vendasResult?.count ?? 0
 
   const sections: NavSection[] = [
     {
@@ -199,54 +196,61 @@ export default async function DashboardLayout({
           </aside>
         </div>
 
-        {/* Coluna direita — mesmo gutter (p-3) do sidebar pra o header
-            flutuar como um card alinhado em altura/border com a marca. */}
-        <div className="flex flex-1 flex-col p-3 md:pl-0">
-          {/* Header flutuante */}
-          <header className="sticky top-3 z-20 flex h-20 shrink-0 items-center justify-between gap-4 rounded-2xl border border-white/[0.06] bg-card/60 px-4 backdrop-blur-xl md:px-6">
+        {/* Coluna direita */}
+        <div className="flex flex-1 flex-col md:p-3 md:pl-0">
+          {/* Header: app bar nativo no mobile, card flutuante no desktop */}
+          <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-white/[0.08] bg-card/90 px-4 backdrop-blur-xl md:top-3 md:rounded-2xl md:border md:border-white/[0.06] md:bg-card/60 md:h-20 md:px-6">
 
-            {/* ── Mobile: hamburguer (esquerda) ────────────────── */}
-            <div className="md:hidden">
-              <MobileNav
-                sections={sections}
-                version={APP_VERSION}
-                signOut={signOutAction}
+            {/* ── Mobile: logo + marca (esquerda) ─────────────── */}
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-2.5 md:hidden"
+            >
+              <Image
+                src="/brand/nexus-icon.png"
+                alt="Nexus"
+                width={36}
+                height={36}
+                className="h-9 w-9 select-none object-contain [filter:brightness(0)_invert(1)]"
+                priority
               />
-            </div>
-
-            {/* ── Mobile: logo centralizada ────────────────────── */}
-            <div className="flex flex-1 justify-center md:hidden">
-              <Link href="/dashboard">
-                <Image
-                  src="/brand/nexus-logo-nome-transparent.png"
-                  alt="Nexus Magic Trips"
-                  width={110}
-                  height={55}
-                  className="h-8 w-auto select-none"
-                  priority
-                />
-              </Link>
-            </div>
+              <div className="flex flex-col leading-none">
+                <span className="text-sm font-bold tracking-tight text-white">
+                  Nexus
+                </span>
+                <span className="text-[9px] uppercase tracking-[0.15em] text-white/40">
+                  Magic Trips
+                </span>
+              </div>
+            </Link>
 
             {/* ── Spacer desktop (empurra controles pra direita) ── */}
             <div className="hidden flex-1 md:block" />
 
             {/* ── Direita: notificações + usuário (sempre) ─────── */}
-            <div className="flex items-center gap-2 md:gap-3">
-              <NotificationsButton lembretes={lembretes ?? []} userId={user.id} />
+            <div className="flex items-center gap-1.5 md:gap-3">
               <UserMenu
+                userId={user.id}
                 nome={user.nome}
                 iniciais={user.iniciais}
                 foto_url={user.foto_url}
                 email={user.email}
                 perfil={user.perfil.nome}
               />
+              <NotificationsButton lembretes={lembretes ?? []} userId={user.id} />
             </div>
           </header>
 
-          <main className="mt-3 flex-1 overflow-y-auto rounded-2xl px-4 py-6 md:px-8 md:py-8">
+          <main className="flex-1 overflow-y-auto px-4 py-6 pb-28 md:mt-3 md:rounded-2xl md:px-8 md:py-8 md:pb-8">
             {children}
           </main>
+
+          {/* ── Bottom nav — só mobile ───────────────────────── */}
+          <BottomNav
+            sections={sections}
+            version={APP_VERSION}
+            signOut={signOutAction}
+          />
         </div>
       </div>
     </div>

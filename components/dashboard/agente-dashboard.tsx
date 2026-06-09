@@ -20,27 +20,15 @@ import {
 import { getStatusLabel, getStatusChip } from "@/lib/utils/venda-status"
 
 const MESES_PT = [
-  "janeiro",
-  "fevereiro",
-  "março",
-  "abril",
-  "maio",
-  "junho",
-  "julho",
-  "agosto",
-  "setembro",
-  "outubro",
-  "novembro",
-  "dezembro",
+  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
 ]
-
 
 type Props = {
   userId: string
   userNome: string
   periodo: PeriodoValue
   range: { from: Date; to: Date } | null
-  /** Permissão de criar vendas — esconde o card de atalho se false. */
   podeCriarVenda: boolean
 }
 
@@ -53,7 +41,6 @@ export async function AgenteDashboard({
 }: Props) {
   const supabase = await createClient()
 
-  // ── Vendas do agente no período ─────────────────────────────────────────
   let vendasQuery = supabase
     .from("vendas")
     .select(
@@ -82,7 +69,6 @@ export async function AgenteDashboard({
   const vendas = (vendasRaw ?? []) as unknown as VendaRow[]
   const vendaIds = vendas.map((v) => v.id)
 
-  // ── Produtos dessas vendas (pra calcular receita, custo, RAV) ──────────
   const { data: produtosRaw } =
     vendaIds.length === 0
       ? { data: [] }
@@ -103,19 +89,12 @@ export async function AgenteDashboard({
   }
   const produtos = (produtosRaw ?? []) as ProdutoRow[]
 
-  // Agrega por venda. RAV total = rav base + rav extra cliente + rav extra fornecedor.
-  // Comissão do agente = RAV total × vendas.comissao_percentual (congelada na criação).
   const totaisPorVenda = new Map<
     string,
     { receita: number; custo: number; rav: number; comissao: number }
   >()
   for (const p of produtos) {
-    const cur = totaisPorVenda.get(p.venda_id) ?? {
-      receita: 0,
-      custo: 0,
-      rav: 0,
-      comissao: 0,
-    }
+    const cur = totaisPorVenda.get(p.venda_id) ?? { receita: 0, custo: 0, rav: 0, comissao: 0 }
     cur.receita += Number(p.valor_venda ?? 0)
     cur.custo += Number(p.valor_custo ?? 0)
     cur.rav +=
@@ -124,7 +103,6 @@ export async function AgenteDashboard({
       Number(p.rav_extra_fornecedor ?? 0)
     totaisPorVenda.set(p.venda_id, cur)
   }
-  // Aplica % de comissão (por venda) sobre o RAV agregado
   for (const v of vendas) {
     const t = totaisPorVenda.get(v.id)
     if (!t) continue
@@ -132,7 +110,6 @@ export async function AgenteDashboard({
     t.comissao = (t.rav * pct) / 100
   }
 
-  // ── KPIs (só vendas aprovadas entram em comissão "recebida") ─────────────
   const aprovadas = vendas.filter((v) => v.status === "aprovado")
   const totalComissao = aprovadas.reduce(
     (acc, v) => acc + (totaisPorVenda.get(v.id)?.comissao ?? 0),
@@ -144,11 +121,7 @@ export async function AgenteDashboard({
   )
   const ticketMedio = aprovadas.length > 0 ? totalReceita / aprovadas.length : 0
 
-  // ── Top 5 clientes do agente (por receita aprovada no período) ──────────
-  const porCliente = new Map<
-    string,
-    { nome: string; vendas: number; receita: number }
-  >()
+  const porCliente = new Map<string, { nome: string; vendas: number; receita: number }>()
   for (const v of aprovadas) {
     const cur = porCliente.get(v.cliente_id) ?? {
       nome: v.cliente?.nome ?? "—",
@@ -163,13 +136,8 @@ export async function AgenteDashboard({
     .sort((a, b) => b.receita - a.receita)
     .slice(0, 5)
 
-  // ── Últimas 10 vendas (qualquer status, dentro do período) ───────────────
   const ultimas = vendas.slice(0, 10)
 
-  // ── Agenda: hoje + 3 dias seguintes ──────────────────────────────────────
-  // Cobre lembretes do sistema (venda aprovada, devolvida, etc) + notas
-  // pessoais criadas pelo agente. RPC filtra internamente por destinatário.
-  // Pulamos a query toda quando a feature flag estiver desligada.
   const agendaFlag = await isFeatureEnabled("agenda")
   type AgendaRow = {
     id: string
@@ -198,152 +166,167 @@ export async function AgenteDashboard({
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight text-white">
-            Olá, {userNome.split(" ")[0]} 👋
-          </h2>
-          <p className="mt-1 text-sm text-white/55">
-            Suas vendas e comissões — {labelPeriodo(periodo)}.
-          </p>
-        </div>
-        <DashboardPeriodoFilter current={periodo} />
-      </div>
+    <div>
 
-      {/* Linha 1 — KPIs + atalho nova venda */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard
-          titulo="Comissão"
-          valor={formatBRL(totalComissao)}
-          icon={Coins}
-          tone="emerald"
-          hint={`${aprovadas.length} venda(s) aprovada(s)`}
-        />
-        <KpiCard
-          titulo="Vendas no período"
-          valor={vendas.length.toString()}
-          icon={ShoppingCart}
-          tone="bright"
-          hint={`${aprovadas.length} aprovada(s) · ${vendas.length - aprovadas.length} em outros status`}
-        />
-        <KpiCard
-          titulo="Ticket médio"
-          valor={formatBRL(ticketMedio)}
-          icon={TrendingUp}
-          tone="bright"
-          hint="receita / nº de vendas aprovadas"
-        />
-        {podeCriarVenda && <AtalhoNovaVenda />}
-      </div>
+      {/* ════════════════════════════════════════════════════
+          MOBILE — layout nativo de app
+      ════════════════════════════════════════════════════ */}
+      <div className="md:hidden">
+        <div className="flex flex-col gap-3">
 
-      {/* Linha 2 — Agenda dos próximos 4 dias (atrás de feature flag) */}
-      {agendaFlag && (
-      <Card className="border-white/[0.06] bg-white/[0.02]">
-        <CardHeader className="pb-2">
-          <div className="flex items-start justify-between">
-            <div>
-              <CardTitle className="text-base font-semibold text-white">
-                Próximos 4 dias
-              </CardTitle>
-              <p className="mt-0.5 text-xs text-white/45">
-                Seus lembretes e notas pessoais
+          {/* 1 ─ Hero card: saudação + comissão em destaque */}
+          <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-nexus-deep/60 via-[#0d1a24] to-nexus-bright/10 p-5">
+            {/* glow decorativo */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-nexus-bright/10 blur-3xl"
+            />
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-nexus-deep/40 blur-2xl"
+            />
+
+            <div className="relative">
+              {/* Topo: saudação + filtro de período */}
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-base font-semibold text-white">
+                    Olá, {userNome.split(" ")[0]} 👋
+                  </p>
+                  <p className="mt-0.5 text-xs text-white/45">
+                    {labelPeriodo(periodo)}
+                  </p>
+                </div>
+                <DashboardPeriodoFilter current={periodo} />
+              </div>
+
+              {/* Métrica principal */}
+              <div className="mt-6">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40">
+                  Comissão do período
+                </p>
+                <p className="mt-1.5 text-3xl font-bold tabular-nums tracking-tight text-white">
+                  {formatBRL(totalComissao)}
+                </p>
+                <p className="mt-2 text-xs text-white/40">
+                  {aprovadas.length} venda{aprovadas.length !== 1 ? "s" : ""} aprovada{aprovadas.length !== 1 ? "s" : ""}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* 2 ─ Stats rápidas: 2 colunas */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/35">
+                Vendas
+              </p>
+              <p className="mt-2 text-xl font-bold tabular-nums text-white">
+                {vendas.length}
+              </p>
+              <p className="mt-1 text-[10px] leading-snug text-white/35">
+                {aprovadas.length} aprovada{aprovadas.length !== 1 ? "s" : ""}{" "}
+                · {vendas.length - aprovadas.length} outros
               </p>
             </div>
-            <Link
-              href="/agenda"
-              className="text-xs text-nexus-bright hover:text-nexus-bright-soft"
-            >
-              Ver agenda completa →
-            </Link>
+            <div className="flex flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/35">
+                Ticket médio
+              </p>
+              <p className="mt-2 text-xl font-bold tabular-nums text-white">
+                {formatBRL(ticketMedio)}
+              </p>
+              <p className="mt-1 text-[10px] text-white/35">por venda aprovada</p>
+            </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {proximosDias.map((dia, idx) => {
-              const iso = toISODate(dia)
-              const eventos = agendaPorDia.get(iso) ?? []
-              const label =
-                idx === 0
-                  ? "Hoje"
-                  : idx === 1
-                    ? "Amanhã"
-                    : DIAS_SEMANA_CURTO[dia.getDay()]
-              return (
-                <div
-                  key={iso}
-                  className="flex min-h-[140px] flex-col rounded-lg border border-white/[0.06] bg-white/[0.02] p-3"
-                >
-                  <div className="mb-2 flex items-baseline justify-between">
-                    <span className="text-xs font-medium uppercase tracking-wider text-white/75">
-                      {label}
-                    </span>
-                    <span className="text-[10px] tabular-nums text-white/35">
-                      {formatDiaCurto(dia)}
-                    </span>
-                  </div>
-                  {eventos.length === 0 ? (
-                    <div className="flex flex-1 items-center justify-center">
-                      <span className="flex items-center gap-1.5 text-[11px] text-white/30">
-                        <CalendarDays className="h-3 w-3" />
-                        Nenhum evento
-                      </span>
-                    </div>
-                  ) : (
-                    <ul className="space-y-1.5">
-                      {eventos.slice(0, 4).map((ev) => (
-                        <li
-                          key={ev.id}
-                          className="flex items-start gap-1.5 rounded px-1.5 py-1"
-                          style={{ backgroundColor: ev.cor + "1a" }}
-                        >
-                          <span
-                            className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: ev.cor }}
-                          />
-                          <div
-                            className="min-w-0 flex-1 text-[11px] leading-snug"
-                            style={{ color: ev.cor }}
-                          >
-                            {ev.hora_inicio && (
-                              <span className="mr-1 tabular-nums opacity-80">
-                                {ev.hora_inicio}
-                              </span>
-                            )}
-                            <span className="line-clamp-2 font-medium">
-                              {ev.titulo}
-                            </span>
-                          </div>
-                        </li>
-                      ))}
-                      {eventos.length > 4 && (
-                        <li className="px-1.5 text-[10px] text-white/40">
-                          +{eventos.length - 4} mais
-                        </li>
-                      )}
-                    </ul>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
-      )}
 
-      {/* Linha 3 — últimas vendas + top clientes */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="border-white/[0.06] bg-white/[0.02] lg:col-span-2">
-          <CardHeader className="pb-2">
-            <div className="flex items-start justify-between">
+          {/* 3 ─ CTA nova venda */}
+          {podeCriarVenda && (
+            <div className="flex flex-col items-center gap-2 rounded-2xl border border-nexus-bright/20 bg-nexus-bright/[0.06] px-4 py-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                Registrar venda
+              </p>
+              <NovaVendaButton className="w-full justify-center text-sm" />
+            </div>
+          )}
+
+          {/* 4 ─ Agenda (mobile: scroll horizontal) */}
+          {agendaFlag && (
+            <div>
+              <div className="mb-2.5 flex items-center justify-between">
+                <p className="text-sm font-semibold text-white">Próximos 4 dias</p>
+                <Link
+                  href="/agenda"
+                  className="text-xs text-nexus-bright hover:text-nexus-bright-soft"
+                >
+                  Ver agenda →
+                </Link>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {proximosDias.map((dia, idx) => {
+                  const iso = toISODate(dia)
+                  const eventos = agendaPorDia.get(iso) ?? []
+                  const label =
+                    idx === 0
+                      ? "Hoje"
+                      : idx === 1
+                        ? "Amanhã"
+                        : DIAS_SEMANA_CURTO[dia.getDay()]
+                  return (
+                    <div
+                      key={iso}
+                      className="flex w-36 shrink-0 flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3"
+                    >
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-xs font-semibold text-white/70">{label}</span>
+                        <span className="text-[10px] tabular-nums text-white/30">
+                          {formatDiaCurto(dia)}
+                        </span>
+                      </div>
+                      {eventos.length === 0 ? (
+                        <div className="flex flex-1 items-center justify-center py-3">
+                          <span className="text-[10px] text-white/25">Livre</span>
+                        </div>
+                      ) : (
+                        <ul className="space-y-1">
+                          {eventos.slice(0, 3).map((ev) => (
+                            <li
+                              key={ev.id}
+                              className="flex items-start gap-1.5 rounded-md px-1.5 py-1"
+                              style={{ backgroundColor: ev.cor + "1a" }}
+                            >
+                              <span
+                                className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: ev.cor }}
+                              />
+                              <span
+                                className="line-clamp-2 text-[10px] leading-snug"
+                                style={{ color: ev.cor }}
+                              >
+                                {ev.titulo}
+                              </span>
+                            </li>
+                          ))}
+                          {eventos.length > 3 && (
+                            <li className="px-1.5 text-[9px] text-white/30">
+                              +{eventos.length - 3} mais
+                            </li>
+                          )}
+                        </ul>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 5 ─ Últimas vendas (feed, não tabela) */}
+          <div>
+            <div className="mb-2.5 flex items-center justify-between">
               <div>
-                <CardTitle className="text-base font-semibold text-white">
-                  Últimas vendas
-                </CardTitle>
-                <p className="mt-0.5 text-xs text-white/45">
-                  10 mais recentes no período
-                </p>
+                <p className="text-sm font-semibold text-white">Últimas vendas</p>
+                <p className="text-[11px] text-white/40">10 mais recentes no período</p>
               </div>
               <Link
                 href="/vendas"
@@ -352,100 +335,69 @@ export async function AgenteDashboard({
                 Ver todas →
               </Link>
             </div>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow className="border-white/[0.06] hover:bg-transparent">
-                  <TableHead className="text-white/55">Cliente</TableHead>
-                  <TableHead className="text-white/55">Data</TableHead>
-                  <TableHead className="text-right text-white/55">
-                    Receita
-                  </TableHead>
-                  <TableHead className="text-right text-white/55">
-                    Status
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {ultimas.length === 0 ? (
-                  <TableRow className="border-white/[0.06] hover:bg-transparent">
-                    <TableCell
-                      colSpan={4}
-                      className="h-24 text-center text-sm text-white/40"
+
+            {ultimas.length === 0 ? (
+              <div className="flex h-20 items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.02] text-sm text-white/35">
+                Nenhuma venda no período.
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02]">
+                {ultimas.map((v, i) => {
+                  const totais = totaisPorVenda.get(v.id) ?? {
+                    receita: 0,
+                    custo: 0,
+                    rav: 0,
+                    comissao: 0,
+                  }
+                  return (
+                    <div
+                      key={v.id}
+                      className={`flex items-center gap-3 px-4 py-3.5 ${i > 0 ? "border-t border-white/[0.04]" : ""}`}
                     >
-                      Nenhuma venda no período.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  ultimas.map((v) => {
-                    const totais = totaisPorVenda.get(v.id) ?? {
-                      receita: 0,
-                      custo: 0,
-                      comissao: 0,
-                    }
-                    return (
-                      <TableRow
-                        key={v.id}
-                        className="border-white/[0.06] hover:bg-white/[0.025]"
-                      >
-                        <TableCell className="font-medium text-white">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-white">
                           {v.cliente?.nome ?? "—"}
-                        </TableCell>
-                        <TableCell className="text-sm text-white/65">
-                          {formatDataBR(v.data_venda)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums text-white/85">
-                          {formatBRL(totais.receita)}
-                        </TableCell>
-                        <TableCell className="text-right">
+                        </p>
+                        <div className="mt-1.5 flex items-center gap-2">
                           <span
-                            className={`rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${getStatusChip(v.status)}`}
+                            className={`rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${getStatusChip(v.status)}`}
                           >
-                            {/* Dashboard do agente — nunca tem podeAprovar */}
                             {getStatusLabel(v.status)}
                           </span>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                          <span className="text-[10px] text-white/35">
+                            {formatDataBR(v.data_venda)}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="shrink-0 text-sm font-semibold tabular-nums text-white/80">
+                        {formatBRL(totais.receita)}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
 
-        <Card className="border-white/[0.06] bg-white/[0.02]">
-          <CardHeader className="pb-2">
-            <div className="flex items-start justify-between">
-              <CardTitle className="text-base font-semibold text-white">
-                Principais clientes
-              </CardTitle>
-              <Users className="h-4 w-4 text-white/40" />
-            </div>
-            <p className="mt-0.5 text-xs text-white/45">
-              Top 5 por receita aprovada
-            </p>
-          </CardHeader>
-          <CardContent>
-            {topClientes.length === 0 ? (
-              <p className="py-6 text-center text-xs text-white/40">
-                Sem clientes aprovados no período.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {topClientes.map((c) => (
+          {/* 6 ─ Top clientes */}
+          {topClientes.length > 0 && (
+            <div>
+              <div className="mb-2.5 flex items-center justify-between">
+                <p className="text-sm font-semibold text-white">Principais clientes</p>
+                <Users className="h-4 w-4 text-white/30" />
+              </div>
+              <ul className="overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02]">
+                {topClientes.map((c, i) => (
                   <li
                     key={c.nome}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5"
+                    className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? "border-t border-white/[0.04]" : ""}`}
                   >
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-[11px] font-bold text-white/50">
+                      {i + 1}
+                    </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-white">
-                        {c.nome}
-                      </p>
-                      <p className="text-[11px] text-white/45">
-                        {c.vendas} venda(s)
-                      </p>
+                      <p className="truncate text-sm font-medium text-white">{c.nome}</p>
+                      <p className="text-[10px] text-white/40">{c.vendas} venda{c.vendas !== 1 ? "s" : ""}</p>
                     </div>
                     <span className="shrink-0 text-sm font-semibold tabular-nums text-emerald-300">
                       {formatBRL(c.receita)}
@@ -453,9 +405,273 @@ export async function AgenteDashboard({
                   </li>
                 ))}
               </ul>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          )}
+
+        </div>
+      </div>
+
+      {/* ════════════════════════════════════════════════════
+          DESKTOP — layout original inalterado
+      ════════════════════════════════════════════════════ */}
+      <div className="hidden md:block">
+        <div className="space-y-6">
+
+          {/* Cabeçalho */}
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-semibold tracking-tight text-white">
+                Olá, {userNome.split(" ")[0]} 👋
+              </h2>
+              <p className="mt-1 text-sm text-white/55">
+                Suas vendas e comissões — {labelPeriodo(periodo)}.
+              </p>
+            </div>
+            <DashboardPeriodoFilter current={periodo} />
+          </div>
+
+          {/* KPIs + atalho nova venda */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiCard
+              titulo="Comissão"
+              valor={formatBRL(totalComissao)}
+              icon={Coins}
+              tone="emerald"
+              hint={`${aprovadas.length} venda(s) aprovada(s)`}
+            />
+            <KpiCard
+              titulo="Vendas no período"
+              valor={vendas.length.toString()}
+              icon={ShoppingCart}
+              tone="bright"
+              hint={`${aprovadas.length} aprovada(s) · ${vendas.length - aprovadas.length} em outros status`}
+            />
+            <KpiCard
+              titulo="Ticket médio"
+              valor={formatBRL(ticketMedio)}
+              icon={TrendingUp}
+              tone="bright"
+              hint="receita / nº de vendas aprovadas"
+            />
+            {podeCriarVenda && <AtalhoNovaVenda />}
+          </div>
+
+          {/* Agenda */}
+          {agendaFlag && (
+            <Card className="border-white/[0.06] bg-white/[0.02]">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <CardTitle className="text-base font-semibold text-white">
+                      Próximos 4 dias
+                    </CardTitle>
+                    <p className="mt-0.5 text-xs text-white/45">
+                      Seus lembretes e notas pessoais
+                    </p>
+                  </div>
+                  <Link
+                    href="/agenda"
+                    className="text-xs text-nexus-bright hover:text-nexus-bright-soft"
+                  >
+                    Ver agenda completa →
+                  </Link>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {proximosDias.map((dia, idx) => {
+                    const iso = toISODate(dia)
+                    const eventos = agendaPorDia.get(iso) ?? []
+                    const label =
+                      idx === 0
+                        ? "Hoje"
+                        : idx === 1
+                          ? "Amanhã"
+                          : DIAS_SEMANA_CURTO[dia.getDay()]
+                    return (
+                      <div
+                        key={iso}
+                        className="flex min-h-[140px] flex-col rounded-lg border border-white/[0.06] bg-white/[0.02] p-3"
+                      >
+                        <div className="mb-2 flex items-baseline justify-between">
+                          <span className="text-xs font-medium uppercase tracking-wider text-white/75">
+                            {label}
+                          </span>
+                          <span className="text-[10px] tabular-nums text-white/35">
+                            {formatDiaCurto(dia)}
+                          </span>
+                        </div>
+                        {eventos.length === 0 ? (
+                          <div className="flex flex-1 items-center justify-center">
+                            <span className="flex items-center gap-1.5 text-[11px] text-white/30">
+                              <CalendarDays className="h-3 w-3" />
+                              Nenhum evento
+                            </span>
+                          </div>
+                        ) : (
+                          <ul className="space-y-1.5">
+                            {eventos.slice(0, 4).map((ev) => (
+                              <li
+                                key={ev.id}
+                                className="flex items-start gap-1.5 rounded px-1.5 py-1"
+                                style={{ backgroundColor: ev.cor + "1a" }}
+                              >
+                                <span
+                                  className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full"
+                                  style={{ backgroundColor: ev.cor }}
+                                />
+                                <div
+                                  className="min-w-0 flex-1 text-[11px] leading-snug"
+                                  style={{ color: ev.cor }}
+                                >
+                                  {ev.hora_inicio && (
+                                    <span className="mr-1 tabular-nums opacity-80">
+                                      {ev.hora_inicio}
+                                    </span>
+                                  )}
+                                  <span className="line-clamp-2 font-medium">
+                                    {ev.titulo}
+                                  </span>
+                                </div>
+                              </li>
+                            ))}
+                            {eventos.length > 4 && (
+                              <li className="px-1.5 text-[10px] text-white/40">
+                                +{eventos.length - 4} mais
+                              </li>
+                            )}
+                          </ul>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Últimas vendas + top clientes */}
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Card className="border-white/[0.06] bg-white/[0.02] lg:col-span-2">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <CardTitle className="text-base font-semibold text-white">
+                      Últimas vendas
+                    </CardTitle>
+                    <p className="mt-0.5 text-xs text-white/45">
+                      10 mais recentes no período
+                    </p>
+                  </div>
+                  <Link
+                    href="/vendas"
+                    className="text-xs text-nexus-bright hover:text-nexus-bright-soft"
+                  >
+                    Ver todas →
+                  </Link>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-white/[0.06] hover:bg-transparent">
+                      <TableHead className="text-white/55">Cliente</TableHead>
+                      <TableHead className="text-white/55">Data</TableHead>
+                      <TableHead className="text-right text-white/55">Receita</TableHead>
+                      <TableHead className="text-right text-white/55">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {ultimas.length === 0 ? (
+                      <TableRow className="border-white/[0.06] hover:bg-transparent">
+                        <TableCell
+                          colSpan={4}
+                          className="h-24 text-center text-sm text-white/40"
+                        >
+                          Nenhuma venda no período.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      ultimas.map((v) => {
+                        const totais = totaisPorVenda.get(v.id) ?? {
+                          receita: 0,
+                          custo: 0,
+                          comissao: 0,
+                        }
+                        return (
+                          <TableRow
+                            key={v.id}
+                            className="border-white/[0.06] hover:bg-white/[0.025]"
+                          >
+                            <TableCell className="font-medium text-white">
+                              {v.cliente?.nome ?? "—"}
+                            </TableCell>
+                            <TableCell className="text-sm text-white/65">
+                              {formatDataBR(v.data_venda)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums text-white/85">
+                              {formatBRL(totais.receita)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <span
+                                className={`rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${getStatusChip(v.status)}`}
+                              >
+                                {getStatusLabel(v.status)}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            <Card className="border-white/[0.06] bg-white/[0.02]">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between">
+                  <CardTitle className="text-base font-semibold text-white">
+                    Principais clientes
+                  </CardTitle>
+                  <Users className="h-4 w-4 text-white/40" />
+                </div>
+                <p className="mt-0.5 text-xs text-white/45">
+                  Top 5 por receita aprovada
+                </p>
+              </CardHeader>
+              <CardContent>
+                {topClientes.length === 0 ? (
+                  <p className="py-6 text-center text-xs text-white/40">
+                    Sem clientes aprovados no período.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {topClientes.map((c) => (
+                      <li
+                        key={c.nome}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-white">
+                            {c.nome}
+                          </p>
+                          <p className="text-[11px] text-white/45">
+                            {c.vendas} venda(s)
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-sm font-semibold tabular-nums text-emerald-300">
+                          {formatBRL(c.receita)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+        </div>
       </div>
 
     </div>
@@ -483,7 +699,7 @@ function formatDiaCurto(d: Date): string {
   return `${dia}/${mes}`
 }
 
-// ─── Subcomponentes ──────────────────────────────────────────────────────────
+// ─── Subcomponentes desktop ───────────────────────────────────────────────────
 
 type Tone = "emerald" | "bright"
 const TONE_BG: Record<Tone, string> = {
@@ -519,9 +735,7 @@ function KpiCard({
           <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/55">
             {titulo}
           </p>
-          <p className="text-2xl font-semibold tabular-nums text-white">
-            {valor}
-          </p>
+          <p className="text-2xl font-semibold tabular-nums text-white">{valor}</p>
           {hint && <p className="text-[11px] text-white/45">{hint}</p>}
         </div>
         <div

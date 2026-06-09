@@ -269,7 +269,182 @@ export default async function DashboardPage({
     .map((t) => ({ label: t.label, value: Math.round(t.rav) }))
 
   return (
-    <div className="space-y-6">
+    <div>
+
+      {/* ════════════════════════════════════════════════════
+          MOBILE — layout nativo de app
+      ════════════════════════════════════════════════════ */}
+      <div className="md:hidden">
+        <div className="flex flex-col gap-3">
+
+          {/* Hero */}
+          <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-gradient-to-br from-nexus-deep/60 via-[#0d1a24] to-nexus-bright/10 p-5">
+            <div aria-hidden className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-nexus-bright/10 blur-3xl" />
+            <div className="relative">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-base font-semibold text-white">Início</p>
+                  <p className="mt-0.5 text-xs text-white/45">{labelPeriodo(periodo, range)}</p>
+                </div>
+                <DashboardPeriodoFilter current={periodo} from={searchParams.from} to={searchParams.to} />
+              </div>
+              <div className="mt-6">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40">Receita aprovada</p>
+                <p className="mt-1.5 text-3xl font-bold tabular-nums tracking-tight text-white">{formatBRL(receita)}</p>
+                <div className="mt-2 flex items-center gap-3">
+                  <span className="text-xs text-white/40">{numVendas} venda{numVendas !== 1 ? "s" : ""} aprovada{numVendas !== 1 ? "s" : ""}</span>
+                  <span className="text-xs font-medium text-emerald-300">{margemPct.toFixed(1).replace(".", ",")}% margem</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick stats: Custo + Margem */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-rose-300/60">Custo</p>
+              <p className="mt-2 text-xl font-bold tabular-nums text-white">{formatBRL(custo)}</p>
+              <p className="mt-1 text-[10px] text-white/35">dos fornecedores</p>
+            </div>
+            <div className="flex flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-emerald-300/60">Margem</p>
+              <p className="mt-2 text-xl font-bold tabular-nums text-white">{formatBRL(margem)}</p>
+              <p className="mt-1 text-[10px] text-white/35">{margemPct.toFixed(1).replace(".", ",")}% da receita</p>
+            </div>
+          </div>
+
+          {/* RAV */}
+          <div className="flex items-center justify-between rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.04] px-5 py-4">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-emerald-300/60">RAV Total</p>
+              <p className="mt-1 text-xl font-bold tabular-nums text-white">{formatBRL(ravTotal)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/35">Margem RAV</p>
+              <p className="mt-1 text-xl font-bold tabular-nums text-emerald-300">{ravPct.toFixed(1).replace(".", ",")}%</p>
+            </div>
+          </div>
+
+          {/* CTA */}
+          {podeCriarVenda && (
+            <div className="flex flex-col items-center gap-2 rounded-2xl border border-nexus-bright/20 bg-nexus-bright/[0.06] px-4 py-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">Registrar venda</p>
+              <NovaVendaButton className="w-full justify-center text-sm" />
+            </div>
+          )}
+
+          {/* Por empresa */}
+          {porEmpresa.length > 0 && (
+            <div>
+              <p className="mb-2.5 text-sm font-semibold text-white">Por empresa</p>
+              <ul className="overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02]">
+                {porEmpresa.map((e, i) => {
+                  const pct = e.receita > 0 ? (e.rav / e.receita) * 100 : 0
+                  return (
+                    <li key={e.slug || e.label} className={`flex items-center gap-3 px-4 py-3.5 ${i > 0 ? "border-t border-white/[0.04]" : ""}`}>
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: EMPRESA_COR[e.slug] ?? COR_FALLBACK }} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-white">{e.label}</p>
+                        <p className="text-[10px] text-white/40">{pct.toFixed(1).replace(".", ",")}% margem RAV</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold tabular-nums text-white/85">{formatBRL(e.receita)}</p>
+                        <p className="text-[10px] tabular-nums text-emerald-300">{formatBRL(e.rav)} RAV</p>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
+
+          {/* Por agente */}
+          {porAgenteOrdenado.length > 0 && (
+            <div>
+              <p className="mb-2.5 text-sm font-semibold text-white">Por agente</p>
+              <div className="overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02]">
+                {porAgenteOrdenado.map((a, i) => {
+                  const qtdVendas = vendasPorAgente.get(a.label)?.size ?? 0
+                  return (
+                    <div key={`${a.label}-${a.receita}`} className={`px-4 py-3.5 ${i > 0 ? "border-t border-white/[0.04]" : ""}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-white">{a.label}</p>
+                        <span className="text-xs text-white/40">{qtdVendas} venda{qtdVendas !== 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        <div>
+                          <p className="text-[10px] text-white/35">Receita</p>
+                          <p className="mt-0.5 text-xs tabular-nums text-white/80">{formatBRL(a.receita)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-white/35">RAV</p>
+                          <p className="mt-0.5 text-xs tabular-nums font-medium text-emerald-300">{formatBRL(a.rav)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-white/35">Margem RAV</p>
+                          <p className="mt-0.5 text-xs tabular-nums text-white/80">{a.margemRavPct.toFixed(1).replace(".", ",")}%</p>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+                <div className="border-t border-white/[0.08] bg-white/[0.02] px-4 py-3.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-white/50">Total</p>
+                    <span className="text-xs font-semibold text-white">{numVendas} vendas</span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    <div>
+                      <p className="text-[10px] text-white/35">Receita</p>
+                      <p className="mt-0.5 text-xs tabular-nums font-semibold text-white">{formatBRL(receita)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-white/35">RAV</p>
+                      <p className="mt-0.5 text-xs tabular-nums font-semibold text-emerald-300">{formatBRL(ravTotal)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-white/35">Margem RAV</p>
+                      <p className="mt-0.5 text-xs tabular-nums font-semibold text-white">{ravPct.toFixed(1).replace(".", ",")}%</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Top tipos de produto */}
+          {top5Receita.length > 0 && (
+            <div>
+              <p className="mb-2.5 text-sm font-semibold text-white">Top tipos de produto</p>
+              <ul className="overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02]">
+                {top5Receita.map((t, i) => {
+                  const maxVal = top5Receita[0]?.value ?? 1
+                  return (
+                    <li key={t.label} className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? "border-t border-white/[0.04]" : ""}`}>
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1.5 flex items-center justify-between">
+                          <p className="truncate text-xs font-medium text-white">{t.label}</p>
+                          <p className="ml-2 shrink-0 text-xs tabular-nums text-white/65">{formatBRL(t.value)}</p>
+                        </div>
+                        <div className="h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
+                          <div className="h-full rounded-full bg-nexus-bright/60" style={{ width: `${(t.value / maxVal) * 100}%` }} />
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
+
+        </div>
+      </div>
+
+      {/* ════════════════════════════════════════════════════
+          DESKTOP — layout original inalterado
+      ════════════════════════════════════════════════════ */}
+      <div className="hidden md:block">
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -522,7 +697,8 @@ export default async function DashboardPage({
           </p>
         </CardHeader>
         <CardContent>
-          <div className="overflow-hidden rounded-lg border border-white/[0.06]">
+          {/* Desktop: tabela completa */}
+          <div className="hidden md:block overflow-hidden rounded-lg border border-white/[0.06]">
             <Table>
               <TableHeader>
                 <TableRow className="border-white/[0.06] hover:bg-transparent">
@@ -618,6 +794,66 @@ export default async function DashboardPage({
               </TableBody>
             </Table>
           </div>
+
+          {/* Mobile: cards condensados */}
+          <div className="flex flex-col gap-2 md:hidden">
+            {porAgenteOrdenado.length === 0 ? (
+              <p className="py-8 text-center text-sm text-white/40">
+                Nenhuma venda aprovada no período.
+              </p>
+            ) : (
+              <>
+                {porAgenteOrdenado.map((a) => {
+                  const qtdVendas = vendasPorAgente.get(a.label)?.size ?? 0
+                  return (
+                    <div
+                      key={`${a.label}-${a.receita}`}
+                      className="rounded-lg border border-white/[0.06] bg-white/[0.01] px-3 py-2.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-white">{a.label}</p>
+                        <span className="text-xs text-white/45">{qtdVendas} venda{qtdVendas !== 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="mt-1.5 grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <p className="text-white/40">Receita</p>
+                          <p className="tabular-nums text-white/85">{formatBRL(a.receita)}</p>
+                        </div>
+                        <div>
+                          <p className="text-white/40">RAV</p>
+                          <p className="tabular-nums font-medium text-emerald-300">{formatBRL(a.rav)}</p>
+                        </div>
+                        <div>
+                          <p className="text-white/40">Margem RAV</p>
+                          <p className="tabular-nums text-white/85">{a.margemRavPct.toFixed(1).replace(".", ",")}%</p>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-white/55">Total</p>
+                    <span className="text-xs font-semibold text-white">{numVendas} vendas</span>
+                  </div>
+                  <div className="mt-1.5 grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <p className="text-white/40">Receita</p>
+                      <p className="tabular-nums font-semibold text-white">{formatBRL(receita)}</p>
+                    </div>
+                    <div>
+                      <p className="text-white/40">RAV</p>
+                      <p className="tabular-nums font-semibold text-emerald-300">{formatBRL(ravTotal)}</p>
+                    </div>
+                    <div>
+                      <p className="text-white/40">Margem RAV</p>
+                      <p className="tabular-nums font-semibold text-white">{ravPct.toFixed(1).replace(".", ",")}%</p>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -646,6 +882,8 @@ export default async function DashboardPage({
             />
           )}
         </ChartCard>
+      </div>
+      </div>
       </div>
     </div>
   )

@@ -75,7 +75,8 @@ export default async function CartoesPage() {
         )}
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
+      {/* ── Desktop: tabela ─────────────────────────────────────────── */}
+      <div className="hidden md:block overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
         <Table>
           <TableHeader>
             <TableRow className="border-white/[0.06] hover:bg-transparent">
@@ -161,6 +162,82 @@ export default async function CartoesPage() {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* ── Mobile: cards ───────────────────────────────────────────── */}
+      <div className="flex flex-col gap-3 md:hidden">
+        {!cartoes || cartoes.length === 0 ? (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] py-12 text-center text-sm text-white/45">
+            Nenhum cartão cadastrado.
+          </div>
+        ) : (
+          cartoes.map((c) => (
+            <div
+              key={c.id}
+              className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-white leading-tight">
+                    {c.nome}
+                  </p>
+                  {c.banco && (
+                    <p className="mt-0.5 text-xs text-white/55">{c.banco}</p>
+                  )}
+                </div>
+                {c.ativo ? (
+                  <span className="shrink-0 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+                    Ativo
+                  </span>
+                ) : (
+                  <span className="shrink-0 rounded-full border border-white/15 bg-white/[0.04] px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white/55">
+                    Inativo
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                <div>
+                  <span className="text-white/40">Empresa</span>
+                  <p className="text-white/80">{empresasMap.get(c.empresa_id) ?? "—"}</p>
+                </div>
+                <div>
+                  <span className="text-white/40">Responsável</span>
+                  <p className="text-white/80">{usuariosMap.get(c.usuario_id) ?? "—"}</p>
+                </div>
+                <div>
+                  <span className="text-white/40">Fechamento</span>
+                  <p className="tabular-nums text-white/80">
+                    {c.dia_fechamento ? `dia ${c.dia_fechamento}` : "—"}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-white/40">Vencimento</span>
+                  <p className="tabular-nums text-white/80">dia {c.dia_vencimento}</p>
+                </div>
+              </div>
+
+              <div className="mt-3 flex justify-end border-t border-white/[0.04] pt-3">
+                <CartaoRowActions
+                  cartao={{
+                    id: c.id,
+                    nome: c.nome,
+                    banco: c.banco,
+                    empresa_id: c.empresa_id,
+                    usuario_id: c.usuario_id,
+                    dia_vencimento: c.dia_vencimento,
+                    dia_fechamento: c.dia_fechamento,
+                    ativo: c.ativo,
+                  }}
+                  empresas={empresasList}
+                  usuarios={usuariosList}
+                  podeEditar={podeEditar}
+                  podeExcluir={podeExcluir}
+                />
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   )

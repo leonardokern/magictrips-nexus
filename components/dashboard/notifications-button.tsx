@@ -168,42 +168,47 @@ export function NotificationsButton({ lembretes: initialLembretes, userId }: Pro
         onClick={() => setOpen((s) => !s)}
         aria-label="Notificações"
         className={cn(
-          "relative flex h-9 w-9 items-center justify-center rounded-full border bg-white/[0.04] text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white",
-          // Pulsa em loop enquanto houver notificação pendente, pra chamar atenção
+          // Mobile: círculo h-9 w-9
+          "flex h-9 w-9 items-center justify-center rounded-full border bg-white/[0.04] text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white",
+          // Desktop: card retangular com mesma altura do UserMenu (py-2 + h-9 = ~52px)
+          "md:h-auto md:w-auto md:rounded-xl md:border-white/[0.06] md:bg-white/[0.02] md:px-3 md:py-2",
           hasUnread
-            ? "animate-[bell-pulse_2s_ease-in-out_infinite] border-nexus-bright/40 text-nexus-bright"
+            ? "animate-[bell-pulse_2s_ease-in-out_infinite] border-nexus-bright/40 text-nexus-bright md:border-nexus-bright/40"
             : "border-white/[0.08]",
           novoChegou && "ring-2 ring-nexus-bright/60",
         )}
       >
-        {/* Halo radial em loop quando tem pendente */}
-        {hasUnread && (
-          <span
-            aria-hidden
-            className="absolute inset-0 rounded-full bg-nexus-bright/20 animate-ping"
-          />
-        )}
-        <Bell
-          className={cn(
-            "relative h-4 w-4 transition-transform",
-            hasUnread && "animate-[bell-shake_2.4s_ease-in-out_infinite]",
-            novoChegou && "animate-[wiggle_0.6s_ease-in-out]",
-          )}
-        />
-        {hasUnread && (
-          <span className="absolute -right-1 -top-1 flex">
-            <span className="absolute inset-0 inline-flex animate-ping rounded-full bg-red-500/70" />
+        {/* Wrapper interno mantém área fixa h-9 w-9 em todos os tamanhos */}
+        <span className="relative flex h-9 w-9 items-center justify-center">
+          {/* Halo radial em loop quando tem pendente */}
+          {hasUnread && (
             <span
-              className={cn(
-                "relative inline-flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold leading-none text-white tabular-nums ring-2 ring-background",
-                lembretes.length > 9 ? "h-5 min-w-[1.25rem] px-1" : "h-4 w-4",
-              )}
-              aria-label={`${lembretes.length} notificações pendentes`}
-            >
-              {lembretes.length > 99 ? "99+" : lembretes.length}
+              aria-hidden
+              className="absolute inset-0 rounded-full bg-nexus-bright/20 animate-ping"
+            />
+          )}
+          <Bell
+            className={cn(
+              "relative h-4 w-4 transition-transform",
+              hasUnread && "animate-[bell-shake_2.4s_ease-in-out_infinite]",
+              novoChegou && "animate-[wiggle_0.6s_ease-in-out]",
+            )}
+          />
+          {hasUnread && (
+            <span className="absolute -right-1 -top-1 flex">
+              <span className="absolute inset-0 inline-flex animate-ping rounded-full bg-red-500/70" />
+              <span
+                className={cn(
+                  "relative inline-flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold leading-none text-white tabular-nums ring-2 ring-background",
+                  lembretes.length > 9 ? "h-5 min-w-[1.25rem] px-1" : "h-4 w-4",
+                )}
+                aria-label={`${lembretes.length} notificações pendentes`}
+              >
+                {lembretes.length > 99 ? "99+" : lembretes.length}
+              </span>
             </span>
-          </span>
-        )}
+          )}
+        </span>
       </button>
 
       {open && (
@@ -213,20 +218,34 @@ export function NotificationsButton({ lembretes: initialLembretes, userId }: Pro
             onClick={() => setOpen(false)}
             aria-hidden
           />
-          <div className="absolute right-0 top-12 z-40 w-80 overflow-hidden rounded-xl border border-white/[0.08] bg-card/95 shadow-2xl backdrop-blur-xl">
-            <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
-              <p className="text-sm font-medium text-white">Notificações</p>
-              <span className="text-[10px] uppercase tracking-wider text-white/45">
-                {lembretes.length}{" "}
-                {lembretes.length === 1 ? "pendente" : "pendentes"}
-              </span>
+          {/* Dropdown: top-full + mt-2 = sempre grudado abaixo do botão */}
+          <div className="absolute right-0 top-full z-40 mt-2 w-80 overflow-hidden rounded-2xl border border-white/[0.08] bg-card/95 shadow-2xl shadow-black/40 backdrop-blur-xl">
+
+            {/* Cabeçalho */}
+            <div className="flex items-center justify-between px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Bell className="h-4 w-4 text-white/60" />
+                <p className="text-sm font-semibold text-white">Notificações</p>
+              </div>
+              {lembretes.length > 0 && (
+                <span className="rounded-full bg-nexus-bright/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-nexus-bright">
+                  {lembretes.length} {lembretes.length === 1 ? "pendente" : "pendentes"}
+                </span>
+              )}
             </div>
 
-            <div className="max-h-96 overflow-y-auto">
+            <div className="border-t border-white/[0.06]" />
+
+            {/* Lista */}
+            <div className="max-h-[400px] overflow-y-auto">
               {lembretes.length === 0 ? (
-                <p className="px-4 py-6 text-center text-xs text-white/45">
-                  Nada novo por aqui. Você está em dia.
-                </p>
+                <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.04] text-white/30">
+                    <Bell className="h-5 w-5" />
+                  </span>
+                  <p className="text-sm text-white/40">Nada novo por aqui.</p>
+                  <p className="text-xs text-white/25">Você está em dia ✓</p>
+                </div>
               ) : (
                 <ul className="divide-y divide-white/[0.04]">
                   {lembretes.map((l) => (
@@ -235,31 +254,32 @@ export function NotificationsButton({ lembretes: initialLembretes, userId }: Pro
                         type="button"
                         onClick={() => abrirReferencia(l)}
                         disabled={isPending}
-                        className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.04]"
+                        className="group flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-white/[0.04]"
                       >
                         <span
                           className={cn(
-                            "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border",
+                            "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border",
                             TIPO_ACCENT[l.tipo] ??
                               "border-nexus-bright/30 bg-nexus-bright/10 text-nexus-bright",
                           )}
                         >
                           {TIPO_ICONE[l.tipo] ?? <Bell className="h-3.5 w-3.5" />}
                         </span>
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-white">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-white leading-snug">
                             {TIPO_LABEL[l.tipo] ?? l.tipo}
                           </p>
-                          <p className="mt-0.5 text-xs text-white/55">
+                          <p className="mt-0.5 text-xs text-white/50 leading-snug line-clamp-2">
                             {l.mensagem}
                           </p>
                         </div>
                         <button
                           type="button"
                           onClick={(e) => dispensar(l, e)}
-                          className="shrink-0 text-[10px] uppercase tracking-wider text-white/40 hover:text-white"
+                          className="shrink-0 flex h-6 w-6 items-center justify-center rounded-md text-white/30 opacity-0 transition-all hover:bg-white/[0.06] hover:text-white/70 group-hover:opacity-100"
+                          aria-label="Dispensar"
                         >
-                          ✕
+                          <span className="text-xs">✕</span>
                         </button>
                       </button>
                     </li>

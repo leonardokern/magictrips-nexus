@@ -105,7 +105,8 @@ export default async function TiposProdutoPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
+      {/* ── Desktop: tabela ─────────────────────────────────────────── */}
+      <div className="hidden md:block overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
         <Table>
           <TableHeader>
             <TableRow className="border-white/[0.06] hover:bg-transparent">
@@ -208,6 +209,94 @@ export default async function TiposProdutoPage() {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* ── Mobile: cards ───────────────────────────────────────────── */}
+      <div className="flex flex-col gap-3 md:hidden">
+        {!tipos || tipos.length === 0 ? (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] py-12 text-center text-sm text-white/45">
+            Nenhum tipo cadastrado.
+          </div>
+        ) : (
+          tipos.map((t) => {
+            const vinc = vinculosPorTipo.get(t.id) ?? []
+            return (
+              <div
+                key={t.id}
+                className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    {t.icone ? (
+                      <div className="relative h-4 w-4 shrink-0">
+                        <Image
+                          src={`/icons/tipos-produto/${t.icone}.png`}
+                          alt={t.nome}
+                          fill
+                          className="object-contain"
+                          style={{ filter: "brightness(0) invert(1)", opacity: 0.55 }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="h-4 w-4 shrink-0" />
+                    )}
+                    <p className="text-sm font-semibold text-white leading-tight">
+                      {t.nome}
+                    </p>
+                  </div>
+                  {t.ativo ? (
+                    <span className="shrink-0 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+                      Ativo
+                    </span>
+                  ) : (
+                    <span className="shrink-0 rounded-full border border-white/15 bg-white/[0.04] px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white/55">
+                      Inativo
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-2.5">
+                  {vinc.length === 0 ? (
+                    <p className="text-xs text-white/40">Sem campos vinculados</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {vinc.map((v) => {
+                        const campo = camposMap.get(v.campo_id)
+                        if (!campo) return null
+                        return (
+                          <span
+                            key={v.campo_id}
+                            className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] text-white/80"
+                          >
+                            {campo.nome}
+                            {v.obrigatorio && (
+                              <span className="text-nexus-bright">*</span>
+                            )}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3 flex justify-end border-t border-white/[0.04] pt-3">
+                  <TipoProdutoRowActions
+                    tipo={{
+                      id: t.id,
+                      nome: t.nome,
+                      ativo: t.ativo,
+                      icone: t.icone ?? null,
+                      campos: vinc,
+                    }}
+                    camposDisponiveis={camposList}
+                    podeEditar={podeEditar}
+                    podeExcluir={podeExcluir}
+                  />
+                </div>
+              </div>
+            )
+          })
+        )}
       </div>
     </div>
   )

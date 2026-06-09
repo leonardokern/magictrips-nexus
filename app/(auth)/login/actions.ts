@@ -3,6 +3,33 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 
+export type EsqueciSenhaState = {
+  error?: string
+  success?: boolean
+}
+
+/**
+ * Dispara o e-mail de recuperação de senha via Supabase Auth.
+ * Sempre retorna sucesso para não revelar se o e-mail está cadastrado.
+ */
+export async function esquecerSenhaAction(
+  _prevState: EsqueciSenhaState,
+  formData: FormData,
+): Promise<EsqueciSenhaState> {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase()
+  if (!email) return { error: "Informe o e-mail." }
+
+  const supabase = await createClient()
+  const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+
+  // Supabase ignora silenciosamente se o e-mail não existir — não revela.
+  await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${appUrl}/auth/callback?next=/redefinir-senha`,
+  })
+
+  return { success: true }
+}
+
 export type LoginState = {
   error?: string
 }

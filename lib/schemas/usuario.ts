@@ -62,6 +62,51 @@ export const alterarSenhaSchema = z
     path: ["nova_senha"],
   })
 
+export const meuPerfilSenhaSchema = z
+  .object({
+    senha_atual: z.string().min(1, "Informe a senha atual"),
+    nova_senha: z
+      .string()
+      .min(6, "A nova senha deve ter no mínimo 6 caracteres")
+      .max(72, "Máximo 72 caracteres")
+      .refine((s) => /[A-Z]/.test(s), "Deve conter pelo menos uma letra maiúscula")
+      .refine((s) => /[a-z]/.test(s), "Deve conter pelo menos uma letra minúscula")
+      .refine((s) => /[0-9]/.test(s), "Deve conter pelo menos um número")
+      .refine((s) => /[^A-Za-z0-9]/.test(s), "Deve conter pelo menos um caractere especial"),
+    confirmar_senha: z.string(),
+  })
+  .refine((v) => v.nova_senha === v.confirmar_senha, {
+    message: "As senhas não coincidem",
+    path: ["confirmar_senha"],
+  })
+  .refine((v) => v.senha_atual !== v.nova_senha, {
+    message: "A nova senha deve ser diferente da atual",
+    path: ["nova_senha"],
+  })
+
+/**
+ * Schema para redefinição de senha via link (sem senha atual).
+ * Mesmo critério de complexidade do meuPerfilSenhaSchema.
+ */
+export const redefinirSenhaSchema = z
+  .object({
+    nova_senha: z
+      .string()
+      .min(6, "A nova senha deve ter no mínimo 6 caracteres")
+      .max(72, "Máximo 72 caracteres")
+      .refine((s) => /[A-Z]/.test(s), "Deve conter pelo menos uma letra maiúscula")
+      .refine((s) => /[a-z]/.test(s), "Deve conter pelo menos uma letra minúscula")
+      .refine((s) => /[0-9]/.test(s), "Deve conter pelo menos um número")
+      .refine((s) => /[^A-Za-z0-9]/.test(s), "Deve conter pelo menos um caractere especial"),
+    confirmar_senha: z.string(),
+  })
+  .refine((v) => v.nova_senha === v.confirmar_senha, {
+    message: "As senhas não coincidem",
+    path: ["confirmar_senha"],
+  })
+
 export type UsuarioCreateInput = z.infer<typeof usuarioCreateSchema>
 export type UsuarioUpdateInput = z.infer<typeof usuarioUpdateSchema>
 export type AlterarSenhaInput = z.infer<typeof alterarSenhaSchema>
+export type MeuPerfilSenhaInput = z.infer<typeof meuPerfilSenhaSchema>
+export type RedefinirSenhaInput = z.infer<typeof redefinirSenhaSchema>

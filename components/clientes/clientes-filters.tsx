@@ -62,53 +62,55 @@ export function ClientesFilters({
         className="max-w-sm"
       />
 
-      <Select
-        value={tipo ?? "todos"}
-        onValueChange={(v) => updateParam("tipo", v)}
-      >
-        <SelectTrigger className="w-[160px]">
-          <SelectValue placeholder="Tipo" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="todos">Todos os tipos</SelectItem>
-          <SelectItem value="regular">Regular</SelectItem>
-          <SelectItem value="faturado">Faturado</SelectItem>
-        </SelectContent>
-      </Select>
-
-      <Select
-        value={status ?? "todos"}
-        onValueChange={(v) => updateParam("status", v)}
-      >
-        <SelectTrigger className="w-[160px]">
-          <SelectValue placeholder="Status" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="todos">Todos os status</SelectItem>
-          <SelectItem value="lead">Lead</SelectItem>
-          <SelectItem value="ativo">Ativo</SelectItem>
-          <SelectItem value="inativo">Inativo</SelectItem>
-        </SelectContent>
-      </Select>
-
-      {showEmpresaFilter && empresas && empresas.length > 0 && (
+      <div className="hidden md:contents">
         <Select
-          value={empresaId ?? "todas"}
-          onValueChange={(v) => updateParam("empresa", v === "todas" ? null : v)}
+          value={tipo ?? "todos"}
+          onValueChange={(v) => updateParam("tipo", v)}
         >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Empresa" />
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Tipo" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="todas">Todas as empresas</SelectItem>
-            {empresas.map((e) => (
-              <SelectItem key={e.id} value={e.id}>
-                {e.nome}
-              </SelectItem>
-            ))}
+            <SelectItem value="todos">Todos os tipos</SelectItem>
+            <SelectItem value="regular">Regular</SelectItem>
+            <SelectItem value="faturado">Faturado</SelectItem>
           </SelectContent>
         </Select>
-      )}
+
+        <Select
+          value={status ?? "todos"}
+          onValueChange={(v) => updateParam("status", v)}
+        >
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos os status</SelectItem>
+            <SelectItem value="lead">Lead</SelectItem>
+            <SelectItem value="ativo">Ativo</SelectItem>
+            <SelectItem value="inativo">Inativo</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {showEmpresaFilter && empresas && empresas.length > 0 && (
+          <Select
+            value={empresaId ?? "todas"}
+            onValueChange={(v) => updateParam("empresa", v === "todas" ? null : v)}
+          >
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Empresa" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas as empresas</SelectItem>
+              {empresas.map((e) => (
+                <SelectItem key={e.id} value={e.id}>
+                  {e.nome}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
     </div>
   )
 }
