@@ -115,7 +115,7 @@ export default async function DashboardPage({
       tipo_produto_id,
       tipo_produto_nome,
       vendas:venda_id (
-        id, status, data_aprovacao, empresa_id, usuario_id,
+        id, status, data_aprovacao, empresa_id, usuario_id, origem,
         empresa:empresa_id ( nome, slug ),
         agente:usuarios!vendas_usuario_id_fkey ( nome )
       )
@@ -145,6 +145,7 @@ export default async function DashboardPage({
     empresa_slug: string
     usuario_id: string
     agente_nome: string
+    origem: string
   }
 
   type VendaJoin = {
@@ -153,6 +154,7 @@ export default async function DashboardPage({
     data_aprovacao: string | null
     empresa_id: string
     usuario_id: string
+    origem: string | null
     empresa: { nome: string; slug: string } | null
     agente: { nome: string } | null
   }
@@ -179,6 +181,7 @@ export default async function DashboardPage({
       empresa_slug: v.empresa?.slug ?? "",
       usuario_id: v.usuario_id,
       agente_nome: v.agente?.nome ?? "—",
+      origem: v.origem || "Sem origem",
     })
   }
 
@@ -267,11 +270,42 @@ export default async function DashboardPage({
     .sort((a, b) => b.receita - a.receita)
     .slice(0, 5)
     .map((t) => ({ label: t.label, value: Math.round(t.receita) }))
-  const top5Rav = porTipo
+
+  // ── Origem do lead (donut esquerdo) ─────────────────────────────────────────
+  // Paleta cíclica nas mesmas tonalidades do tema (Nexus + verde + âmbar).
+  const PALETA_ORIGEM = [
+    "#1498D5", // nexus-bright
+    "#10B981", // emerald-500
+    "#F59E0B", // amber-500
+    "#A855F7", // purple-500
+    "#EC4899", // pink-500
+    "#0EA5E9", // sky-500
+    "#84CC16", // lime-500
+    "#F43F5E", // rose-500
+  ]
+  const porOrigem = aggregate(
+    dados,
+    (d) => d.origem,
+    (d) => ({ label: d.origem, receita: d.valor_venda, rav: d.rav }),
+  ).sort((a, b) => b.receita - a.receita)
+  const donutReceitaOrigem = porOrigem.map((o, i) => ({
+    label: o.label,
+    value: Math.max(0, Math.round(o.receita)),
+    color: PALETA_ORIGEM[i % PALETA_ORIGEM.length]!,
+  }))
+  const donutReceitaOrigemTotal = donutReceitaOrigem.reduce(
+    (acc, d) => acc + d.value,
+    0,
+  )
+
+  // ── Tipos de produto mais vendidos por receita (tabela direita) ─────────────
+  const porTipoOrdenado = porTipo
     .slice()
-    .sort((a, b) => b.rav - a.rav)
-    .slice(0, 5)
-    .map((t) => ({ label: t.label, value: Math.round(t.rav) }))
+    .sort((a, b) => b.receita - a.receita)
+  const receitaTipos = porTipoOrdenado.reduce(
+    (acc, t) => acc + t.receita,
+    0,
+  )
 
   return (
     <div>
@@ -523,12 +557,12 @@ export default async function DashboardPage({
         </ChartCard>
       </div>
 
-      {/* Linha 3 — Foco do cliente: Receita da empresa + Margem RAV da empresa */}
+      {/* Linha 3 — Visão geral: Origem do lead + Tipos de produto mais vendidos */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="border-white/[0.06] bg-white/[0.02]">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-semibold text-white">
-              Receita por empresa
+              Receita por origem do lead
             </CardTitle>
             <p className="mt-0.5 text-xs text-white/45">
               {labelPeriodo(periodo, range)}
@@ -536,10 +570,10 @@ export default async function DashboardPage({
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="h-40">
-              {donutReceitaTotal > 0 ? (
+              {donutReceitaOrigemTotal > 0 ? (
                 <DonutChartCard
-                  data={donutReceitaEmpresa}
-                  centerValue={formatBRL(donutReceitaTotal)}
+                  data={donutReceitaOrigem}
+                  centerValue={formatBRL(donutReceitaOrigemTotal)}
                   centerLabel="receita"
                 />
               ) : (
@@ -547,19 +581,19 @@ export default async function DashboardPage({
               )}
             </div>
             <div className="space-y-1.5">
-              {donutReceitaEmpresa.map((d) => (
+              {donutReceitaOrigem.map((d) => (
                 <div
                   key={d.label}
                   className="flex items-center justify-between text-xs"
                 >
-                  <span className="flex items-center gap-2 text-white/75">
+                  <span className="flex items-center gap-2 truncate text-white/75">
                     <span
-                      className="inline-block h-2 w-2 rounded-full"
+                      className="inline-block h-2 w-2 shrink-0 rounded-full"
                       style={{ backgroundColor: d.color }}
                     />
-                    {d.label}
+                    <span className="truncate">{d.label}</span>
                   </span>
-                  <span className="tabular-nums text-white/55">
+                  <span className="shrink-0 tabular-nums text-white/55">
                     {formatBRL(d.value)}
                   </span>
                 </div>
@@ -573,18 +607,18 @@ export default async function DashboardPage({
             <div className="flex items-start justify-between">
               <div>
                 <CardTitle className="text-base font-semibold text-white">
-                  Margem RAV por empresa
+                  Tipos de produto mais vendidos
                 </CardTitle>
                 <p className="mt-0.5 text-xs text-white/45">
-                  RAV total + % sobre a receita · {labelPeriodo(periodo, range)}
+                  Receita + RAV + margem por tipo · {labelPeriodo(periodo, range)}
                 </p>
               </div>
               <div className="text-right">
                 <p className="text-xl font-semibold tabular-nums text-white">
-                  {formatBRL(ravTotal)}
+                  {formatBRL(receitaTipos)}
                 </p>
-                <p className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-emerald-300/85">
-                  {ravPct.toFixed(1).replace(".", ",")}% da receita
+                <p className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-white/45">
+                  total
                 </p>
               </div>
             </div>
@@ -594,7 +628,7 @@ export default async function DashboardPage({
               <Table>
                 <TableHeader>
                   <TableRow className="border-white/[0.06] hover:bg-transparent">
-                    <TableHead className="text-white/55">Empresa</TableHead>
+                    <TableHead className="text-white/55">Tipo de produto</TableHead>
                     <TableHead className="text-right text-white/55">
                       Receita
                     </TableHead>
@@ -607,7 +641,7 @@ export default async function DashboardPage({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {porEmpresa.length === 0 ? (
+                  {porTipoOrdenado.length === 0 ? (
                     <TableRow className="border-white/[0.06] hover:bg-transparent">
                       <TableCell
                         colSpan={4}
@@ -617,31 +651,22 @@ export default async function DashboardPage({
                       </TableCell>
                     </TableRow>
                   ) : (
-                    porEmpresa.map((e) => {
+                    porTipoOrdenado.map((t) => {
                       const pct =
-                        e.receita > 0 ? (e.rav / e.receita) * 100 : 0
+                        t.receita > 0 ? (t.rav / t.receita) * 100 : 0
                       return (
                         <TableRow
-                          key={e.slug || e.label}
+                          key={t.label}
                           className="border-white/[0.06] hover:bg-white/[0.025]"
                         >
                           <TableCell className="font-medium text-white">
-                            <span className="flex items-center gap-2">
-                              <span
-                                className="inline-block h-2 w-2 shrink-0 rounded-full"
-                                style={{
-                                  backgroundColor:
-                                    EMPRESA_COR[e.slug] ?? COR_FALLBACK,
-                                }}
-                              />
-                              {e.label}
-                            </span>
+                            {t.label || "—"}
                           </TableCell>
                           <TableCell className="text-right tabular-nums text-white/85">
-                            {formatBRL(e.receita)}
+                            {formatBRL(t.receita)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums text-emerald-300">
-                            {formatBRL(e.rav)}
+                            {formatBRL(t.rav)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums font-medium text-white">
                             {pct.toFixed(1).replace(".", ",")}%
@@ -862,32 +887,9 @@ export default async function DashboardPage({
         </CardContent>
       </Card>
 
-      {/* Linha 6 — TOP 5 Tipo de Produto (Receita) + TOP 5 (RAV) */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard
-          titulo="TOP 5 Tipo de Produto"
-          subtitulo={`por receita · ${labelPeriodo(periodo, range)}`}
-        >
-          {top5Receita.length === 0 ? (
-            <EmptyChart label="Nenhum produto no período." />
-          ) : (
-            <HorizontalBarChartCard data={top5Receita} />
-          )}
-        </ChartCard>
-        <ChartCard
-          titulo="TOP 5 Tipo de Produto"
-          subtitulo={`por RAV · ${labelPeriodo(periodo, range)}`}
-        >
-          {top5Rav.length === 0 ? (
-            <EmptyChart label="Nenhum produto no período." />
-          ) : (
-            <HorizontalBarChartCard
-              data={top5Rav}
-              primaryColor="#10b981"
-            />
-          )}
-        </ChartCard>
-      </div>
+      {/* Linha 6 — TOP 5 por Tipo de Produto: REMOVIDA.
+          A tabela "Tipos de produto mais vendidos" da Linha 3 já cobre
+          esses dados em formato mais informativo (com margem RAV %). */}
       </div>
       </div>
     </div>
