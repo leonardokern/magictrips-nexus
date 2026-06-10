@@ -4,6 +4,7 @@ import { Resend } from "resend"
 import { render } from "@react-email/render"
 import NovoUsuarioComSenhaProvisoria from "@/emails/novo-usuario-com-senha-provisoria"
 import NovoUsuarioSenhaDefinitiva from "@/emails/novo-usuario-senha-definitiva"
+import ResetSenha from "@/emails/reset-senha"
 
 /**
  * Wrapper do Resend para envio de emails transacionais.
@@ -112,6 +113,20 @@ export async function enviarEmailNovoUsuarioSenhaDefinitiva(params: {
       email: params.to,
       appUrl: getAppUrl(),
       criadoPor: params.criadoPor,
+    }),
+  })
+}
+
+export async function enviarEmailResetSenha(params: {
+  to: string
+  resetUrl: string
+}): Promise<SendResult> {
+  return sendReactEmail({
+    to: params.to,
+    subject: "Redefinição de senha — Nexus",
+    react: ResetSenha({
+      resetUrl: params.resetUrl,
+      appUrl: getAppUrl(),
     }),
   })
 }

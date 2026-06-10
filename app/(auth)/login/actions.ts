@@ -2,7 +2,9 @@
 
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
+import { createAdminClient } from "@/lib/supabase/admin"
 import { getAppUrl } from "@/lib/utils/app-url"
+import { enviarEmailResetSenha } from "@/lib/email/send"
 
 export type EsqueciSenhaState = {
   error?: string
@@ -20,16 +22,26 @@ export async function esquecerSenhaAction(
   const email = String(formData.get("email") ?? "").trim().toLowerCase()
   if (!email) return { error: "Informe o e-mail." }
 
-  const supabase = await createClient()
-
-  // Supabase ignora silenciosamente se o e-mail não existir — não revela.
-  // getAppUrl() resolve APP_URL → NEXT_PUBLIC_APP_URL → domínio prod Vercel
-  // → localhost (cadeia em lib/utils/app-url.ts). Importante: o link gerado
-  // pelo Supabase também precisa estar liberado no Auth → URL Configuration
-  // → Redirect URLs no painel Supabase.
-  await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${getAppUrl()}/auth/callback?next=/redefinir-senha`,
+  // Usa o admin client para gerar o link de recovery sem enviar e-mail
+  // pelo Supabase (que usa SMTP padrão limitado e não confiável).
+  // O link é enviado via Resend, usando o domínio verificado do projeto.
+  const admin = createAdminClient()
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: "recovery",
+    email,
+    options: {
+      redirectTo: `${getAppUrl()}/auth/callback?next=/redefinir-senha`,
+    },
   })
+
+  // Se o e-mail não existe no sistema, o Supabase retorna erro mas NÃO
+  // revelamos isso ao usuário (evita user enumeration).
+  if (!error && data?.properties?.action_link) {
+    await enviarEmailResetSenha({
+      to: email,
+      resetUrl: data.properties.action_link,
+    })
+  }
 
   return { success: true }
 }
