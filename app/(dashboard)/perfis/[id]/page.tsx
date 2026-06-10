@@ -112,11 +112,14 @@ export default async function PerfilDetailPage({
 
   const permissoes = (perfil.permissoes as PermissoesValue) ?? {}
   const tipo = perfil.tipo as PerfilTipo
-  const tipoLabel = tipo === "agente" ? "Agente" : "Operação"
+  const tipoLabel =
+    tipo === "agente" ? "Agente" : tipo === "marketing" ? "Marketing" : "Operação"
   const tipoChip =
     tipo === "agente"
       ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
-      : "border-nexus-bright/30 bg-nexus-bright/10 text-nexus-bright"
+      : tipo === "marketing"
+        ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-300"
+        : "border-nexus-bright/30 bg-nexus-bright/10 text-nexus-bright"
 
   return (
     <div className="space-y-6">

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Eye, Pencil, Power, type LucideIcon } from "lucide-react"
+import { Eye, Pencil, Power, ScrollText, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { LoaderButton } from "@/components/ui/loader-button"
@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { UsuarioFormModal } from "./usuario-form-modal"
+import { UsuarioAuditModal } from "./usuario-audit-modal"
 import { toggleUsuarioAtivo } from "@/app/(dashboard)/usuarios/actions"
 import { cn } from "@/lib/utils"
 import { IconTooltip } from "@/components/ui/tooltip"
@@ -40,10 +41,13 @@ type Props = {
     empresa_ids: string[]
     ativo: boolean
     foto_url?: string | null
+    created_at: string
+    iniciais: string | null
   }
   perfis: Perfil[]
   empresas: Empresa[]
   podeEditar: boolean
+  podeVerAuditoria: boolean
   isSelf: boolean
 }
 
@@ -52,12 +56,14 @@ export function UsuarioRowActions({
   perfis,
   empresas,
   podeEditar,
+  podeVerAuditoria,
   isSelf,
 }: Props) {
   const router = useRouter()
   const [viewOpen, setViewOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [auditOpen, setAuditOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
 
   const isAdmin = usuario.perfil_chave_sistema === "admin"
@@ -124,6 +130,15 @@ export function UsuarioRowActions({
         </>
       )}
 
+      {podeVerAuditoria && (
+        <IconAction
+          icon={ScrollText}
+          label="Ver logs de auditoria"
+          onClick={() => setAuditOpen(true)}
+          tone="neutral"
+        />
+      )}
+
       {/* Modal de visualização (read-only) */}
       <UsuarioFormModal
         mode="edit"
@@ -145,6 +160,19 @@ export function UsuarioRowActions({
         onOpenChange={setEditOpen}
         perfis={perfis}
         empresas={empresas}
+      />
+
+      {/* Log de auditoria */}
+      <UsuarioAuditModal
+        open={auditOpen}
+        onOpenChange={setAuditOpen}
+        usuario={{
+          id: usuario.id,
+          nome: usuario.nome,
+          iniciais: usuario.iniciais,
+          foto_url: usuario.foto_url,
+          created_at: usuario.created_at,
+        }}
       />
 
       {/* Confirmação de ativar/inativar */}

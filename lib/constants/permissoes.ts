@@ -132,9 +132,8 @@ export const MODULOS_PERMISSAO: ModuloDef[] = [
   {
     key: "auditoria",
     label: "Auditoria",
-    description: "Log imutável de ações críticas (somente leitura).",
-    acoes: [{ key: "ler", label: "Ler" }],
-    naoDisponivel: true,
+    description: "Log imutável de ações críticas — ver logs por usuário.",
+    acoes: [{ key: "ver", label: "Permitir" }],
   },
   {
     key: "exportar",

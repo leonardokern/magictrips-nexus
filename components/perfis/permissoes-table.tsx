@@ -17,9 +17,9 @@ type Props = {
 
 // Colunas em ordem de exibição. Manter alinhado com o catálogo em
 // lib/constants/permissoes.ts — se aparecer ação nova, adicionar aqui.
-const ACOES_COLUNAS: { key: string; label: string }[] = [
-  { key: "ver", label: "Ver" },
-  { key: "ler", label: "Ler" },
+// "ver" e "ler" são tratados como a mesma coluna — módulos usam um ou outro.
+const ACOES_COLUNAS: { key: string; label: string; aliases?: string[] }[] = [
+  { key: "ver", label: "Ver", aliases: ["ler"] },
   { key: "criar", label: "Criar" },
   { key: "editar", label: "Editar" },
   { key: "excluir", label: "Excluir" },
@@ -57,7 +57,7 @@ export function PermissoesTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.02]">
+    <div className="overflow-x-auto overflow-y-auto rounded-xl border border-white/[0.06] bg-white/[0.02]" style={{ maxHeight: "60vh" }}>
       {/* min-width garante que todas as colunas sejam visíveis antes de rolar */}
       <table className="w-full border-separate border-spacing-0 text-sm" style={{ minWidth: 720 }}>
         <thead>
@@ -129,8 +129,13 @@ export function PermissoesTable({
                 </td>
 
                 {ACOES_COLUNAS.map((acao) => {
-                  const aplicavel = acoesDisponiveis.includes(acao.key)
-                  if (!aplicavel) {
+                  // Resolve qual chave real o módulo usa para esta coluna
+                  // (ex: coluna "ver" pode mapear para "ler" no módulo)
+                  const chaveReal =
+                    acoesDisponiveis.includes(acao.key)
+                      ? acao.key
+                      : (acao.aliases ?? []).find((a) => acoesDisponiveis.includes(a)) ?? null
+                  if (!chaveReal) {
                     return (
                       <td
                         key={acao.key}
@@ -141,9 +146,7 @@ export function PermissoesTable({
                       </td>
                     )
                   }
-                  const checked = readOnlyAllTrue
-                    ? true
-                    : Boolean(perms[acao.key])
+                  const checked = readOnlyAllTrue ? true : Boolean(perms[chaveReal])
                   return (
                     <td
                       key={acao.key}
@@ -155,7 +158,7 @@ export function PermissoesTable({
                           checked={checked}
                           disabled={desabilitaInteracao}
                           onCheckedChange={(c) =>
-                            toggle(mod.key, acao.key, c === true)
+                            toggle(mod.key, chaveReal, c === true)
                           }
                         />
                       </div>

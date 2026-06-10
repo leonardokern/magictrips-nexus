@@ -9,7 +9,7 @@ export const permissoesSchema = z.record(
 )
 export type PermissoesValue = z.infer<typeof permissoesSchema>
 
-export const PERFIL_TIPOS = ["operacao", "agente"] as const
+export const PERFIL_TIPOS = ["operacao", "agente", "marketing"] as const
 export type PerfilTipo = (typeof PERFIL_TIPOS)[number]
 
 /**
@@ -42,7 +42,7 @@ export const perfilCreateSchema = z
     (v) => (v.tipo === "agente" ? v.empresa_id !== null : v.empresa_id === null),
     {
       message:
-        "Perfis tipo Agente precisam de uma empresa; Operação é sempre cross-empresa.",
+        "Perfis tipo Agente precisam de uma empresa; Operação e Marketing são sempre cross-empresa.",
       path: ["empresa_id"],
     },
   )

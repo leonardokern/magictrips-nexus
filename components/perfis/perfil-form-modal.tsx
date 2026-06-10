@@ -7,6 +7,7 @@ import {
   Building2,
   ChevronLeft,
   ChevronRight,
+  Megaphone,
   Percent,
   ShieldCheck,
   Users,
@@ -42,7 +43,7 @@ import { createClient } from "@/lib/supabase/client"
 type Empresa = { id: string; nome: string; slug: string }
 
 type ModeProps =
-  | { mode: "create" }
+  | { mode: "create"; initialPermissoes?: PermissoesValue }
   | {
       mode: "edit"
       id: string
@@ -114,7 +115,11 @@ export function PerfilFormModal(props: Props) {
         comissoes: props.initial.comissoes,
       })
     } else {
-      setV(EMPTY())
+      const base = EMPTY()
+      if (props.mode === "create" && props.initialPermissoes) {
+        base.permissoes = props.initialPermissoes
+      }
+      setV(base)
     }
   }, [props.open, props.mode, props.initialStep])
 
@@ -160,8 +165,8 @@ export function PerfilFormModal(props: Props) {
   function update<K extends keyof FormState>(k: K, val: FormState[K]) {
     setV((s) => {
       const next = { ...s, [k]: val }
-      // Trocou pra operação → força cross-empresa e limpa overrides
-      if (k === "tipo" && val === "operacao") {
+      // Operação e Marketing → cross-empresa, limpa overrides
+      if (k === "tipo" && (val === "operacao" || val === "marketing")) {
         next.empresa_id = null
         next.comissoes = {}
       }
@@ -457,7 +462,7 @@ function Step1({
           <Briefcase className="h-3.5 w-3.5" />
           Tipo de perfil
         </Label>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-3">
           <TipoCard
             ativo={tipo === "operacao"}
             onClick={() => !readOnly && onChangeTipo("operacao")}
@@ -472,6 +477,14 @@ function Step1({
             icon={<Percent className="h-4 w-4" />}
             titulo="Agente"
             descricao="Vinculado a 1 empresa. Tem matriz própria de comissão (passo 3)."
+            disabled={readOnly}
+          />
+          <TipoCard
+            ativo={tipo === "marketing"}
+            onClick={() => !readOnly && onChangeTipo("marketing")}
+            icon={<Megaphone className="h-4 w-4" />}
+            titulo="Marketing"
+            descricao="Cross-empresa. Acesso focado em marketing e análise. Comissão especial."
             disabled={readOnly}
           />
         </div>

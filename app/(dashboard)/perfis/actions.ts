@@ -134,7 +134,7 @@ export async function updatePerfil(
 
   const updates: {
     nome?: string
-    tipo?: "operacao" | "agente"
+    tipo?: "operacao" | "agente" | "marketing"
     empresa_id?: string | null
     permissoes?: Record<string, Record<string, boolean>>
   } = {}

@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { formatDateBr } from "@/lib/utils/formatters"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -84,7 +85,7 @@ export default async function UsuariosPage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let query = (supabase as any)
     .from("usuarios")
-    .select("id, nome, email, iniciais, foto_url, ativo, perfil_id", { count: "exact" })
+    .select("id, nome, email, iniciais, foto_url, ativo, perfil_id, created_at", { count: "exact" })
     .order("nome")
     .range(from, to)
 
@@ -94,7 +95,7 @@ export default async function UsuariosPage({
   if (status === "inativo") query = query.eq("ativo", false)
   if (usuarioIdsFiltrados) query = query.in("id", usuarioIdsFiltrados)
 
-  type UsuarioRow = { id: string; nome: string; email: string; iniciais: string | null; foto_url: string | null; ativo: boolean; perfil_id: string }
+  type UsuarioRow = { id: string; nome: string; email: string; iniciais: string | null; foto_url: string | null; ativo: boolean; perfil_id: string; created_at: string }
   const { data: usuariosRaw, count, error } = await query
   const usuarios = (usuariosRaw ?? []) as UsuarioRow[]
 
@@ -138,6 +139,19 @@ export default async function UsuariosPage({
   }
   const totalEmpresasAtivas = (empresasAtivas ?? []).length
 
+  // Último login via SECURITY DEFINER function (acessa auth.users)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: ultimoLoginData } = userIds.length
+    ? await (supabase as any).rpc("get_usuarios_ultimo_login", { p_user_ids: userIds })
+    : { data: [] as { usuario_id: string; ultimo_login: string | null }[] }
+  const ultimoLoginMap = new Map<string, string | null>(
+    ((ultimoLoginData ?? []) as { usuario_id: string; ultimo_login: string | null }[]).map(
+      (r) => [r.usuario_id, r.ultimo_login],
+    ),
+  )
+
+  const podeVerAuditoria = can(user, "auditoria", "ver")
+
   const total = count ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
@@ -176,13 +190,14 @@ export default async function UsuariosPage({
               <TableHead className="text-white/55">E-mail</TableHead>
               <TableHead className="text-white/55">Perfil</TableHead>
               <TableHead className="text-white/55">Status</TableHead>
+              <TableHead className="text-white/55">Último login</TableHead>
               <TableHead className="text-right text-white/55">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {!usuarios || usuarios.length === 0 ? (
               <TableRow className="border-white/[0.06] hover:bg-transparent">
-                <TableCell colSpan={5} className="h-32 text-center text-sm text-white/45">
+                <TableCell colSpan={6} className="h-32 text-center text-sm text-white/45">
                   {q || perfilId || status
                     ? "Nenhum usuário encontrado com esses filtros."
                     : "Nenhum usuário cadastrado ainda."}
@@ -227,6 +242,9 @@ export default async function UsuariosPage({
                     <TableCell>
                       <UsuarioAtivoBadge ativo={u.ativo} />
                     </TableCell>
+                    <TableCell className="text-sm text-white/50">
+                      <UltimoLogin iso={ultimoLoginMap.get(u.id) ?? null} />
+                    </TableCell>
                     <TableCell className="text-right">
                       <UsuarioRowActions
                         usuario={{
@@ -244,10 +262,13 @@ export default async function UsuariosPage({
                           empresa_ids: userEmpresaIds,
                           ativo: u.ativo,
                           foto_url: u.foto_url,
+                          created_at: u.created_at,
+                          iniciais: u.iniciais,
                         }}
                         perfis={perfis ?? []}
                         empresas={empresasAtivas ?? []}
                         podeEditar={can(user, "usuarios", "editar")}
+                        podeVerAuditoria={podeVerAuditoria}
                         isSelf={u.id === user.id}
                       />
                     </TableCell>
@@ -306,6 +327,15 @@ export default async function UsuariosPage({
                   <div className="mt-1.5 pl-12">
                     <PerfilUsuarioBadge nome={perfilNome} />
                   </div>
+                  {/* Row 4: último login */}
+                  {(() => {
+                    const ul = ultimoLoginMap.get(u.id) ?? null
+                    return ul ? (
+                      <p className="mt-1 pl-12 text-[11px] text-white/40">
+                        Último login: <UltimoLogin iso={ul} />
+                      </p>
+                    ) : null
+                  })()}
                   {/* Actions row */}
                   <div className="mt-3 flex items-center justify-end border-t border-white/[0.06] pt-3">
                     <UsuarioRowActions
@@ -323,10 +353,14 @@ export default async function UsuariosPage({
                             | null,
                         empresa_ids: userEmpresaIds,
                         ativo: u.ativo,
+                        foto_url: u.foto_url ?? null,
+                        created_at: u.created_at,
+                        iniciais: u.iniciais,
                       }}
                       perfis={perfis ?? []}
                       empresas={empresasAtivas ?? []}
                       podeEditar={can(user, "usuarios", "editar")}
+                      podeVerAuditoria={podeVerAuditoria}
                       isSelf={u.id === user.id}
                     />
                   </div>
@@ -386,4 +420,16 @@ export default async function UsuariosPage({
       )}
     </div>
   )
+}
+
+function UltimoLogin({ iso }: { iso: string | null }) {
+  if (!iso) return <span className="text-white/30">Nunca</span>
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return <span className="text-white/30">—</span>
+  const dia = String(d.getDate()).padStart(2, "0")
+  const mes = String(d.getMonth() + 1).padStart(2, "0")
+  const ano = d.getFullYear()
+  const h = String(d.getHours()).padStart(2, "0")
+  const m = String(d.getMinutes()).padStart(2, "0")
+  return <span>{dia}/{mes}/{ano} {h}:{m}</span>
 }

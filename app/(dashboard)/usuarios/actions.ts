@@ -394,6 +394,53 @@ export async function atualizarFotoUsuario(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Auditoria
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type AuditLogEntry = {
+  id: string
+  acao: string
+  entidade: string
+  entidade_id: string | null
+  dados_antes: Record<string, unknown> | null
+  dados_depois: Record<string, unknown> | null
+  created_at: string
+}
+
+const AUDIT_PAGE_SIZE = 10
+
+export async function getUsuarioAuditLogs(
+  usuarioId: string,
+  page: number = 1,
+): Promise<ActionResult<{ logs: AuditLogEntry[]; total: number }>> {
+  const user = await requireCurrentUser()
+  if (!can(user, "auditoria", "ver")) {
+    return { ok: false, error: "Sem permissão para ver logs de auditoria." }
+  }
+
+  const supabase = await createClient()
+  const from = (page - 1) * AUDIT_PAGE_SIZE
+  const to = from + AUDIT_PAGE_SIZE - 1
+
+  const { data, count, error } = await supabase
+    .from("audit_logs")
+    .select("id, acao, entidade, entidade_id, dados_antes, dados_depois, created_at", { count: "exact" })
+    .eq("usuario_id", usuarioId)
+    .order("created_at", { ascending: false })
+    .range(from, to)
+
+  if (error) return { ok: false, error: error.message }
+
+  return {
+    ok: true,
+    data: {
+      logs: (data ?? []) as AuditLogEntry[],
+      total: count ?? 0,
+    },
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers privados
 // ─────────────────────────────────────────────────────────────────────────────
 

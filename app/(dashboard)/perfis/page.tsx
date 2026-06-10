@@ -117,7 +117,16 @@ export default async function PerfisPage() {
         </div>
 
         {can(user, "perfis", "criar") && (
-          <NovoPerfilButton empresas={empresas ?? []} agendaEnabled={agendaEnabled} propostasEnabled={propostasEnabled} />
+          <NovoPerfilButton
+            empresas={empresas ?? []}
+            perfis={perfisList.map((p) => ({
+              id: p.id,
+              nome: p.nome,
+              permissoes: (p.permissoes as PermissoesValue) ?? {},
+            }))}
+            agendaEnabled={agendaEnabled}
+            propostasEnabled={propostasEnabled}
+          />
         )}
       </div>
 
@@ -144,11 +153,14 @@ export default async function PerfisPage() {
               </TableRow>
             ) : (
               perfisList.map((p) => {
-                const tipoLabel = p.tipo === "agente" ? "Agente" : "Operação"
+                const tipoLabel =
+                  p.tipo === "agente" ? "Agente" : p.tipo === "marketing" ? "Marketing" : "Operação"
                 const tipoChip =
                   p.tipo === "agente"
                     ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
-                    : "border-nexus-bright/30 bg-nexus-bright/10 text-nexus-bright"
+                    : p.tipo === "marketing"
+                      ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-300"
+                      : "border-nexus-bright/30 bg-nexus-bright/10 text-nexus-bright"
                 const usuariosCount = usuariosPorPerfil.get(p.id) ?? 0
                 return (
                   <TableRow
@@ -215,11 +227,14 @@ export default async function PerfisPage() {
         ) : (
           <div className="flex flex-col gap-2">
             {perfisList.map((p) => {
-              const tipoLabel = p.tipo === "agente" ? "Agente" : "Operação"
+              const tipoLabel =
+                p.tipo === "agente" ? "Agente" : p.tipo === "marketing" ? "Marketing" : "Operação"
               const tipoChip =
                 p.tipo === "agente"
                   ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
-                  : "border-nexus-bright/30 bg-nexus-bright/10 text-nexus-bright"
+                  : p.tipo === "marketing"
+                    ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-300"
+                    : "border-nexus-bright/30 bg-nexus-bright/10 text-nexus-bright"
               const usuariosCount = usuariosPorPerfil.get(p.id) ?? 0
               return (
                 <div

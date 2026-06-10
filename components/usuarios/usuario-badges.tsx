@@ -5,6 +5,7 @@ const PERFIL_STYLES: Record<string, string> = {
   Administrador: "border-rose-500/30 bg-rose-500/15 text-rose-300",
   Gerente: "border-sky-500/30 bg-sky-500/15 text-sky-300",
   Agente: "border-emerald-500/30 bg-emerald-500/15 text-emerald-300",
+  Marketing: "border-yellow-500/30 bg-yellow-500/15 text-yellow-300",
 }
 
 export function PerfilUsuarioBadge({ nome }: { nome: string }) {
