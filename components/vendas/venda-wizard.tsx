@@ -2620,9 +2620,21 @@ function Step2Produtos(props: {
                           <SelectValue placeholder={campo.placeholder ?? "Selecione"} />
                         </SelectTrigger>
                         <SelectContent>
-                          {campo.opcoes.map((o) => (
-                            <SelectItem key={o.valor} value={o.valor}>{o.valor}</SelectItem>
-                          ))}
+                          {/* Ordenamos alfabeticamente (pt-BR) no render —
+                              a ordem cadastrada no admin não vale aqui,
+                              o operador procura a opção pelo nome. */}
+                          {campo.opcoes
+                            .slice()
+                            .sort((a, b) =>
+                              a.valor.localeCompare(b.valor, "pt-BR", {
+                                sensitivity: "base",
+                              }),
+                            )
+                            .map((o) => (
+                              <SelectItem key={o.valor} value={o.valor}>
+                                {o.valor}
+                              </SelectItem>
+                            ))}
                         </SelectContent>
                       </Select>
                     ) : campo.tipo_campo === "data" ? (
