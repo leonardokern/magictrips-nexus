@@ -174,9 +174,9 @@ export async function getVendasParaExportar(
       .filter(Boolean)
       .join("; ")
 
-    // Vendedora — só o primeiro nome, mantém estilo do modelo
+    // Vendedora — nome completo do agente
     const nomeAgente = (agenteObj && !Array.isArray(agenteObj) && agenteObj.nome) || ""
-    const vendedora = nomeAgente.split(" ")[0]?.toUpperCase() ?? ""
+    const vendedora = nomeAgente.toUpperCase()
 
     const linha: LinhaExport = {
       vendaId: v.id,
