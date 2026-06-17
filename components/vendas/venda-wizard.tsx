@@ -1373,8 +1373,6 @@ export function VendaWizard(props: Props) {
             comissao={comissaoDoAgente}
             comissaoSource={comissaoSource}
             podeTrocarAgente={props.podeTrocarAgente}
-            observacoes={observacoesGerais}
-            setObservacoes={setObservacoesGerais}
             errors={errors}
           />
         )}
@@ -1466,6 +1464,8 @@ export function VendaWizard(props: Props) {
             wizardSessionId={wizardSessionId}
             anexos={anexos}
             setAnexos={setAnexos}
+            observacoes={observacoesGerais}
+            setObservacoes={setObservacoesGerais}
             readOnly={false}
           />
         )}
@@ -1839,8 +1839,6 @@ function Step1(props: {
   comissao: number | null
   comissaoSource: "usuario" | "perfil" | "regra" | null
   podeTrocarAgente: boolean
-  observacoes: string
-  setObservacoes: (v: string) => void
   errors: Record<string, string>
 }) {
   const e = props.errors
@@ -2218,14 +2216,8 @@ function Step1(props: {
         </Field>
       </div>
 
-      <Field label="Observações gerais (opcional)">
-        <Textarea
-          value={props.observacoes}
-          onChange={(ev) => props.setObservacoes(ev.target.value)}
-          rows={2}
-          placeholder="Notas internas sobre a venda…"
-        />
-      </Field>
+      {/* Observações gerais foram movidas pro Step 5 (Anexos) em junho/2026 —
+          ficam junto dos anexos como informação de suporte da venda. */}
     </div>
   )
 }
@@ -4728,6 +4720,9 @@ function Step5Anexos(props: {
   wizardSessionId: string
   anexos: AnexoVenda[]
   setAnexos: React.Dispatch<React.SetStateAction<AnexoVenda[]>>
+  /** Observações gerais — movidas do Step 1 pra cá em junho/2026. */
+  observacoes: string
+  setObservacoes: (v: string) => void
   readOnly?: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -4856,6 +4851,21 @@ function Step5Anexos(props: {
           ))}
         </ul>
       )}
+
+      {/* Observações gerais — campo livre pra notas internas sobre a venda.
+          Movido do Step 1 (Identificação) pra cá em junho/2026 — faz mais
+          sentido junto dos anexos como "informações de suporte" da venda. */}
+      <div className="border-t border-white/[0.06] pt-5">
+        <Field label="Observações gerais (opcional)">
+          <Textarea
+            value={props.observacoes}
+            onChange={(ev) => props.setObservacoes(ev.target.value)}
+            rows={3}
+            placeholder="Notas internas sobre a venda…"
+            disabled={props.readOnly}
+          />
+        </Field>
+      </div>
     </div>
   )
 }
