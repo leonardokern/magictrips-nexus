@@ -113,6 +113,9 @@ export function formatCep(cep: string | null | undefined): string {
 /**
  * "2026-05-19" (ISO) → "19/05/2026"
  * Aceita date string ISO ou Date.
+ *
+ * Para datas `date` puras (sem hora), o caller passa "YYYY-MM-DD" e
+ * tratamos como meia-noite local — sem timezone shift indesejado.
  */
 export function formatDateBr(iso: string | Date | null | undefined): string {
   if (!iso) return ""
@@ -121,6 +124,52 @@ export function formatDateBr(iso: string | Date | null | undefined): string {
   const dia = String(d.getDate()).padStart(2, "0")
   const mes = String(d.getMonth() + 1).padStart(2, "0")
   return `${dia}/${mes}/${d.getFullYear()}`
+}
+
+// Timezone canônico do sistema. NÃO use `Date.getHours()` ou
+// `toLocaleString()` sem timezone explícito — em Server Components rodando
+// na Vercel (UTC), `getHours()` retorna a hora UTC e o usuário no Brasil
+// vê -3h. Sempre passe pelo formatador abaixo.
+const TZ_BR = "America/Sao_Paulo"
+
+const FMT_DATA_HORA = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: TZ_BR,
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+})
+
+const FMT_DATA = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: TZ_BR,
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+})
+
+/**
+ * Timestamp ISO 8601 (timestamptz do Postgres) → "19/05/2026 às 14:32"
+ * em horário de Brasília. Funciona idêntico em server e client.
+ */
+export function formatDataHoraBr(iso: string | Date | null | undefined): string {
+  if (!iso) return ""
+  const d = typeof iso === "string" ? new Date(iso) : iso
+  if (Number.isNaN(d.getTime())) return typeof iso === "string" ? iso : ""
+  // Intl com "pt-BR" devolve "19/05/2026, 14:32" — trocamos a vírgula por "às"
+  return FMT_DATA_HORA.format(d).replace(",", " às")
+}
+
+/**
+ * Timestamp ISO 8601 → "19/05/2026" em horário de Brasília.
+ * Use quando precisar mostrar só a data mas o timestamp original tem hora.
+ */
+export function formatDataBrTz(iso: string | Date | null | undefined): string {
+  if (!iso) return ""
+  const d = typeof iso === "string" ? new Date(iso) : iso
+  if (Number.isNaN(d.getTime())) return typeof iso === "string" ? iso : ""
+  return FMT_DATA.format(d)
 }
 
 /**

@@ -17,6 +17,7 @@ import {
   getUsuarioAuditLogs,
   type AuditLogEntry,
 } from "@/app/(dashboard)/usuarios/actions"
+import { formatDataBrTz, formatDataHoraBr } from "@/lib/utils/formatters"
 
 type Props = {
   open: boolean
@@ -68,23 +69,17 @@ function getNomeEntidade(log: AuditLogEntry): string | null {
   return typeof nome === "string" && nome.trim() ? nome.trim() : null
 }
 
+// Antes este componente fazia `new Date(iso).getHours()`, que retorna
+// a hora no fuso onde o código roda. Em Server Components hidratados
+// numa Vercel UTC isso mostrava horário 3h adiantado para usuários no
+// Brasil. Usar o helper central com `timeZone: America/Sao_Paulo` garante
+// resultado idêntico em server e client.
 function formatDateTime(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  const dia = String(d.getDate()).padStart(2, "0")
-  const mes = String(d.getMonth() + 1).padStart(2, "0")
-  const ano = d.getFullYear()
-  const h = String(d.getHours()).padStart(2, "0")
-  const m = String(d.getMinutes()).padStart(2, "0")
-  return `${dia}/${mes}/${ano} às ${h}:${m}`
+  return formatDataHoraBr(iso)
 }
 
 function formatDateOnly(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  const dia = String(d.getDate()).padStart(2, "0")
-  const mes = String(d.getMonth() + 1).padStart(2, "0")
-  return `${dia}/${mes}/${d.getFullYear()}`
+  return formatDataBrTz(iso)
 }
 
 export function UsuarioAuditModal({ open, onOpenChange, usuario }: Props) {
