@@ -14,11 +14,13 @@ import { can } from "@/lib/hooks/use-permissions"
  *  B Cliente         → cliente.nome
  *  C Fornecedor      → primeiro fornecedor distinto (ou "Vários" se >1)
  *  D Vendedora       → primeiro nome do agente
- *  E Detalhamento    → "identificador · localizadores"
- *  F Valor da Venda  → soma de valor_venda
- *  G RAV BRUTO       → soma de rav + rav_extra_cliente + rav_extra_fornecedor
- *  H % RAV Vendedor  → comissao_percentual
- *  I Comissão Venda. → G × H (formula)
+ *  E ID Nexus        → identificador (ex: "MT-0007")
+ *  F Detalhamento    → descrição dos produtos:
+ *                       "Tipo: campo1, campo2; Tipo: campo1, ..."
+ *  G Valor da Venda  → soma de valor_venda
+ *  H RAV BRUTO       → soma de rav + rav_extra_cliente + rav_extra_fornecedor
+ *  I % RAV Vendedor  → comissao_percentual
+ *  J Comissão Venda. → H × I (formula)
  */
 export type LinhaExport = {
   vendaId: string
@@ -47,6 +49,10 @@ type ProdutoRow = {
   localizador: string | null
   localizador_fornecedor: string | null
   destino: string | null
+  /** Snapshot do nome do tipo no momento da venda (ex: "Aéreo"). */
+  tipo_produto_nome: string | null
+  /** JSONB { <campo_id>: <valor_string> } — valores dos campos extras. */
+  valores_extras: Record<string, unknown> | null
 }
 
 /**
@@ -75,8 +81,10 @@ export async function getVendasParaExportar(
       cliente:clientes(nome),
       agente:usuarios!vendas_usuario_id_fkey(nome),
       produtos:venda_produtos(
+        ordem,
         valor_venda, rav, rav_extra_cliente, rav_extra_fornecedor,
-        fornecedor_nome, localizador, localizador_fornecedor, destino
+        fornecedor_nome, localizador, localizador_fornecedor, destino,
+        tipo_produto_nome, valores_extras
       )
     `,
     )
@@ -88,6 +96,20 @@ export async function getVendasParaExportar(
   if (!data || data.length === 0) {
     return { ok: false, error: "Nenhuma venda aprovada encontrada." }
   }
+
+  // Pré-carrega catálogo de fornecedores (id → nome) e campos extras de
+  // tipo `fornecedor` pra resolver UUIDs em valores_extras de volta pro
+  // nome do fornecedor — assim o Excel mostra "LATAM" em vez de um UUID.
+  const [{ data: fornecedoresAll }, { data: camposFornecedorAll }] = await Promise.all([
+    supabase.from("fornecedores").select("id, nome"),
+    supabase.from("campos_extra").select("id").eq("tipo_campo", "fornecedor"),
+  ])
+  const fornecedorNomeById = new Map(
+    (fornecedoresAll ?? []).map((f) => [f.id as string, f.nome as string]),
+  )
+  const campoFornecedorIds = new Set(
+    (camposFornecedorAll ?? []).map((c) => c.id as string),
+  )
 
   type ClienteRel = { nome: string } | { nome: string }[] | null
   type AgenteRel = { nome: string } | { nome: string }[] | null
@@ -121,19 +143,36 @@ export async function getVendasParaExportar(
           ? fornecedoresUnicos[0]!
           : "VÁRIOS"
 
-    // Detalhamento: identificador + localizadores distintos + destino
-    const localizadores = produtos
-      .map((p) =>
-        [p.localizador, p.localizador_fornecedor]
-          .filter(Boolean)
-          .join(" · "),
-      )
+    // Detalhamento: para cada produto, lista o tipo + valores dos campos
+    // customizados separados por vírgula. Produtos separados por ponto-e-vírgula.
+    //   Ex: "Aéreo: LATAM, CGH-SSA, LH7A2D; Hotel: Mar Hotel, 02/01..02/05"
+    //
+    // Valores são extraídos de `valores_extras` (jsonb). UUIDs de campos
+    // tipo `fornecedor` são resolvidos pelo nome via fornecedorNomeById.
+    function descreverProduto(p: ProdutoRow): string {
+      const tipo = (p.tipo_produto_nome ?? "").trim()
+      const extras = p.valores_extras ?? {}
+      const valores: string[] = []
+      for (const [campoId, raw] of Object.entries(extras)) {
+        if (raw == null) continue
+        let txt = String(raw).trim()
+        if (!txt) continue
+        // Resolve UUID → nome se o campo é do tipo fornecedor.
+        if (campoFornecedorIds.has(campoId) && fornecedorNomeById.has(txt)) {
+          txt = fornecedorNomeById.get(txt) ?? txt
+        }
+        valores.push(txt)
+      }
+      if (!tipo && valores.length === 0) return ""
+      if (!tipo) return valores.join(", ")
+      if (valores.length === 0) return tipo
+      return `${tipo}: ${valores.join(", ")}`
+    }
+
+    const detalhamento = produtos
+      .map(descreverProduto)
       .filter(Boolean)
-    const destinos = Array.from(
-      new Set(produtos.map((p) => (p.destino ?? "").trim()).filter(Boolean)),
-    )
-    const partes = [v.identificador, ...localizadores, ...destinos].filter(Boolean)
-    const detalhamento = partes.join(" - ")
+      .join("; ")
 
     // Vendedora — só o primeiro nome, mantém estilo do modelo
     const nomeAgente = (agenteObj && !Array.isArray(agenteObj) && agenteObj.nome) || ""

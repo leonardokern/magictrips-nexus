@@ -21,8 +21,16 @@ type Point = {
 type Props = {
   data: Point[]
   primaryColor?: string
-  /** Se true, usa formatBRL no tooltip. Default true. */
+  /** Se true, usa formatBRL no tooltip. Default true. Ignorado se suffix definido. */
   currency?: boolean
+  /**
+   * Sufixo aplicado ao valor (ex: "%", " min", " un"). Quando definido, formata
+   * como `valor.toFixed(decimals)` (com vírgula PT-BR) + sufixo, e desativa o
+   * fallback de BRL. Primitive on purpose — não pode passar fn Server → Client.
+   */
+  suffix?: string
+  /** Casas decimais usadas quando `suffix` está definido. Default 1. */
+  decimals?: number
 }
 
 /**
@@ -33,7 +41,15 @@ export function HorizontalBarChartCard({
   data,
   primaryColor = "#1498D5",
   currency = true,
+  suffix,
+  decimals = 1,
 }: Props) {
+  const fmt = (n: number): string => {
+    if (typeof suffix === "string") {
+      return `${n.toFixed(decimals).replace(".", ",")}${suffix}`
+    }
+    return currency ? formatBRL(n) : n.toString()
+  }
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart
@@ -60,10 +76,7 @@ export function HorizontalBarChartCard({
             fontSize: 12,
             padding: "6px 10px",
           }}
-          formatter={(value) => {
-            const n = Number(value)
-            return currency ? [formatBRL(n), ""] : [n.toString(), ""]
-          }}
+          formatter={(value) => [fmt(Number(value)), ""]}
         />
         <Bar
           dataKey="value"
@@ -72,10 +85,7 @@ export function HorizontalBarChartCard({
             position: "right",
             fill: "rgba(255,255,255,0.85)",
             fontSize: 11,
-            formatter: (value: unknown) => {
-              const n = Number(value)
-              return currency ? formatBRL(n) : n.toString()
-            },
+            formatter: (value: unknown) => fmt(Number(value)),
           }}
         >
           {data.map((d, i) => (

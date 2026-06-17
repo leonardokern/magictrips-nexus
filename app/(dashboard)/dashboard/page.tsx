@@ -298,6 +298,16 @@ export default async function DashboardPage({
     0,
   )
 
+  // ── Margem RAV por agente (% RAV sobre as PRÓPRIAS vendas do agente) ────────
+  // Cada barra = quanto % das vendas daquele agente vira RAV (eficiência).
+  // Diferente de "RAV por agente" em valor absoluto — aqui é razão individual.
+  // Ordenado por % decrescente, filtra quem não tem receita no período.
+  const barMargemRavAgente = porAgente
+    .filter((a) => a.receita > 0)
+    .map((a) => ({ label: a.label, value: a.margemRavPct }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 10)
+
   // ── Tipos de produto mais vendidos por receita (tabela direita) ─────────────
   const porTipoOrdenado = porTipo
     .slice()
@@ -557,8 +567,8 @@ export default async function DashboardPage({
         </ChartCard>
       </div>
 
-      {/* Linha 3 — Visão geral: Origem do lead + Tipos de produto mais vendidos */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      {/* Linha 3 — Visão geral: Origem do lead + RAV por agente + Tipos de produto */}
+      <div className="grid gap-4 lg:grid-cols-4">
         <Card className="border-white/[0.06] bg-white/[0.02]">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-semibold text-white">
@@ -598,6 +608,32 @@ export default async function DashboardPage({
                   </span>
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* NOVO: Margem RAV por agente — % do RAV sobre as vendas do próprio agente */}
+        <Card className="border-white/[0.06] bg-white/[0.02]">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold text-white">
+              Margem RAV por agente
+            </CardTitle>
+            <p className="mt-0.5 text-xs text-white/45">
+              % do RAV sobre as próprias vendas · {labelPeriodo(periodo, range)}
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64">
+              {barMargemRavAgente.length === 0 ? (
+                <EmptyChart label="Sem agentes com receita no período." />
+              ) : (
+                <HorizontalBarChartCard
+                  data={barMargemRavAgente}
+                  primaryColor="#10b981"
+                  suffix="%"
+                  decimals={1}
+                />
+              )}
             </div>
           </CardContent>
         </Card>

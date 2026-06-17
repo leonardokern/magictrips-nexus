@@ -85,7 +85,8 @@ export async function POST(req: NextRequest) {
       { header: "Cliente",           key: "cliente",    width: 18 },
       { header: "Fornecedor",        key: "fornecedor", width: 19 },
       { header: "Vendedora",         key: "vendedora",  width: 12 },
-      { header: "Detalhamento",      key: "detalhe",    width: 32 },
+      { header: "ID Nexus",          key: "id",         width: 11 },
+      { header: "Detalhamento",      key: "detalhe",    width: 48 },
       { header: "Valor da Venda",    key: "valor",      width: 16 },
       { header: "RAV BRUTO",         key: "rav",        width: 13 },
       { header: "% RAV Vendedor",    key: "perc",       width: 15 },
@@ -122,20 +123,21 @@ export async function POST(req: NextRequest) {
       row.getCell(2).value = l.cliente
       row.getCell(3).value = l.fornecedor
       row.getCell(4).value = l.vendedora
-      row.getCell(5).value = l.detalhamento
-      row.getCell(6).value = l.valorVenda
-      row.getCell(6).numFmt = '"R$" #,##0.00'
-      row.getCell(7).value = l.ravBruto
+      row.getCell(5).value = l.identificador
+      row.getCell(6).value = l.detalhamento
+      row.getCell(7).value = l.valorVenda
       row.getCell(7).numFmt = '"R$" #,##0.00'
-      row.getCell(8).value = l.comissaoPercentual
-      row.getCell(8).numFmt = "0.00%"
-      // I (Comissão) = G * H — fórmula garante recalculo em alteração manual
-      row.getCell(9).value = { formula: `G${rowIdx}*H${rowIdx}` }
-      row.getCell(9).numFmt = '"R$" #,##0.00'
+      row.getCell(8).value = l.ravBruto
+      row.getCell(8).numFmt = '"R$" #,##0.00'
+      row.getCell(9).value = l.comissaoPercentual
+      row.getCell(9).numFmt = "0.00%"
+      // J (Comissão) = H * I — fórmula garante recalculo em alteração manual
+      row.getCell(10).value = { formula: `H${rowIdx}*I${rowIdx}` }
+      row.getCell(10).numFmt = '"R$" #,##0.00'
 
       // Bordas em todas as células da linha + fonte padrão
       row.eachCell({ includeEmpty: true }, (cell, col) => {
-        if (col > 9) return
+        if (col > 10) return
         cell.font = { name: "Calibri", size: 11 }
         cell.border = {
           top: { style: "thin", color: { argb: "FFD0D0D0" } },
@@ -148,18 +150,19 @@ export async function POST(req: NextRequest) {
       rowIdx++
     }
 
-    // Linha de totais — SUM das colunas Valor / RAV / Comissão
+    // Linha de totais — SUM das colunas Valor (G) / RAV (H) / Comissão (J).
+    // "TOTAL" fica na coluna F (Detalhamento) por dar espaço ao label.
     if (linhas.length > 0) {
       const totalRow = ws.getRow(rowIdx)
-      totalRow.getCell(5).value = "TOTAL"
-      totalRow.getCell(6).value = { formula: `SUM(F2:F${rowIdx - 1})` }
-      totalRow.getCell(6).numFmt = '"R$" #,##0.00'
+      totalRow.getCell(6).value = "TOTAL"
       totalRow.getCell(7).value = { formula: `SUM(G2:G${rowIdx - 1})` }
       totalRow.getCell(7).numFmt = '"R$" #,##0.00'
-      totalRow.getCell(9).value = { formula: `SUM(I2:I${rowIdx - 1})` }
-      totalRow.getCell(9).numFmt = '"R$" #,##0.00'
+      totalRow.getCell(8).value = { formula: `SUM(H2:H${rowIdx - 1})` }
+      totalRow.getCell(8).numFmt = '"R$" #,##0.00'
+      totalRow.getCell(10).value = { formula: `SUM(J2:J${rowIdx - 1})` }
+      totalRow.getCell(10).numFmt = '"R$" #,##0.00'
       totalRow.eachCell({ includeEmpty: true }, (cell, col) => {
-        if (col > 9 || col < 5) return
+        if (col > 10 || col < 6) return
         cell.font = { name: "Calibri", size: 11, bold: true }
         cell.fill = {
           type: "pattern",
