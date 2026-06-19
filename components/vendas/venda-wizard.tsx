@@ -2742,35 +2742,15 @@ function Step2Produtos(props: {
                         </SelectContent>
                       </Select>
                     ) : campo.tipo_campo === "valor" ? (
-                      <div className="flex h-10 items-stretch overflow-hidden rounded-md border border-input bg-background">
-                        <span className="flex items-center border-r border-input px-2.5 text-xs text-white/45 select-none">
-                          R$
-                        </span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={val}
-                          onChange={(ev) =>
-                            patch(p.id, (prev) => ({
-                              valores_extras: { ...prev.valores_extras, [campo.id]: ev.target.value },
-                            }))
-                          }
-                          onBlur={() => {
-                            const n = parseValorComSoma(val)
-                            if (n > 0) {
-                              patch(p.id, (prev) => ({
-                                valores_extras: {
-                                  ...prev.valores_extras,
-                                  [campo.id]: formatBRL(n),
-                                },
-                              }))
-                            }
-                          }}
-                          onFocus={(ev) => ev.target.select()}
-                          placeholder={campo.placeholder ?? "0,00"}
-                          className="min-w-0 flex-1 bg-transparent px-2.5 text-sm tabular-nums text-white outline-none placeholder:text-white/30"
-                        />
-                      </div>
+                      <CurrencyInput
+                        value={val}
+                        placeholder={campo.placeholder ?? "0,00"}
+                        onChange={(v) =>
+                          patch(p.id, (prev) => ({
+                            valores_extras: { ...prev.valores_extras, [campo.id]: v },
+                          }))
+                        }
+                      />
                     ) : (
                       <Input
                         value={val}
