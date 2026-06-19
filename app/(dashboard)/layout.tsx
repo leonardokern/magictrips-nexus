@@ -79,6 +79,9 @@ export default async function DashboardLayout({
               } as NavItem,
             ]
           : []),
+        ...(perms.can("relatorios", "ver")
+          ? [{ href: "/relatorios", label: "Relatórios", icon: "relatorios" } as NavItem]
+          : []),
       ],
     },
     {

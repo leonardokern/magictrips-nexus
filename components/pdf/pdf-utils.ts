@@ -5,6 +5,8 @@ import { StyleSheet } from "@react-pdf/renderer"
 export const CORES = {
   magicTrips: "#1498D5",
   delMondo: "#1498D5",
+  nexusDeep: "#004E5A",
+  nexusBright: "#1498D5",
   escuro: "#111827",
   texto: "#1f2937",
   textoSuave: "#6b7280",

@@ -7,6 +7,7 @@ import {
   Building2,
   CalendarDays,
   CreditCard,
+  FileBarChart,
   FileText,
   History,
   LayoutDashboard,
@@ -55,6 +56,7 @@ const ICONS: Record<string, LucideIcon> = {
   comissoes: Percent,
   origens: Tag,
   tipos_produto: Boxes,
+  relatorios: FileBarChart,
   auditoria: History,
 }
 

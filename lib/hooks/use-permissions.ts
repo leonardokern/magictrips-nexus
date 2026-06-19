@@ -15,6 +15,7 @@ export type Modulo =
   | "comissoes"
   | "auditoria"
   | "exportar"
+  | "relatorios"
 
 export type Acao =
   | "ler"

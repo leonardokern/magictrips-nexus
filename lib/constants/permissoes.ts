@@ -130,6 +130,13 @@ export const MODULOS_PERMISSAO: ModuloDef[] = [
     ],
   },
   {
+    key: "relatorios",
+    label: "Relatórios",
+    description:
+      "Geração de relatórios gerenciais (Excel e PDF executivo) — vendas por tipo de produto, etc.",
+    acoes: [{ key: "ver", label: "Permitir" }],
+  },
+  {
     key: "auditoria",
     label: "Auditoria",
     description: "Log imutável de ações críticas — ver logs por usuário.",
