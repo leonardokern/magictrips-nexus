@@ -2325,6 +2325,38 @@ function Step2Produtos(props: {
     })
   }
 
+  /** Quando o usuário preenche RAV manualmente, calcula
+   *  `valor_custo = valor_venda - rav` automaticamente — mantendo
+   *  venda − custo = rav. Valor de venda nunca é preenchido pelo sistema. */
+  function patchRav(id: string, raw: string) {
+    const value = filtrarValor(raw)
+    patch(id, (prev) => {
+      const venda = parseValorComSoma(prev.valor_venda_str)
+      const rav = parseValorComSoma(value)
+      // Só recalcula custo se venda > 0 e RAV foi preenchido.
+      // Se RAV foi limpo, mantém o custo intacto.
+      const custoNovoStr =
+        venda > 0 && value.trim() !== ""
+          ? Math.max(0, venda - rav).toFixed(2).replace(".", ",")
+          : prev.valor_custo_str
+      const custoNovo = parseValorComSoma(custoNovoStr)
+      const pgtoTotalStr = custoNovo > 0
+        ? new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(custoNovo)
+        : ""
+      const comissaoStr = recomputarComissao(
+        value,
+        prev.rav_extra_cliente_str,
+        prev.rav_extra_fornecedor_str,
+      )
+      return {
+        rav_str: value,
+        valor_custo_str: custoNovoStr,
+        pgto_valor_total_str: pgtoTotalStr,
+        comissao_vendedor_str: comissaoStr,
+      }
+    })
+  }
+
   return (
     <div className="space-y-3">
       {props.produtos.map((p, i) => {
@@ -2883,16 +2915,7 @@ function Step2Produtos(props: {
                   >
                     <CurrencyInput
                       value={p.rav_str}
-                      onChange={(v) =>
-                        patch(p.id, (prev) => ({
-                          rav_str: v,
-                          comissao_vendedor_str: recomputarComissao(
-                            v,
-                            prev.rav_extra_cliente_str,
-                            prev.rav_extra_fornecedor_str,
-                          ),
-                        }))
-                      }
+                      onChange={(v) => patchRav(p.id, v)}
                     />
                   </Field>
                 </div>
