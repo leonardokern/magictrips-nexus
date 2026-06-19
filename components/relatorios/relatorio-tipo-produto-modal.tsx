@@ -69,6 +69,13 @@ export function RelatorioTipoProdutoModal({ tipos }: Props) {
       toast.error(erroValidacao)
       return
     }
+
+    // PDF: abre a aba JÁ no gesto do clique (antes do await) pra não ser
+    // bloqueada como popup. Depois só apontamos a aba pro blob — o operador
+    // visualiza e decide quando baixar. Excel continua baixando direto.
+    const pdfTab =
+      formato === "pdf" ? window.open("", "_blank", "noopener,noreferrer") : null
+
     setGerando(formato)
     try {
       const res = await fetch(`/api/relatorios/tipo-produto/${formato}`, {
@@ -78,6 +85,7 @@ export function RelatorioTipoProdutoModal({ tipos }: Props) {
       })
 
       if (!res.ok) {
+        pdfTab?.close()
         const j = (await res.json().catch(() => null)) as { error?: string } | null
         toast.error(j?.error ?? "Não foi possível gerar o relatório.")
         return
@@ -85,24 +93,17 @@ export function RelatorioTipoProdutoModal({ tipos }: Props) {
 
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
-      const nome = filenameFromHeader(
-        res.headers.get("Content-Disposition"),
-        formato === "pdf" ? "relatorio.pdf" : "relatorio.xlsx",
-      )
 
       if (formato === "pdf") {
-        // Tenta abrir o PDF em nova aba pra pré-visualização. Se o navegador
-        // bloquear o popup (gesto perdido após o await), cai pro download.
-        const win = window.open(url, "_blank", "noopener,noreferrer")
-        if (!win) {
-          const a = document.createElement("a")
-          a.href = url
-          a.download = nome
-          document.body.appendChild(a)
-          a.click()
-          a.remove()
-        }
+        // Aponta a aba pré-aberta pro PDF. Se o popup foi bloqueado mesmo
+        // assim, navega a aba atual como último recurso (sem forçar download).
+        if (pdfTab) pdfTab.location.href = url
+        else window.open(url, "_blank", "noopener,noreferrer")
       } else {
+        const nome = filenameFromHeader(
+          res.headers.get("Content-Disposition"),
+          "relatorio.xlsx",
+        )
         const a = document.createElement("a")
         a.href = url
         a.download = nome
@@ -114,9 +115,10 @@ export function RelatorioTipoProdutoModal({ tipos }: Props) {
       // Libera o object URL depois de um tempo (deixa o navegador abrir/baixar).
       setTimeout(() => URL.revokeObjectURL(url), 60_000)
       toast.success(
-        formato === "pdf" ? "Relatório PDF gerado." : "Planilha gerada com sucesso.",
+        formato === "pdf" ? "Relatório PDF aberto em nova aba." : "Planilha gerada com sucesso.",
       )
     } catch {
+      pdfTab?.close()
       toast.error("Falha de rede ao gerar o relatório.")
     } finally {
       setGerando(null)

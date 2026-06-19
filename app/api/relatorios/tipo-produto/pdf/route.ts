@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { renderToBuffer } from "@react-pdf/renderer"
 import React from "react"
+import path from "node:path"
 import { createClient } from "@/lib/supabase/server"
 import { requireCurrentUser } from "@/lib/hooks/use-current-user"
 import { can } from "@/lib/hooks/use-permissions"
@@ -50,6 +51,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: res.error }, { status: 400 })
   }
 
+  const logoPath = path.join(
+    process.cwd(),
+    "public",
+    "brand",
+    "nexus-logo-nome-transparent.png",
+  )
+
   const geradoEm = new Date().toLocaleString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
@@ -60,6 +68,7 @@ export async function POST(req: NextRequest) {
 
   const element = React.createElement(RelatorioTipoProdutoPDF, {
     dados: res.data,
+    logoPath,
     geradoEm,
   }) as ReactElement<DocumentProps>
 
