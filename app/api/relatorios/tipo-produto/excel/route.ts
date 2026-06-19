@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: res.error }, { status: 400 })
   }
 
-  const { tipoProdutoNome, linhas, totais } = res.data
+  const { tipoProdutoNome, campos, linhas, totais } = res.data
 
   const wb = new ExcelJS.Workbook()
   wb.creator = "Nexus · Magic Trips"
@@ -64,27 +64,64 @@ export async function POST(req: NextRequest) {
 
   const MONEY = '"R$" #,##0.00'
 
-  ws.columns = [
-    { key: "data", width: 12 },
-    { key: "id", width: 11 },
-    { key: "empresa", width: 14 },
-    { key: "cliente", width: 24 },
-    { key: "vendedor", width: 20 },
-    { key: "fornecedor", width: 20 },
-    { key: "destino", width: 18 },
-    { key: "localizador", width: 14 },
-    { key: "ini_viagem", width: 12 },
-    { key: "fim_viagem", width: 12 },
-    { key: "detalhes", width: 36 },
-    { key: "valor", width: 15 },
-    { key: "custo", width: 15 },
-    { key: "rav", width: 13 },
-    { key: "rav_cli", width: 15 },
-    { key: "rav_forn", width: 16 },
-    { key: "rav_total", width: 14 },
-    { key: "comissao", width: 16 },
+  // Definição de colunas (dinâmica): identidade → 1 coluna por campo
+  // customizado do tipo → valores financeiros. `kind` controla formatação
+  // e quais entram nos totais.
+  type Linha = (typeof linhas)[number]
+  type ColDef = {
+    header: string
+    width: number
+    kind: "date" | "text" | "money"
+    get: (l: Linha) => string | number | null
+  }
+
+  const isoToDate = (iso: string): Date | null => {
+    const [y, m, d] = iso.split("-").map(Number)
+    return y ? new Date(y, (m ?? 1) - 1, d ?? 1) : null
+  }
+
+  const cols: ColDef[] = [
+    { header: "Data", width: 12, kind: "date", get: (l) => l.dataVenda || "" },
+    { header: "ID Nexus", width: 11, kind: "text", get: (l) => l.identificador },
+    { header: "Empresa", width: 14, kind: "text", get: (l) => l.empresa },
+    { header: "Cliente", width: 24, kind: "text", get: (l) => l.cliente },
+    { header: "Vendedor(a)", width: 20, kind: "text", get: (l) => l.vendedor },
+    { header: "Fornecedor", width: 20, kind: "text", get: (l) => l.fornecedor },
+    { header: "Destino", width: 18, kind: "text", get: (l) => l.destino },
+    { header: "Localizador", width: 14, kind: "text", get: (l) => l.localizador },
+    { header: "Início viagem", width: 12, kind: "date", get: (l) => l.dataInicioViagem || "" },
+    { header: "Fim viagem", width: 12, kind: "date", get: (l) => l.dataFimViagem || "" },
+    // Uma coluna por campo customizado do tipo, com o valor de cada venda.
+    ...campos.map(
+      (c): ColDef => ({
+        header: c.nome,
+        width: 18,
+        kind: "text",
+        get: (l) => l.valoresCampos[c.id] ?? "",
+      }),
+    ),
+    { header: "Valor Venda", width: 15, kind: "money", get: (l) => l.valorVenda },
+    { header: "Custo", width: 15, kind: "money", get: (l) => l.valorCusto },
+    { header: "RAV", width: 13, kind: "money", get: (l) => l.rav },
+    { header: "RAV Extra Cliente", width: 15, kind: "money", get: (l) => l.ravExtraCliente },
+    { header: "RAV Extra Fornec.", width: 16, kind: "money", get: (l) => l.ravExtraFornecedor },
+    { header: "RAV Total", width: 14, kind: "money", get: (l) => l.ravTotal },
+    { header: "Comissão", width: 16, kind: "money", get: (l) => l.comissao },
   ]
-  const LAST_COL = 18
+  const LAST_COL = cols.length
+  const firstMoneyIdx = cols.findIndex((c) => c.kind === "money") // 0-based
+  ws.columns = cols.map((c) => ({ width: c.width }))
+
+  // Letra da coluna Excel (1 → A, 27 → AA…), pra montar fórmulas SUM.
+  const colLetter = (n: number): string => {
+    let s = ""
+    while (n > 0) {
+      const m = (n - 1) % 26
+      s = String.fromCharCode(65 + m) + s
+      n = Math.floor((n - 1) / 26)
+    }
+    return s
+  }
 
   // ── Faixa-título (linha 1) ──────────────────────────────────────────────
   ws.mergeCells(1, 1, 1, LAST_COL)
@@ -107,29 +144,9 @@ export async function POST(req: NextRequest) {
   ws.getRow(3).height = 6
 
   // ── Cabeçalho da tabela (linha 4) ───────────────────────────────────────
-  const HEAD = [
-    "Data",
-    "ID Nexus",
-    "Empresa",
-    "Cliente",
-    "Vendedor(a)",
-    "Fornecedor",
-    "Destino",
-    "Localizador",
-    "Início viagem",
-    "Fim viagem",
-    "Detalhes",
-    "Valor Venda",
-    "Custo",
-    "RAV",
-    "RAV Extra Cliente",
-    "RAV Extra Fornec.",
-    "RAV Total",
-    "Comissão",
-  ]
   const headRow = ws.getRow(4)
-  HEAD.forEach((h, i) => {
-    headRow.getCell(i + 1).value = h
+  cols.forEach((c, i) => {
+    headRow.getCell(i + 1).value = c.header
   })
   headRow.height = 20
   headRow.eachCell((cell, col) => {
@@ -149,40 +166,23 @@ export async function POST(req: NextRequest) {
   let rowIdx = 5
   for (const l of linhas) {
     const row = ws.getRow(rowIdx)
-    const dv = l.dataVenda.split("-").map(Number)
-    row.getCell(1).value = dv[0] ? new Date(dv[0], (dv[1] ?? 1) - 1, dv[2] ?? 1) : null
-    row.getCell(1).numFmt = "dd/mm/yyyy"
-    row.getCell(2).value = l.identificador
-    row.getCell(3).value = l.empresa
-    row.getCell(4).value = l.cliente
-    row.getCell(5).value = l.vendedor
-    row.getCell(6).value = l.fornecedor
-    row.getCell(7).value = l.destino
-    row.getCell(8).value = l.localizador
-    if (l.dataInicioViagem) {
-      const di = l.dataInicioViagem.split("-").map(Number)
-      row.getCell(9).value = di[0] ? new Date(di[0], (di[1] ?? 1) - 1, di[2] ?? 1) : null
-      row.getCell(9).numFmt = "dd/mm/yyyy"
-    }
-    if (l.dataFimViagem) {
-      const df = l.dataFimViagem.split("-").map(Number)
-      row.getCell(10).value = df[0] ? new Date(df[0], (df[1] ?? 1) - 1, df[2] ?? 1) : null
-      row.getCell(10).numFmt = "dd/mm/yyyy"
-    }
-    row.getCell(11).value = l.detalhes
-    row.getCell(12).value = l.valorVenda
-    row.getCell(13).value = l.valorCusto
-    row.getCell(14).value = l.rav
-    row.getCell(15).value = l.ravExtraCliente
-    row.getCell(16).value = l.ravExtraFornecedor
-    row.getCell(17).value = l.ravTotal
-    row.getCell(18).value = l.comissao
-    for (let c = 12; c <= 18; c++) row.getCell(c).numFmt = MONEY
-
+    cols.forEach((c, i) => {
+      const cell = row.getCell(i + 1)
+      const raw = c.get(l)
+      if (c.kind === "date") {
+        cell.value = typeof raw === "string" && raw ? isoToDate(raw) : null
+        cell.numFmt = "dd/mm/yyyy"
+      } else if (c.kind === "money") {
+        cell.value = typeof raw === "number" ? raw : 0
+        cell.numFmt = MONEY
+      } else {
+        cell.value = raw === "" ? null : raw
+      }
+    })
     row.eachCell({ includeEmpty: true }, (cell, col) => {
       if (col > LAST_COL) return
       cell.font = { name: "Calibri", size: 10 }
-      cell.alignment = { vertical: "middle", wrapText: col === 11 }
+      cell.alignment = { vertical: "middle" }
       cell.border = {
         top: { style: "thin", color: { argb: "FFE0E0E0" } },
         left: { style: "thin", color: { argb: "FFE0E0E0" } },
@@ -196,20 +196,21 @@ export async function POST(req: NextRequest) {
   // ── Linha de totais ─────────────────────────────────────────────────────
   if (linhas.length > 0) {
     const totalRow = ws.getRow(rowIdx)
-    totalRow.getCell(11).value = "TOTAL"
-    totalRow.getCell(12).value = { formula: `SUM(L5:L${rowIdx - 1})` }
-    totalRow.getCell(13).value = { formula: `SUM(M5:M${rowIdx - 1})` }
-    totalRow.getCell(14).value = { formula: `SUM(N5:N${rowIdx - 1})` }
-    totalRow.getCell(15).value = { formula: `SUM(O5:O${rowIdx - 1})` }
-    totalRow.getCell(16).value = { formula: `SUM(P5:P${rowIdx - 1})` }
-    totalRow.getCell(17).value = { formula: `SUM(Q5:Q${rowIdx - 1})` }
-    totalRow.getCell(18).value = { formula: `SUM(R5:R${rowIdx - 1})` }
-    for (let c = 12; c <= 18; c++) totalRow.getCell(c).numFmt = MONEY
+    // Label "TOTAL" na coluna imediatamente antes do 1º valor financeiro.
+    if (firstMoneyIdx > 0) totalRow.getCell(firstMoneyIdx).value = "TOTAL"
+    cols.forEach((c, i) => {
+      if (c.kind !== "money") return
+      const L = colLetter(i + 1)
+      const cell = totalRow.getCell(i + 1)
+      cell.value = { formula: `SUM(${L}5:${L}${rowIdx - 1})` }
+      cell.numFmt = MONEY
+    })
+    const totalFrom = Math.max(1, firstMoneyIdx)
     totalRow.eachCell({ includeEmpty: true }, (cell, col) => {
-      if (col > LAST_COL || col < 11) return
+      if (col > LAST_COL || col < totalFrom) return
       cell.font = { name: "Calibri", size: 10, bold: true }
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEAEAEA" } }
-      cell.alignment = { vertical: "middle", horizontal: col === 11 ? "right" : "right" }
+      cell.alignment = { vertical: "middle", horizontal: "right" }
       cell.border = {
         top: { style: "medium", color: { argb: "FF000000" } },
         bottom: { style: "thin", color: { argb: "FF000000" } },

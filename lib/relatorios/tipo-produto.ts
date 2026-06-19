@@ -19,6 +19,9 @@ export type RelatorioTipoProdutoFiltros = {
   dataFim: string
 }
 
+/** Campo customizado vinculado ao tipo de produto (vira coluna no Excel). */
+export type RelatorioCampoCustom = { id: string; nome: string }
+
 export type RelatorioTipoProdutoLinha = {
   vendaId: string
   identificador: string
@@ -31,7 +34,8 @@ export type RelatorioTipoProdutoLinha = {
   localizador: string
   dataInicioViagem: string // ISO ou ""
   dataFimViagem: string // ISO ou ""
-  detalhes: string // campos extras concatenados
+  /** Valor de cada campo customizado por id (já resolvido fornecedor→nome). */
+  valoresCampos: Record<string, string>
   valorVenda: number
   valorCusto: number
   rav: number
@@ -60,6 +64,8 @@ export type RelatorioTipoProdutoTotais = {
 export type RelatorioTipoProdutoDados = {
   tipoProdutoNome: string
   filtros: RelatorioTipoProdutoFiltros
+  /** Campos customizados do tipo, na ordem de exibição (colunas do Excel). */
+  campos: RelatorioCampoCustom[]
   linhas: RelatorioTipoProdutoLinha[]
   totais: RelatorioTipoProdutoTotais
 }
@@ -142,12 +148,21 @@ export async function buildRelatorioTipoProduto(
 
   if (error) return { ok: false, error: error.message }
 
-  // Resolve UUIDs de campos `fornecedor` em valores_extras → nome.
-  const [{ data: fornecedoresAll }, { data: camposFornecedorAll }] =
-    await Promise.all([
-      supabase.from("fornecedores").select("id, nome"),
-      supabase.from("campos_extra").select("id").eq("tipo_campo", "fornecedor"),
-    ])
+  // Resolve UUIDs de campos `fornecedor` em valores_extras → nome, e carrega
+  // os campos customizados vinculados a ESTE tipo (viram colunas no Excel).
+  const [
+    { data: fornecedoresAll },
+    { data: camposFornecedorAll },
+    { data: vinculosAll },
+  ] = await Promise.all([
+    supabase.from("fornecedores").select("id, nome"),
+    supabase.from("campos_extra").select("id").eq("tipo_campo", "fornecedor"),
+    supabase
+      .from("tipos_produto_campos")
+      .select("ordem, campo:campos_extra(id, nome)")
+      .eq("tipo_produto_id", tipoProdutoId)
+      .order("ordem"),
+  ])
   const fornecedorNomeById = new Map(
     (fornecedoresAll ?? []).map((f) => [f.id as string, f.nome as string]),
   )
@@ -155,19 +170,27 @@ export async function buildRelatorioTipoProduto(
     (camposFornecedorAll ?? []).map((c) => c.id as string),
   )
 
-  function descreverExtras(extras: Record<string, unknown> | null): string {
-    if (!extras) return ""
-    const valores: string[] = []
-    for (const [campoId, raw] of Object.entries(extras)) {
-      if (raw == null) continue
-      let txt = String(raw).trim()
-      if (!txt) continue
-      if (campoFornecedorIds.has(campoId) && fornecedorNomeById.has(txt)) {
-        txt = fornecedorNomeById.get(txt) ?? txt
-      }
-      valores.push(txt)
+  // Lista ordenada de campos do tipo. O embed pode vir como objeto ou array.
+  type VinculoRow = { ordem: number; campo: RelatorioCampoCustom | RelatorioCampoCustom[] | null }
+  const campos: RelatorioCampoCustom[] = []
+  const vistos = new Set<string>()
+  for (const v of (vinculosAll as VinculoRow[] | null) ?? []) {
+    const c = Array.isArray(v.campo) ? v.campo[0] : v.campo
+    if (c?.id && !vistos.has(c.id)) {
+      vistos.add(c.id)
+      campos.push({ id: c.id, nome: c.nome })
     }
-    return valores.join(", ")
+  }
+
+  // Resolve o valor cru de um campo (fornecedor UUID → nome).
+  function resolverValor(campoId: string, raw: unknown): string {
+    if (raw == null) return ""
+    let txt = String(raw).trim()
+    if (!txt) return ""
+    if (campoFornecedorIds.has(campoId) && fornecedorNomeById.has(txt)) {
+      txt = fornecedorNomeById.get(txt) ?? txt
+    }
+    return txt
   }
 
   const rows = (data as unknown as ProdutoRow[] | null) ?? []
@@ -177,6 +200,11 @@ export async function buildRelatorioTipoProduto(
     const rav = Number(p.rav ?? 0)
     const ravExtraCliente = Number(p.rav_extra_cliente ?? 0)
     const ravExtraFornecedor = Number(p.rav_extra_fornecedor ?? 0)
+    const extras = p.valores_extras ?? {}
+    const valoresCampos: Record<string, string> = {}
+    for (const c of campos) {
+      valoresCampos[c.id] = resolverValor(c.id, extras[c.id])
+    }
     return {
       vendaId: venda?.id ?? "",
       identificador: venda?.identificador ?? "",
@@ -189,7 +217,7 @@ export async function buildRelatorioTipoProduto(
       localizador: (p.localizador ?? "").trim(),
       dataInicioViagem: p.data_inicio_viagem ?? "",
       dataFimViagem: p.data_fim_viagem ?? "",
-      detalhes: descreverExtras(p.valores_extras),
+      valoresCampos,
       valorVenda: Number(p.valor_venda ?? 0),
       valorCusto: Number(p.valor_custo ?? 0),
       rav,
@@ -226,6 +254,7 @@ export async function buildRelatorioTipoProduto(
     data: {
       tipoProdutoNome: tipo?.nome ?? "Tipo de produto",
       filtros,
+      campos,
       linhas,
       totais,
     },

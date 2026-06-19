@@ -142,6 +142,7 @@ const s = StyleSheet.create({
   },
   tableRow: {
     flexDirection: "row",
+    alignItems: "flex-start",
     paddingHorizontal: 8,
     paddingVertical: 4.5,
     borderTopWidth: 0.5,
@@ -149,12 +150,16 @@ const s = StyleSheet.create({
   },
   tableRowAlt: {
     flexDirection: "row",
+    alignItems: "flex-start",
     paddingHorizontal: 8,
     paddingVertical: 4.5,
     borderTopWidth: 0.5,
     borderTopColor: CORES.divisor,
     backgroundColor: CORES.fundoCard,
   },
+  // Célula "Informações" com os campos customizados (quebra em várias linhas).
+  tdInfo: { fontSize: 6.8, color: CORES.textoSuave, lineHeight: 1.35, paddingRight: 6 },
+  infoLabel: { fontFamily: "Helvetica-Bold", color: "#475569" },
   tableRowTotal: {
     flexDirection: "row",
     paddingHorizontal: 8,
@@ -195,14 +200,13 @@ const s = StyleSheet.create({
 })
 
 // Larguras das colunas (landscape A4) — somam 100%.
+// Relatório executivo: sem ID Nexus, Empresa nem Vendedor. A coluna
+// "Informações" concatena os campos customizados do tipo.
 const COLS = {
-  data: "7%",
-  id: "7%",
-  empresa: "8%",
-  cliente: "16%",
-  vendedor: "13%",
+  data: "8%",
+  cliente: "17%",
   fornecedor: "13%",
-  destino: "11%",
+  info: "28%",
   valor: "8.5%",
   custo: "8.5%",
   rav: "8.5%",
@@ -224,7 +228,7 @@ export function RelatorioTipoProdutoPDF({
   logoPath: string | null
   geradoEm: string
 }) {
-  const { tipoProdutoNome, filtros, linhas, totais } = dados
+  const { tipoProdutoNome, filtros, campos, linhas, totais } = dados
   const margem =
     totais.margemPercentual != null ? `${totais.margemPercentual.toFixed(1)}%` : "—"
 
@@ -309,12 +313,9 @@ export function RelatorioTipoProdutoPDF({
             <View style={s.table}>
               <View style={s.tableHead} fixed>
                 <Text style={[s.th, { width: COLS.data }]}>Data</Text>
-                <Text style={[s.th, { width: COLS.id }]}>ID</Text>
-                <Text style={[s.th, { width: COLS.empresa }]}>Empresa</Text>
                 <Text style={[s.th, { width: COLS.cliente }]}>Cliente</Text>
-                <Text style={[s.th, { width: COLS.vendedor }]}>Vendedor(a)</Text>
                 <Text style={[s.th, { width: COLS.fornecedor }]}>Fornecedor</Text>
-                <Text style={[s.th, { width: COLS.destino }]}>Destino</Text>
+                <Text style={[s.th, { width: COLS.info }]}>Informações</Text>
                 <Text style={[s.th, { width: COLS.valor, textAlign: "right" }]}>Valor</Text>
                 <Text style={[s.th, { width: COLS.custo, textAlign: "right" }]}>Custo</Text>
                 <Text style={[s.th, { width: COLS.rav, textAlign: "right" }]}>RAV</Text>
@@ -326,32 +327,42 @@ export function RelatorioTipoProdutoPDF({
                   Nenhuma venda aprovada encontrada nesse período para o tipo selecionado.
                 </Text>
               ) : (
-                linhas.map((l, i) => (
-                  <View key={`${l.vendaId}-${i}`} style={i % 2 === 0 ? s.tableRow : s.tableRowAlt} wrap={false}>
-                    <Text style={[s.tdSuave, { width: COLS.data }]}>{brDate(l.dataVenda)}</Text>
-                    <Text style={[s.tdSuave, { width: COLS.id }]}>{l.identificador || "—"}</Text>
-                    <Text style={[s.tdSuave, { width: COLS.empresa }]}>{l.empresa || "—"}</Text>
-                    <Text style={[s.td, { width: COLS.cliente }]}>{l.cliente || "—"}</Text>
-                    <Text style={[s.tdSuave, { width: COLS.vendedor }]}>{l.vendedor || "—"}</Text>
-                    <Text style={[s.tdSuave, { width: COLS.fornecedor }]}>{l.fornecedor || "—"}</Text>
-                    <Text style={[s.tdSuave, { width: COLS.destino }]}>{l.destino || "—"}</Text>
-                    <Text style={[s.td, { width: COLS.valor, textAlign: "right" }]}>{formatBRL(l.valorVenda)}</Text>
-                    <Text style={[s.tdSuave, { width: COLS.custo, textAlign: "right" }]}>{formatBRL(l.valorCusto)}</Text>
-                    <Text style={[s.tdBold, { width: COLS.rav, textAlign: "right" }]}>{formatBRL(l.ravTotal)}</Text>
-                    <Text style={[s.td, { width: COLS.comissao, textAlign: "right" }]}>{formatBRL(l.comissao)}</Text>
-                  </View>
-                ))
+                linhas.map((l, i) => {
+                  // Campos customizados preenchidos desta venda (label: valor).
+                  const detalhes = campos
+                    .map((c) => ({ nome: c.nome, valor: l.valoresCampos[c.id] ?? "" }))
+                    .filter((p) => p.valor !== "")
+                  return (
+                    <View key={`${l.vendaId}-${i}`} style={i % 2 === 0 ? s.tableRow : s.tableRowAlt} wrap={false}>
+                      <Text style={[s.tdSuave, { width: COLS.data }]}>{brDate(l.dataVenda)}</Text>
+                      <Text style={[s.td, { width: COLS.cliente }]}>{l.cliente || "—"}</Text>
+                      <Text style={[s.tdSuave, { width: COLS.fornecedor }]}>{l.fornecedor || "—"}</Text>
+                      <Text style={[s.tdInfo, { width: COLS.info }]}>
+                        {detalhes.length === 0
+                          ? "—"
+                          : detalhes.map((p, idx) => (
+                              <Text key={idx}>
+                                <Text style={s.infoLabel}>{p.nome}: </Text>
+                                {p.valor}
+                                {idx < detalhes.length - 1 ? "   ·   " : ""}
+                              </Text>
+                            ))}
+                      </Text>
+                      <Text style={[s.td, { width: COLS.valor, textAlign: "right" }]}>{formatBRL(l.valorVenda)}</Text>
+                      <Text style={[s.tdSuave, { width: COLS.custo, textAlign: "right" }]}>{formatBRL(l.valorCusto)}</Text>
+                      <Text style={[s.tdBold, { width: COLS.rav, textAlign: "right" }]}>{formatBRL(l.ravTotal)}</Text>
+                      <Text style={[s.td, { width: COLS.comissao, textAlign: "right" }]}>{formatBRL(l.comissao)}</Text>
+                    </View>
+                  )
+                })
               )}
 
               {linhas.length > 0 && (
                 <View style={s.tableRowTotal}>
-                  <Text style={[s.tdBold, { width: COLS.data }]} />
-                  <Text style={[s.tdBold, { width: COLS.id }]} />
-                  <Text style={[s.tdBold, { width: COLS.empresa }]} />
-                  <Text style={[s.tdBold, { width: COLS.cliente }]}>TOTAL</Text>
-                  <Text style={[s.tdBold, { width: COLS.vendedor }]} />
+                  <Text style={[s.tdBold, { width: COLS.data }]}>TOTAL</Text>
+                  <Text style={[s.tdBold, { width: COLS.cliente }]} />
                   <Text style={[s.tdBold, { width: COLS.fornecedor }]} />
-                  <Text style={[s.tdBold, { width: COLS.destino }]} />
+                  <Text style={[s.tdBold, { width: COLS.info }]} />
                   <Text style={[s.tdBold, { width: COLS.valor, textAlign: "right" }]}>{formatBRL(totais.valorVenda)}</Text>
                   <Text style={[s.tdSuave, { width: COLS.custo, textAlign: "right" }]}>{formatBRL(totais.valorCusto)}</Text>
                   <Text style={[s.tdBold, { width: COLS.rav, textAlign: "right" }]}>{formatBRL(totais.ravTotal)}</Text>
