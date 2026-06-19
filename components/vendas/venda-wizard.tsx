@@ -2591,6 +2591,7 @@ function Step2Produtos(props: {
 
                 // Largura semântica por tipo de campo
                 //   numero / sim_nao  → 2/12 (compactos — stepper / Select)
+                //   valor             → 3/12 (campo monetário — R$ + número)
                 //   data              → 3/12 (largura tipo DD/MM/AAAA)
                 //   texto_curto       → 2/12 (códigos, IDs, localizadores)
                 //   texto (longo)     → 6/12 (descrições, observações)
@@ -2598,7 +2599,7 @@ function Step2Produtos(props: {
                 const colSpan =
                   campo.tipo_campo === "numero" || campo.tipo_campo === "sim_nao"
                     ? "col-span-6 sm:col-span-2"
-                    : campo.tipo_campo === "data"
+                    : campo.tipo_campo === "valor" || campo.tipo_campo === "data"
                       ? "col-span-6 sm:col-span-3"
                       : campo.tipo_campo === "texto_curto"
                         ? "col-span-6 sm:col-span-2"
@@ -2740,6 +2741,36 @@ function Step2Produtos(props: {
                           <SelectItem value="nao">Não</SelectItem>
                         </SelectContent>
                       </Select>
+                    ) : campo.tipo_campo === "valor" ? (
+                      <div className="flex h-10 items-stretch overflow-hidden rounded-md border border-input bg-background">
+                        <span className="flex items-center border-r border-input px-2.5 text-xs text-white/45 select-none">
+                          R$
+                        </span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={val}
+                          onChange={(ev) =>
+                            patch(p.id, (prev) => ({
+                              valores_extras: { ...prev.valores_extras, [campo.id]: ev.target.value },
+                            }))
+                          }
+                          onBlur={() => {
+                            const n = parseValorComSoma(val)
+                            if (n > 0) {
+                              patch(p.id, (prev) => ({
+                                valores_extras: {
+                                  ...prev.valores_extras,
+                                  [campo.id]: formatBRL(n),
+                                },
+                              }))
+                            }
+                          }}
+                          onFocus={(ev) => ev.target.select()}
+                          placeholder={campo.placeholder ?? "0,00"}
+                          className="min-w-0 flex-1 bg-transparent px-2.5 text-sm tabular-nums text-white outline-none placeholder:text-white/30"
+                        />
+                      </div>
                     ) : (
                       <Input
                         value={val}

@@ -159,7 +159,7 @@ export async function buildRelatorioTipoProduto(
     supabase.from("campos_extra").select("id").eq("tipo_campo", "fornecedor"),
     supabase
       .from("tipos_produto_campos")
-      .select("ordem, campo:campos_extra(id, nome)")
+      .select("ordem, campo:campos_extra(id, nome, tipo_campo)")
       .eq("tipo_produto_id", tipoProdutoId)
       .order("ordem"),
   ])
@@ -171,24 +171,30 @@ export async function buildRelatorioTipoProduto(
   )
 
   // Lista ordenada de campos do tipo. O embed pode vir como objeto ou array.
-  type VinculoRow = { ordem: number; campo: RelatorioCampoCustom | RelatorioCampoCustom[] | null }
+  type CampoEmbed = { id: string; nome: string; tipo_campo: string }
+  type VinculoRow = { ordem: number; campo: CampoEmbed | CampoEmbed[] | null }
   const campos: RelatorioCampoCustom[] = []
+  const campoDataIds = new Set<string>() // campos do tipo `data`
   const vistos = new Set<string>()
   for (const v of (vinculosAll as VinculoRow[] | null) ?? []) {
     const c = Array.isArray(v.campo) ? v.campo[0] : v.campo
     if (c?.id && !vistos.has(c.id)) {
       vistos.add(c.id)
       campos.push({ id: c.id, nome: c.nome })
+      if (c.tipo_campo === "data") campoDataIds.add(c.id)
     }
   }
 
-  // Resolve o valor cru de um campo (fornecedor UUID → nome).
+  // Resolve o valor cru de um campo: fornecedor UUID → nome; data ISO → DD/MM/AAAA.
   function resolverValor(campoId: string, raw: unknown): string {
     if (raw == null) return ""
     let txt = String(raw).trim()
     if (!txt) return ""
     if (campoFornecedorIds.has(campoId) && fornecedorNomeById.has(txt)) {
       txt = fornecedorNomeById.get(txt) ?? txt
+    } else if (campoDataIds.has(campoId)) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(txt)
+      if (m) txt = `${m[3]}/${m[2]}/${m[1]}`
     }
     return txt
   }

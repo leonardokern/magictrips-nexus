@@ -29,6 +29,17 @@ import {
   type CampoOpcao,
   type TipoCampo,
 } from "@/lib/schemas/tipo-produto"
+
+const PLACEHOLDER_SUGESTAO: Record<TipoCampo, string> = {
+  texto_curto: "Ex: CGH-SSA, LATAM123",
+  texto:       "Ex: Observações sobre o serviço",
+  numero:      "Ex: 2",
+  valor:       "Ex: 1.500,00",
+  data:        "Ex: 01/01/2025",
+  dropdown:    "",
+  sim_nao:     "",
+  fornecedor:  "",
+}
 import {
   createCampoExtra,
   updateCampoExtra,
@@ -235,7 +246,7 @@ export function CampoExtraFormModal(props: Props) {
             <Input
               value={v.placeholder}
               onChange={(e) => update("placeholder", e.target.value)}
-              placeholder="Ex: Ex: CGH-SSA"
+              placeholder={PLACEHOLDER_SUGESTAO[v.tipo_campo] || "Opcional"}
               maxLength={120}
             />
           </Field>

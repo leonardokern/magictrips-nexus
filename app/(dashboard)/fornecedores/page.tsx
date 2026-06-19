@@ -120,6 +120,7 @@ export default async function FornecedoresPage({
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const podeEditar = can(user, "fornecedores", "editar")
   const tiposProdutoList = (tiposProduto ?? []) as { id: string; nome: string; icone: string | null }[]
+  const tiposProdutoMap = new Map(tiposProdutoList.map((tp) => [tp.id, tp.nome]))
 
   return (
     <div className="space-y-6">
@@ -147,8 +148,8 @@ export default async function FornecedoresPage({
           <TableHeader>
             <TableRow className="border-white/[0.06] hover:bg-transparent">
               <TableHead className="text-white/55">Nome</TableHead>
-              <TableHead className="text-white/55">CNPJ</TableHead>
               <TableHead className="text-white/55">Tipo</TableHead>
+              <TableHead className="text-white/55">Produtos</TableHead>
               <TableHead className="text-white/55">Status</TableHead>
               <TableHead className="text-right text-white/55">Ações</TableHead>
             </TableRow>
@@ -163,14 +164,34 @@ export default async function FornecedoresPage({
                 </TableCell>
               </TableRow>
             ) : (
-              fornecedores.map((f) => (
+              fornecedores.map((f) => {
+                const produtoNomes = (vinculosPorFornecedor.get(f.id) ?? [])
+                  .map((id) => tiposProdutoMap.get(id))
+                  .filter(Boolean) as string[]
+                return (
                 <TableRow key={f.id} className="border-white/[0.06] hover:bg-white/[0.025]">
-                  <TableCell className="font-medium text-white">{f.nome}</TableCell>
-                  <TableCell className="font-mono text-xs text-white/75">
-                    {formatCnpj(f.cnpj)}
+                  <TableCell>
+                    <p className="font-medium text-white">{f.nome}</p>
+                    <p className="mt-0.5 font-mono text-xs text-white/45">{formatCnpj(f.cnpj)}</p>
                   </TableCell>
                   <TableCell>
                     <TipoFornecedorBadge tipo={f.tipo as TipoFornecedor | null} />
+                  </TableCell>
+                  <TableCell>
+                    {produtoNomes.length === 0 ? (
+                      <span className="text-xs text-white/30">—</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {produtoNomes.map((nome) => (
+                          <span
+                            key={nome}
+                            className="rounded-md border border-nexus-bright/20 bg-nexus-bright/[0.06] px-2 py-0.5 text-[11px] text-nexus-bright/80"
+                          >
+                            {nome}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
                     <FornecedorAtivoBadge ativo={f.ativo} />
@@ -190,7 +211,8 @@ export default async function FornecedoresPage({
                     />
                   </TableCell>
                 </TableRow>
-              ))
+                )
+              })
             )}
           </TableBody>
         </Table>
@@ -206,7 +228,11 @@ export default async function FornecedoresPage({
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {fornecedores.map((f) => (
+            {fornecedores.map((f) => {
+              const produtoNomes = (vinculosPorFornecedor.get(f.id) ?? [])
+                .map((id) => tiposProdutoMap.get(id))
+                .filter(Boolean) as string[]
+              return (
               <div
                 key={f.id}
                 className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
@@ -215,9 +241,21 @@ export default async function FornecedoresPage({
                   <span className="font-medium text-white">{f.nome}</span>
                   <FornecedorAtivoBadge ativo={f.ativo} />
                 </div>
-                <p className="mt-1.5 font-mono text-xs text-white/55">
+                <p className="mt-0.5 font-mono text-xs text-white/45">
                   {formatCnpj(f.cnpj)}
                 </p>
+                {produtoNomes.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {produtoNomes.map((nome) => (
+                      <span
+                        key={nome}
+                        className="rounded-md border border-nexus-bright/20 bg-nexus-bright/[0.06] px-2 py-0.5 text-[11px] text-nexus-bright/80"
+                      >
+                        {nome}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <TipoFornecedorBadge tipo={f.tipo as TipoFornecedor | null} />
                   <FornecedorRowActions
@@ -234,7 +272,8 @@ export default async function FornecedoresPage({
                   />
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
