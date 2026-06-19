@@ -64,62 +64,54 @@ export function RelatorioTipoProdutoModal({ tipos }: Props) {
     return null
   }, [tipoProdutoId, dataInicio, dataFim])
 
-  async function gerar(formato: Formato) {
+  function gerarPdf() {
     if (erroValidacao) {
       toast.error(erroValidacao)
       return
     }
+    // Abre a rota GET do PDF direto em nova aba: o navegador renderiza inline
+    // e o operador baixa pelo próprio visualizador quando quiser. Sem fetch/blob
+    // (evita popup bloqueado) — window.open dentro do gesto do clique.
+    const qs = new URLSearchParams({ tipoProdutoId, dataInicio, dataFim }).toString()
+    window.open(`/api/relatorios/tipo-produto/pdf?${qs}`, "_blank", "noopener,noreferrer")
+    toast.success("Abrindo relatório em nova aba…")
+  }
 
-    // PDF: abre a aba JÁ no gesto do clique (antes do await) pra não ser
-    // bloqueada como popup. Depois só apontamos a aba pro blob — o operador
-    // visualiza e decide quando baixar. Excel continua baixando direto.
-    const pdfTab =
-      formato === "pdf" ? window.open("", "_blank", "noopener,noreferrer") : null
-
-    setGerando(formato)
+  async function gerarExcel() {
+    if (erroValidacao) {
+      toast.error(erroValidacao)
+      return
+    }
+    setGerando("excel")
     try {
-      const res = await fetch(`/api/relatorios/tipo-produto/${formato}`, {
+      const res = await fetch(`/api/relatorios/tipo-produto/excel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tipoProdutoId, dataInicio, dataFim }),
       })
 
       if (!res.ok) {
-        pdfTab?.close()
         const j = (await res.json().catch(() => null)) as { error?: string } | null
-        toast.error(j?.error ?? "Não foi possível gerar o relatório.")
+        toast.error(j?.error ?? "Não foi possível gerar a planilha.")
         return
       }
 
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
-
-      if (formato === "pdf") {
-        // Aponta a aba pré-aberta pro PDF. Se o popup foi bloqueado mesmo
-        // assim, navega a aba atual como último recurso (sem forçar download).
-        if (pdfTab) pdfTab.location.href = url
-        else window.open(url, "_blank", "noopener,noreferrer")
-      } else {
-        const nome = filenameFromHeader(
-          res.headers.get("Content-Disposition"),
-          "relatorio.xlsx",
-        )
-        const a = document.createElement("a")
-        a.href = url
-        a.download = nome
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-      }
-
-      // Libera o object URL depois de um tempo (deixa o navegador abrir/baixar).
-      setTimeout(() => URL.revokeObjectURL(url), 60_000)
-      toast.success(
-        formato === "pdf" ? "Relatório PDF aberto em nova aba." : "Planilha gerada com sucesso.",
+      const nome = filenameFromHeader(
+        res.headers.get("Content-Disposition"),
+        "relatorio.xlsx",
       )
+      const a = document.createElement("a")
+      a.href = url
+      a.download = nome
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      toast.success("Planilha gerada com sucesso.")
     } catch {
-      pdfTab?.close()
-      toast.error("Falha de rede ao gerar o relatório.")
+      toast.error("Falha de rede ao gerar a planilha.")
     } finally {
       setGerando(null)
     }
@@ -218,16 +210,15 @@ export function RelatorioTipoProdutoModal({ tipos }: Props) {
             variant="outline"
             loading={gerando === "excel"}
             disabled={ocupado || !!erroValidacao}
-            onClick={() => gerar("excel")}
+            onClick={gerarExcel}
           >
             <FileSpreadsheet className="h-4 w-4" />
             Gerar Excel
           </LoaderButton>
           <LoaderButton
             type="button"
-            loading={gerando === "pdf"}
             disabled={ocupado || !!erroValidacao}
-            onClick={() => gerar("pdf")}
+            onClick={gerarPdf}
           >
             <FileText className="h-4 w-4" />
             Gerar PDF

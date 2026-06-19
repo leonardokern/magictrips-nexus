@@ -15,40 +15,34 @@ export const dynamic = "force-dynamic"
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}$/
 
-export async function POST(req: NextRequest) {
+// GET pra abrir o PDF inline numa nova aba (filtros via query string). Esse é
+// o padrão do app pra visualizar PDFs (ver rota do relatório de venda) — o
+// operador visualiza e baixa pelo próprio visualizador do navegador.
+export async function GET(req: NextRequest) {
   const user = await requireCurrentUser()
   if (!can(user, "relatorios", "ver")) {
-    return NextResponse.json(
-      { error: "Sem permissão para gerar relatórios." },
-      { status: 403 },
-    )
+    return new NextResponse("Sem permissão para gerar relatórios.", { status: 403 })
   }
 
-  let body: { tipoProdutoId?: unknown; dataInicio?: unknown; dataFim?: unknown }
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: "Corpo inválido." }, { status: 400 })
-  }
-
-  const tipoProdutoId = typeof body.tipoProdutoId === "string" ? body.tipoProdutoId : ""
-  const dataInicio = typeof body.dataInicio === "string" ? body.dataInicio : ""
-  const dataFim = typeof body.dataFim === "string" ? body.dataFim : ""
+  const sp = req.nextUrl.searchParams
+  const tipoProdutoId = sp.get("tipoProdutoId") ?? ""
+  const dataInicio = sp.get("dataInicio") ?? ""
+  const dataFim = sp.get("dataFim") ?? ""
 
   if (!tipoProdutoId) {
-    return NextResponse.json({ error: "Selecione um tipo de produto." }, { status: 400 })
+    return new NextResponse("Selecione um tipo de produto.", { status: 400 })
   }
   if (!ISO_RE.test(dataInicio) || !ISO_RE.test(dataFim)) {
-    return NextResponse.json({ error: "Informe um intervalo de datas válido." }, { status: 400 })
+    return new NextResponse("Informe um intervalo de datas válido.", { status: 400 })
   }
   if (dataInicio > dataFim) {
-    return NextResponse.json({ error: "Data inicial maior que a final." }, { status: 400 })
+    return new NextResponse("Data inicial maior que a final.", { status: 400 })
   }
 
   const supabase = await createClient()
   const res = await buildRelatorioTipoProduto(supabase, { tipoProdutoId, dataInicio, dataFim })
   if (!res.ok) {
-    return NextResponse.json({ error: res.error }, { status: 400 })
+    return new NextResponse(res.error, { status: 400 })
   }
 
   const logoPath = path.join(
