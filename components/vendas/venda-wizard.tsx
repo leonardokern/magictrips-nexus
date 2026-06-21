@@ -277,6 +277,9 @@ type PassageiroState = {
    *  internacionais. Sempre uppercase, máx 10 chars (igual cliente). */
   passaporte: string
   usandoDadosCliente?: boolean
+  /** Marcado quando o passageiro foi preenchido a partir de uma tag de
+   *  sugestão — trava os campos até o operador clicar pra remover. */
+  usandoSugestao?: boolean
 }
 
 type ClienteNovoState = {
@@ -3839,10 +3842,23 @@ function Step4Passageiros(props: {
   function aplicarSugestao(passageiroId: string, sug: PassageiroSugerido) {
     patch(passageiroId, {
       usandoDadosCliente: false,
+      usandoSugestao: true,
       nome: sug.nome,
       cpf: sug.cpf ?? "",
       data_nascimento: sug.data_nascimento ?? "",
       passaporte: sug.passaporte ?? "",
+    })
+  }
+
+  /** Desfaz a aplicação de uma sugestão — limpa os campos e desbloqueia
+   *  pra o operador preencher manualmente. */
+  function limparSugestao(passageiroId: string) {
+    patch(passageiroId, {
+      usandoSugestao: false,
+      nome: "",
+      cpf: "",
+      data_nascimento: "",
+      passaporte: "",
     })
   }
 
@@ -3888,6 +3904,8 @@ function Step4Passageiros(props: {
 
       {props.passageiros.map((p, i) => {
         const usandoDados = !!p.usandoDadosCliente
+        const usandoSug = !!p.usandoSugestao
+        const camposTravados = usandoDados || usandoSug
         const outroUsando = idUsandoDados !== null && idUsandoDados !== p.id
 
         // Chaves já em uso por outros slots — pra esconder a tag de sugestão
@@ -3897,9 +3915,16 @@ function Step4Passageiros(props: {
             .filter((px) => px.id !== p.id && (px.nome.trim() || px.cpf))
             .map((px) => chaveDe(px.nome, px.cpf)),
         )
-        const sugsDisponiveis = props.sugeridos.filter(
-          (s) => !chavesEmUsoEmOutros.has(chaveDe(s.nome, s.cpf)),
-        )
+        // Esconde também o próprio cliente da lista — ele já tem o atalho
+        // "Usar dados do Cliente" no header.
+        const chaveCliente = props.clienteNome || props.clienteCpf
+          ? chaveDe(props.clienteNome, props.clienteCpf)
+          : null
+        const sugsDisponiveis = props.sugeridos.filter((s) => {
+          const ch = chaveDe(s.nome, s.cpf)
+          if (chaveCliente && ch === chaveCliente) return false
+          return !chavesEmUsoEmOutros.has(ch)
+        })
         const chaveAtual = chaveDe(p.nome, p.cpf)
         return (
           <div
@@ -3950,12 +3975,15 @@ function Step4Passageiros(props: {
                   Sugestões:
                 </span>
                 {sugsDisponiveis.map((sug) => {
-                  const ativa = chaveDe(sug.nome, sug.cpf) === chaveAtual
+                  const ativa =
+                    usandoSug && chaveDe(sug.nome, sug.cpf) === chaveAtual
                   return (
                     <button
                       type="button"
                       key={chaveDe(sug.nome, sug.cpf)}
-                      onClick={() => aplicarSugestao(p.id, sug)}
+                      onClick={() =>
+                        ativa ? limparSugestao(p.id) : aplicarSugestao(p.id, sug)
+                      }
                       title={[
                         sug.cpf ? `CPF ${formatCpf(sug.cpf)}` : null,
                         sug.data_nascimento ? `Nasc. ${sug.data_nascimento.split("-").reverse().join("/")}` : null,
@@ -3987,7 +4015,7 @@ function Step4Passageiros(props: {
                   value={p.nome}
                   onChange={(ev) => patch(p.id, { nome: ev.target.value })}
                   onBlur={(ev) => patch(p.id, { nome: toTitleCase(ev.target.value) })}
-                  disabled={usandoDados}
+                  disabled={camposTravados}
                 />
               </Field>
               <Field
@@ -4000,14 +4028,14 @@ function Step4Passageiros(props: {
                   onChange={(ev) => patch(p.id, { cpf: ev.target.value })}
                   maxLength={14}
                   placeholder="000.000.000-00"
-                  disabled={usandoDados}
+                  disabled={camposTravados}
                 />
               </Field>
               <Field label="Nascimento" className="sm:col-span-2">
                 <DateInput
                   value={p.data_nascimento}
                   onChange={(iso) => patch(p.id, { data_nascimento: iso })}
-                  disabled={usandoDados}
+                  disabled={camposTravados}
                 />
               </Field>
               <Field label="Passaporte" className="sm:col-span-2">
@@ -4018,7 +4046,7 @@ function Step4Passageiros(props: {
                   }
                   placeholder="BR1234567"
                   maxLength={10}
-                  disabled={usandoDados}
+                  disabled={camposTravados}
                   className="uppercase tracking-wider"
                 />
               </Field>

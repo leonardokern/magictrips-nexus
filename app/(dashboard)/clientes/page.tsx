@@ -153,14 +153,7 @@ export default async function ClientesPage({
         )}
       </div>
 
-      <ClientesFilters
-        q={q}
-        tipo={tipo}
-        status={status}
-        empresaId={empresaFiltro}
-        empresas={isAdminMaster ? empresas : []}
-        showEmpresaFilter={isAdminMaster}
-      />
+      <ClientesFilters q={q} />
 
       <div className="hidden md:block overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
         <Table>
