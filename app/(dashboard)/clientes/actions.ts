@@ -380,7 +380,10 @@ export async function lookupClientePorCnpj(
  */
 function montarPayloadCliente(values: ClienteFormValues) {
   const isPJ = values.tipo_pessoa === "juridica"
-  const cpf = isPJ ? null : onlyDigits(values.cpf ?? "")
+  // Estrangeiro: mantém doc alfanumérico. Brasileiro: remove máscara.
+  const cpf = isPJ ? null : values.estrangeiro
+    ? (values.cpf ?? "").trim() || null
+    : onlyDigits(values.cpf ?? "") || null
   const cnpj = isPJ ? onlyDigits(values.cnpj ?? "") : null
   const nome = isPJ
     ? (values.nome_fantasia?.trim() || values.razao_social?.trim() || "")
@@ -388,6 +391,7 @@ function montarPayloadCliente(values: ClienteFormValues) {
 
   return {
     tipo_pessoa: values.tipo_pessoa,
+    estrangeiro: values.estrangeiro ?? false,
     nome,
     razao_social: isPJ ? values.razao_social?.trim() || null : null,
     nome_fantasia: isPJ ? values.nome_fantasia?.trim() || null : null,

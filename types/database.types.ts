@@ -357,6 +357,7 @@ export type Database = {
           email: string
           empresa_id: string
           endereco: Json | null
+          estrangeiro: boolean
           id: string
           nome: string
           nome_fantasia: string | null
@@ -382,6 +383,7 @@ export type Database = {
           email: string
           empresa_id: string
           endereco?: Json | null
+          estrangeiro?: boolean
           id?: string
           nome: string
           nome_fantasia?: string | null
@@ -407,6 +409,7 @@ export type Database = {
           email?: string
           empresa_id?: string
           endereco?: Json | null
+          estrangeiro?: boolean
           id?: string
           nome?: string
           nome_fantasia?: string | null

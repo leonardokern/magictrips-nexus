@@ -53,7 +53,13 @@ import {
 } from "./comprovante-cobranca-upload"
 import { IconTooltip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { criarVenda, editarEAprovarVenda, resubmeterVenda } from "@/app/(dashboard)/vendas/actions"
+import {
+  criarVenda,
+  editarEAprovarVenda,
+  getPassageirosDoCliente,
+  resubmeterVenda,
+  type PassageiroSugerido,
+} from "@/app/(dashboard)/vendas/actions"
 import { salvarRascunho, descartarRascunho } from "@/app/(dashboard)/vendas/rascunho-actions"
 import {
   listarAnexos,
@@ -576,6 +582,29 @@ export function VendaWizard(props: Props) {
   const [passageiros, setPassageiros] = useState<PassageiroState[]>(
     () => d?.passageiros ?? [],
   )
+
+  // Sugestões de passageiros vindas de vendas anteriores deste cliente — usado
+  // no Step 4 como tags clicáveis pra preencher rápido. Recarregado sempre
+  // que o cliente selecionado muda.
+  const [passageirosSugeridos, setPassageirosSugeridos] = useState<
+    PassageiroSugerido[]
+  >([])
+  useEffect(() => {
+    let cancelled = false
+    const id = typeof clienteValue === "string" && clienteValue !== "novo"
+      ? clienteValue
+      : null
+    if (!id) {
+      setPassageirosSugeridos([])
+      return
+    }
+    getPassageirosDoCliente(id).then((sugs) => {
+      if (!cancelled) setPassageirosSugeridos(sugs)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [clienteValue])
 
   // Cliente combobox: filtra pela empresa selecionada
   const clientesDaEmpresa = useMemo(
@@ -1454,6 +1483,7 @@ export function VendaWizard(props: Props) {
                 ? clienteNovo.tipo_pessoa === "fisica" ? clienteNovo.passaporte : ""
                 : (props.clientes.find((x) => x.id === clienteValue)?.passaporte ?? "")
             }
+            sugeridos={passageirosSugeridos}
             errors={errors}
           />
         )}
@@ -3782,6 +3812,7 @@ function Step4Passageiros(props: {
   clienteCpf: string
   clienteDataNascimento: string
   clientePassaporte: string
+  sugeridos: PassageiroSugerido[]
   errors: Record<string, string>
 }) {
   function adicionar() {
@@ -3794,6 +3825,25 @@ function Step4Passageiros(props: {
     props.setPassageiros((s) =>
       s.map((px) => (px.id === id ? { ...px, ...p } : px)),
     )
+  }
+
+  /** Chave de identidade entre um passageiro já preenchido e uma sugestão —
+   *  CPF (dígitos) quando existir, senão nome em minúsculas. */
+  function chaveDe(nome: string, cpf: string | null | undefined): string {
+    const cpfDigits = (cpf ?? "").replace(/\D/g, "")
+    return cpfDigits || nome.trim().toLowerCase()
+  }
+
+  /** Aplica os dados da sugestão num passageiro específico, marcando-o como
+   *  não-cliente (sai do modo "Usar dados do cliente" se estiver). */
+  function aplicarSugestao(passageiroId: string, sug: PassageiroSugerido) {
+    patch(passageiroId, {
+      usandoDadosCliente: false,
+      nome: sug.nome,
+      cpf: sug.cpf ?? "",
+      data_nascimento: sug.data_nascimento ?? "",
+      passaporte: sug.passaporte ?? "",
+    })
   }
 
   function handleUsarDadosCliente(id: string, checked: boolean) {
@@ -3839,6 +3889,18 @@ function Step4Passageiros(props: {
       {props.passageiros.map((p, i) => {
         const usandoDados = !!p.usandoDadosCliente
         const outroUsando = idUsandoDados !== null && idUsandoDados !== p.id
+
+        // Chaves já em uso por outros slots — pra esconder a tag de sugestão
+        // que já foi aplicada em outro passageiro desta venda.
+        const chavesEmUsoEmOutros = new Set(
+          props.passageiros
+            .filter((px) => px.id !== p.id && (px.nome.trim() || px.cpf))
+            .map((px) => chaveDe(px.nome, px.cpf)),
+        )
+        const sugsDisponiveis = props.sugeridos.filter(
+          (s) => !chavesEmUsoEmOutros.has(chaveDe(s.nome, s.cpf)),
+        )
+        const chaveAtual = chaveDe(p.nome, p.cpf)
         return (
           <div
             key={p.id}
@@ -3879,6 +3941,40 @@ function Step4Passageiros(props: {
                 </button>
               )}
             </div>
+            {/* Sugestões de passageiros desse cliente (vendas anteriores).
+                Clicar numa tag preenche todos os campos. Tag já aplicada
+                em outro slot some; a aplicada nesse slot fica destacada. */}
+            {sugsDisponiveis.length > 0 && !usandoDados && (
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                <span className="self-center text-[11px] uppercase tracking-wider text-white/35">
+                  Sugestões:
+                </span>
+                {sugsDisponiveis.map((sug) => {
+                  const ativa = chaveDe(sug.nome, sug.cpf) === chaveAtual
+                  return (
+                    <button
+                      type="button"
+                      key={chaveDe(sug.nome, sug.cpf)}
+                      onClick={() => aplicarSugestao(p.id, sug)}
+                      title={[
+                        sug.cpf ? `CPF ${formatCpf(sug.cpf)}` : null,
+                        sug.data_nascimento ? `Nasc. ${sug.data_nascimento.split("-").reverse().join("/")}` : null,
+                        sug.passaporte ? `Passp. ${sug.passaporte}` : null,
+                      ].filter(Boolean).join(" · ") || "Clique pra preencher"}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors",
+                        ativa
+                          ? "border-nexus-bright/60 bg-nexus-bright/15 text-nexus-bright"
+                          : "border-white/15 bg-white/[0.04] text-white/70 hover:border-white/30 hover:bg-white/[0.08] hover:text-white",
+                      )}
+                    >
+                      {ativa && <Check className="h-3 w-3" />}
+                      {sug.nome}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
             {/* Grid 12-col, tudo numa linha:
                   Nome (6) + CPF (2) + Data nasc (2) + Passaporte (2) */}
             <div className="grid gap-3 sm:grid-cols-12">

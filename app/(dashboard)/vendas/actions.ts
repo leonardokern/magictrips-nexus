@@ -1397,3 +1397,64 @@ export async function resubmeterVenda(
   revalidatePath("/dashboard")
   return { ok: true, data: { id } }
 }
+
+/** Sugestão de passageiro vinculado a um cliente — reaproveitado entre vendas. */
+export type PassageiroSugerido = {
+  nome: string
+  cpf: string | null
+  data_nascimento: string | null
+  passaporte: string | null
+}
+
+/**
+ * Retorna passageiros únicos já cadastrados em vendas anteriores deste cliente,
+ * pra alimentar tags de auto-preenchimento no Step 4 do wizard. Dedupe por CPF
+ * (quando presente) ou por chave "nome+nascimento". Limita aos últimos 12
+ * passageiros vistos pra não inflar a UI. Retorna [] se cliente vazio.
+ */
+export async function getPassageirosDoCliente(
+  clienteId: string,
+): Promise<PassageiroSugerido[]> {
+  if (!clienteId) return []
+  await requireCurrentUser()
+
+  const supabase = await createClient()
+
+  // RLS já restringe vendas do cliente à empresa do usuário — não precisa
+  // filtrar empresa_id aqui.
+  const { data, error } = await supabase
+    .from("venda_passageiros")
+    .select("nome, cpf, data_nascimento, passaporte, created_at, vendas!inner(cliente_id)")
+    .eq("vendas.cliente_id", clienteId)
+    .order("created_at", { ascending: false })
+    .limit(60)
+
+  if (error || !data) return []
+
+  type Row = {
+    nome: string | null
+    cpf: string | null
+    data_nascimento: string | null
+    passaporte: string | null
+  }
+
+  const vistos = new Set<string>()
+  const sugeridos: PassageiroSugerido[] = []
+  for (const r of data as Row[]) {
+    const nome = (r.nome ?? "").trim()
+    if (!nome) continue
+    // Chave de dedupe: CPF se existe (mais confiável), senão nome+nasc.
+    const cpfDigits = (r.cpf ?? "").replace(/\D/g, "")
+    const chave = cpfDigits || `${nome.toLowerCase()}|${r.data_nascimento ?? ""}`
+    if (vistos.has(chave)) continue
+    vistos.add(chave)
+    sugeridos.push({
+      nome,
+      cpf: r.cpf ?? null,
+      data_nascimento: r.data_nascimento ?? null,
+      passaporte: r.passaporte ?? null,
+    })
+    if (sugeridos.length >= 12) break
+  }
+  return sugeridos
+}

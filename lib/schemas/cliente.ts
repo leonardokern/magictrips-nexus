@@ -26,17 +26,12 @@ const enderecoSchema = z
     complemento: z.string().trim().max(100).optional(),
     bairro: z.string().trim().max(100).optional(),
     cidade: z.string().trim().max(100).optional(),
-    estado: z
-      .string()
-      .trim()
-      .length(2, "UF deve ter 2 letras")
-      .optional()
-      .or(z.literal("")),
-    cep: z
-      .string()
-      .transform((v) => onlyDigits(v))
-      .refine((v) => v === "" || v.length === 8, "CEP deve ter 8 dígitos")
-      .optional(),
+    // Para brasileiros: 2 letras (UF). Para estrangeiros: campo livre.
+    estado: z.string().trim().max(100).optional().or(z.literal("")),
+    // Para brasileiros: 8 dígitos (validado no superRefine). Para estrangeiros: livre.
+    cep: z.string().optional(),
+    // Código ISO 3166-1 alpha-2 do país (obrigatório para estrangeiros).
+    pais: z.string().trim().max(2).optional().or(z.literal("")),
   })
   .partial()
 
@@ -72,6 +67,9 @@ export const clienteBaseSchema = z
     cnpj: z.string().optional().or(z.literal("")),
     responsavel: z.string().trim().max(200).optional().or(z.literal("")),
 
+    /** true = estrangeiro (sem validação de CPF/CEP, com país obrigatório no endereço). */
+    estrangeiro: z.boolean().default(false),
+
     // Comuns
     email: z
       .string()
@@ -101,7 +99,7 @@ export const clienteBaseSchema = z
   })
   .superRefine((v, ctx) => {
     if (v.tipo_pessoa === "fisica") {
-      // PF exige nome + CPF válido + data de nascimento. Passaporte é opcional.
+      // PF exige nome + data de nascimento. Passaporte é opcional.
       if (!v.nome || v.nome.trim().length < 2) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -109,13 +107,25 @@ export const clienteBaseSchema = z
           message: "Nome muito curto",
         })
       }
-      const cpfNum = onlyDigits(v.cpf ?? "")
-      if (!cpfValido(cpfNum)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["cpf"],
-          message: "CPF inválido",
-        })
+      if (v.estrangeiro) {
+        // Estrangeiro: documento alfanumérico livre, apenas não-vazio
+        if (!v.cpf || v.cpf.trim().length < 2) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["cpf"],
+            message: "Documento obrigatório",
+          })
+        }
+      } else {
+        // Brasileiro: valida CPF
+        const cpfNum = onlyDigits(v.cpf ?? "")
+        if (!cpfValido(cpfNum)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["cpf"],
+            message: "CPF inválido",
+          })
+        }
       }
       if (!v.data_nascimento || v.data_nascimento === "") {
         ctx.addIssue({
@@ -160,6 +170,27 @@ export const clienteBaseSchema = z
           message: "Telefone muito curto",
         })
       }
+    }
+
+    // CEP: só valida 8 dígitos para brasileiros
+    if (!v.estrangeiro) {
+      const cepNum = onlyDigits(v.endereco?.cep ?? "")
+      if (cepNum !== "" && cepNum.length !== 8) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["endereco", "cep"],
+          message: "CEP deve ter 8 dígitos",
+        })
+      }
+    }
+
+    // Estrangeiro exige país no endereço
+    if (v.estrangeiro && !v.endereco?.pais) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endereco", "pais"],
+        message: "Selecione o país",
+      })
     }
 
     // Cliente faturado exige dia_faturamento

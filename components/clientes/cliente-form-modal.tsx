@@ -46,6 +46,7 @@ import { DateInput } from "@/components/ui/date-input"
 import { buscarEnderecoPorCep } from "@/lib/utils/cep"
 import { ESTADOS_BR } from "@/lib/data/estados"
 import { CidadeCombobox } from "@/components/ui/cidade-combobox"
+import { PaisCombobox } from "@/components/ui/pais-combobox"
 import { Spinner } from "@/components/ui/spinner"
 
 type Empresa = { id: string; nome: string }
@@ -75,6 +76,7 @@ type FormState = ClienteFormValues
 const EMPTY: FormState = {
   empresa_id: "",
   tipo_pessoa: "fisica",
+  estrangeiro: false,
   // PF
   nome: "",
   cpf: "",
@@ -114,6 +116,7 @@ export function ClienteFormModal(props: Props) {
   const isCreate = props.mode === "create"
 
   async function buscarCep() {
+    if (v.estrangeiro) return
     const cep = v.endereco?.cep ?? ""
     const limpo = onlyDigits(cep)
     if (limpo.length === 0) {
@@ -148,14 +151,16 @@ export function ClienteFormModal(props: Props) {
     if (!props.open) return
     setErrors({})
     setDuplicateAlert(null)
-    // Edit: endereço já existe, libera edição. Create: bloqueia, força CEP.
-    setEnderecoManual(props.mode === "edit")
     if (props.mode === "edit") {
       const ddi = props.initial.telefone_ddi ?? "+55"
+      const isEst = props.initial.estrangeiro ?? false
+      // Edit: endereço já existe, libera edição.
+      setEnderecoManual(true)
       setV({
         ...EMPTY,
         empresa_id: props.defaultEmpresaId ?? "",
         ...props.initial,
+        estrangeiro: isEst,
         telefone_ddi: ddi,
         // Aplica máscara ao número vindo do banco (salvo sem formatação)
         telefone: ddi === "+55"
@@ -163,6 +168,8 @@ export function ClienteFormModal(props: Props) {
           : (props.initial.telefone ?? ""),
       })
     } else {
+      // Create: bloqueia endereco, força CEP (só para brasileiros).
+      setEnderecoManual(false)
       setV({ ...EMPTY, empresa_id: props.defaultEmpresaId ?? "" })
     }
   }, [props.open, props.mode, props.defaultEmpresaId])
@@ -217,7 +224,8 @@ export function ClienteFormModal(props: Props) {
     startTransition(async () => {
       const payload = {
         ...v,
-        cpf: onlyDigits(v.cpf ?? ""),
+        // Brasileiro: remove máscara. Estrangeiro: guarda texto como veio.
+        cpf: v.estrangeiro ? (v.cpf ?? "").trim() : onlyDigits(v.cpf ?? ""),
         cnpj: onlyDigits(v.cnpj ?? ""),
         telefone: v.telefone_ddi === "+55" ? onlyDigits(v.telefone) : v.telefone.trim(),
         dia_faturamento:
@@ -313,10 +321,11 @@ export function ClienteFormModal(props: Props) {
 
               {v.tipo_pessoa === "fisica" ? (
                 <>
+                  {/* Nome + toggle Brasileiro/Estrangeiro lado a lado */}
                   <Field
                     label="Nome *"
                     error={errors.nome}
-                    className="sm:col-span-6"
+                    className="sm:col-span-4"
                   >
                     <Input
                       value={v.nome ?? ""}
@@ -326,31 +335,80 @@ export function ClienteFormModal(props: Props) {
                     />
                   </Field>
 
-                  <Field
-                    label="CPF *"
-                    error={errors.cpf}
-                    className="sm:col-span-2"
-                  >
-                    <Input
-                      value={formatCpf(v.cpf ?? "")}
-                      onChange={(e) => update("cpf", e.target.value)}
-                      onBlur={checkCpfDuplicado}
-                      placeholder="000.000.000-00"
-                      maxLength={14}
-                      required
-                    />
-                    {duplicateAlert && isCreate && (
-                      <p className="mt-1 text-[11px] text-amber-300">
-                        Já existe cliente com este CPF:{" "}
-                        <a
-                          href={`/clientes/${duplicateAlert.id}`}
-                          className="font-medium underline"
-                        >
-                          {duplicateAlert.nome}
-                        </a>
-                      </p>
-                    )}
-                  </Field>
+                  <div className="sm:col-span-2">
+                    <Label className="mb-1.5 block text-[11px] font-medium text-white/70">
+                      Nacionalidade
+                    </Label>
+                    <div className="flex h-10 overflow-hidden rounded-md border border-white/10">
+                      {(["brasileiro", "estrangeiro"] as const).map((opt) => {
+                        const ativo = opt === "estrangeiro" ? v.estrangeiro : !v.estrangeiro
+                        return (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => {
+                              const novoEstrangeiro = opt === "estrangeiro"
+                              update("estrangeiro", novoEstrangeiro)
+                              // Ao mudar, libera edição manual de endereço para estrangeiro
+                              if (novoEstrangeiro) setEnderecoManual(true)
+                              else if (isCreate) setEnderecoManual(false)
+                            }}
+                            className={
+                              "flex-1 text-xs font-medium transition-colors " +
+                              (ativo
+                                ? "bg-nexus-bright/20 text-nexus-bright"
+                                : "bg-transparent text-white/50 hover:text-white/80")
+                            }
+                          >
+                            {opt === "brasileiro" ? "Brasileiro(a)" : "Estrangeiro(a)"}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* CPF (brasileiro) ou Documento (estrangeiro) */}
+                  {v.estrangeiro ? (
+                    <Field
+                      label="Documento *"
+                      error={errors.cpf}
+                      className="sm:col-span-2"
+                    >
+                      <Input
+                        value={v.cpf ?? ""}
+                        onChange={(e) => update("cpf", e.target.value)}
+                        placeholder="Passaporte, ID, RG estrangeiro…"
+                        maxLength={30}
+                        required
+                      />
+                    </Field>
+                  ) : (
+                    <Field
+                      label="CPF *"
+                      error={errors.cpf}
+                      className="sm:col-span-2"
+                    >
+                      <Input
+                        value={formatCpf(v.cpf ?? "")}
+                        onChange={(e) => update("cpf", e.target.value)}
+                        onBlur={checkCpfDuplicado}
+                        placeholder="000.000.000-00"
+                        maxLength={14}
+                        required
+                      />
+                      {duplicateAlert && isCreate && (
+                        <p className="mt-1 text-[11px] text-amber-300">
+                          Já existe cliente com este CPF:{" "}
+                          <a
+                            href={`/clientes/${duplicateAlert.id}`}
+                            className="font-medium underline"
+                          >
+                            {duplicateAlert.nome}
+                          </a>
+                        </p>
+                      )}
+                    </Field>
+                  )}
 
                   <Field
                     label="Data de nascimento *"
@@ -491,116 +549,196 @@ export function ClienteFormModal(props: Props) {
           {/* Endereço */}
           <Section icon={<MapPin className="h-3.5 w-3.5" />} title="Endereço">
             <div className="grid gap-4 sm:grid-cols-3">
-              <Field
-                label="CEP"
-                hint="Preenche o resto automaticamente"
-                error={errors.cep}
-              >
-                <div className="relative">
-                  <Input
-                    value={formatCep(v.endereco?.cep ?? "")}
-                    onChange={(e) =>
-                      update("endereco", {
-                        ...v.endereco,
-                        cep: onlyDigits(e.target.value),
-                      })
-                    }
-                    onBlur={buscarCep}
-                    placeholder="00000-000"
-                    maxLength={9}
-                    inputMode="numeric"
-                    className="pr-9"
-                  />
-                  {cepLoading && (
-                    <Spinner
-                      size="sm"
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-nexus-bright"
+              {v.estrangeiro ? (
+                /* ── Estrangeiro: Código Postal livre + País ── */
+                <>
+                  <Field label="Código Postal" error={errors.cep}>
+                    <Input
+                      value={v.endereco?.cep ?? ""}
+                      onChange={(e) =>
+                        update("endereco", { ...v.endereco, cep: e.target.value })
+                      }
+                      placeholder="Ex: 10001, SW1A 1AA…"
+                      maxLength={20}
                     />
-                  )}
-                </div>
-              </Field>
-              <Field label="UF">
-                <Select
-                  value={v.endereco?.estado || undefined}
-                  disabled={!enderecoManual}
-                  onValueChange={(val) =>
-                    update("endereco", {
-                      ...v.endereco,
-                      estado: val,
-                      // Limpa cidade quando UF muda
-                      cidade: v.endereco?.estado === val ? v.endereco?.cidade : "",
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ESTADOS_BR.map((e) => (
-                      <SelectItem key={e.uf} value={e.uf}>
-                        {e.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Cidade">
-                <CidadeCombobox
-                  uf={v.endereco?.estado}
-                  value={v.endereco?.cidade ?? ""}
-                  onChange={(cidade) =>
-                    update("endereco", { ...v.endereco, cidade })
-                  }
-                  disabled={!enderecoManual}
-                />
-              </Field>
-              <Field label="Rua" className="sm:col-span-2">
-                <Input
-                  value={v.endereco?.rua ?? ""}
-                  disabled={!enderecoManual}
-                  onChange={(e) =>
-                    update("endereco", { ...v.endereco, rua: e.target.value })
-                  }
-                />
-              </Field>
-              <Field label="Número">
-                <Input
-                  value={v.endereco?.numero ?? ""}
-                  onChange={(e) =>
-                    update("endereco", {
-                      ...v.endereco,
-                      numero: onlyDigits(e.target.value),
-                    })
-                  }
-                  inputMode="numeric"
-                  maxLength={10}
-                />
-              </Field>
-              <Field label="Complemento" className="sm:col-span-2">
-                <Input
-                  value={v.endereco?.complemento ?? ""}
-                  onChange={(e) =>
-                    update("endereco", {
-                      ...v.endereco,
-                      complemento: e.target.value,
-                    })
-                  }
-                />
-              </Field>
-              <Field label="Bairro">
-                <Input
-                  value={v.endereco?.bairro ?? ""}
-                  disabled={!enderecoManual}
-                  onChange={(e) =>
-                    update("endereco", {
-                      ...v.endereco,
-                      bairro: e.target.value,
-                    })
-                  }
-                />
-              </Field>
+                  </Field>
+                  <Field
+                    label="País *"
+                    error={errors["endereco.pais"]}
+                    className="sm:col-span-2"
+                  >
+                    <PaisCombobox
+                      value={v.endereco?.pais ?? ""}
+                      onChange={(codigo) =>
+                        update("endereco", { ...v.endereco, pais: codigo })
+                      }
+                    />
+                  </Field>
+                  <Field label="Rua" className="sm:col-span-2">
+                    <Input
+                      value={v.endereco?.rua ?? ""}
+                      onChange={(e) =>
+                        update("endereco", { ...v.endereco, rua: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Número">
+                    <Input
+                      value={v.endereco?.numero ?? ""}
+                      onChange={(e) =>
+                        update("endereco", { ...v.endereco, numero: e.target.value })
+                      }
+                      maxLength={20}
+                    />
+                  </Field>
+                  <Field label="Complemento" className="sm:col-span-2">
+                    <Input
+                      value={v.endereco?.complemento ?? ""}
+                      onChange={(e) =>
+                        update("endereco", { ...v.endereco, complemento: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Bairro / Distrito">
+                    <Input
+                      value={v.endereco?.bairro ?? ""}
+                      onChange={(e) =>
+                        update("endereco", { ...v.endereco, bairro: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Cidade">
+                    <Input
+                      value={v.endereco?.cidade ?? ""}
+                      onChange={(e) =>
+                        update("endereco", { ...v.endereco, cidade: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Estado / Província">
+                    <Input
+                      value={v.endereco?.estado ?? ""}
+                      onChange={(e) =>
+                        update("endereco", { ...v.endereco, estado: e.target.value })
+                      }
+                      maxLength={100}
+                    />
+                  </Field>
+                </>
+              ) : (
+                /* ── Brasileiro: CEP com auto-fill ── */
+                <>
+                  <Field
+                    label="CEP"
+                    hint={!enderecoManual ? "Preenche o resto automaticamente" : undefined}
+                    error={errors.cep}
+                  >
+                    <div className="relative">
+                      <Input
+                        value={formatCep(v.endereco?.cep ?? "")}
+                        onChange={(e) =>
+                          update("endereco", {
+                            ...v.endereco,
+                            cep: onlyDigits(e.target.value),
+                          })
+                        }
+                        onBlur={buscarCep}
+                        placeholder="00000-000"
+                        maxLength={9}
+                        inputMode="numeric"
+                        className="pr-9"
+                      />
+                      {cepLoading && (
+                        <Spinner
+                          size="sm"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-nexus-bright"
+                        />
+                      )}
+                    </div>
+                  </Field>
+                  <Field label="UF">
+                    <Select
+                      value={v.endereco?.estado || undefined}
+                      disabled={!enderecoManual}
+                      onValueChange={(val) =>
+                        update("endereco", {
+                          ...v.endereco,
+                          estado: val,
+                          cidade: v.endereco?.estado === val ? v.endereco?.cidade : "",
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ESTADOS_BR.map((e) => (
+                          <SelectItem key={e.uf} value={e.uf}>
+                            {e.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label="Cidade">
+                    <CidadeCombobox
+                      uf={v.endereco?.estado}
+                      value={v.endereco?.cidade ?? ""}
+                      onChange={(cidade) =>
+                        update("endereco", { ...v.endereco, cidade })
+                      }
+                      disabled={!enderecoManual}
+                    />
+                  </Field>
+                  <Field label="Rua" className="sm:col-span-2">
+                    <Input
+                      value={v.endereco?.rua ?? ""}
+                      disabled={!enderecoManual}
+                      onChange={(e) =>
+                        update("endereco", { ...v.endereco, rua: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Número">
+                    <Input
+                      value={v.endereco?.numero ?? ""}
+                      onChange={(e) =>
+                        update("endereco", {
+                          ...v.endereco,
+                          numero: onlyDigits(e.target.value),
+                        })
+                      }
+                      inputMode="numeric"
+                      maxLength={10}
+                    />
+                  </Field>
+                  <Field label="Complemento" className="sm:col-span-2">
+                    <Input
+                      value={v.endereco?.complemento ?? ""}
+                      onChange={(e) =>
+                        update("endereco", {
+                          ...v.endereco,
+                          complemento: e.target.value,
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label="Bairro">
+                    <Input
+                      value={v.endereco?.bairro ?? ""}
+                      disabled={!enderecoManual}
+                      onChange={(e) =>
+                        update("endereco", {
+                          ...v.endereco,
+                          bairro: e.target.value,
+                        })
+                      }
+                    />
+                  </Field>
+                </>
+              )}
             </div>
-            {!enderecoManual && (
+            {!v.estrangeiro && !enderecoManual && (
               <p className="mt-2 text-[11px] text-white/40">
                 Rua, Bairro, Cidade e UF são preenchidos via CEP.{" "}
                 <button
