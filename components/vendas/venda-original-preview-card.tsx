@@ -112,6 +112,16 @@ export function VendaOriginalPreviewCard({ venda }: Props) {
                   {p.fornecedor_nome || "—"}
                   {p.localizador ? ` · ${p.localizador}` : ""}
                 </p>
+                {(p.data_inicio_viagem || p.data_fim_viagem) && (
+                  <p className="mt-0.5 truncate text-[11px] text-white/55">
+                    Viagem{" "}
+                    {p.data_inicio_viagem
+                      ? formatDateBr(p.data_inicio_viagem)
+                      : "—"}
+                    {" → "}
+                    {p.data_fim_viagem ? formatDateBr(p.data_fim_viagem) : "—"}
+                  </p>
+                )}
               </div>
               <div className="flex shrink-0 items-center gap-4 text-right">
                 <div>

@@ -60,27 +60,9 @@ export function AlteracaoComparisonCard({ vendaOriginal, alteracao }: Props) {
     new Set([...origPorTipo.keys(), ...altPorTipo.keys()]),
   ).sort()
 
-  const totaisOrig = zero()
-  const totaisAlt = zero()
-  for (const a of origPorTipo.values()) {
-    totaisOrig.venda += a.venda
-    totaisOrig.custo += a.custo
-    totaisOrig.rav += a.rav
-  }
-  for (const a of altPorTipo.values()) {
-    totaisAlt.venda += a.venda
-    totaisAlt.custo += a.custo
-    totaisAlt.rav += a.rav
-  }
-  const totaisEfet = {
-    venda: totaisOrig.venda + totaisAlt.venda,
-    custo: totaisOrig.custo + totaisAlt.custo,
-    rav: totaisOrig.rav + totaisAlt.rav,
-  }
-
   return (
     <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.04] p-4">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
           <Pencil className="h-4 w-4 text-amber-300" />
           Alteração de valores
@@ -95,11 +77,13 @@ export function AlteracaoComparisonCard({ vendaOriginal, alteracao }: Props) {
       </div>
 
       <div className="overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.02]">
+        {/* Header — só as 4 colunas, sem o subtítulo "(orig → Δ → efetivo)"
+            que não cabia. A semântica fica nos rótulos das linhas (orig/Δ/efet). */}
         <div className="grid grid-cols-12 gap-2 border-b border-white/[0.06] px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-white/45">
           <div className="col-span-3">Produto</div>
-          <div className="col-span-3 text-right">Receita (orig → Δ → efetivo)</div>
-          <div className="col-span-3 text-right">Custo (orig → Δ → efetivo)</div>
-          <div className="col-span-3 text-right">RAV (orig → Δ → efetivo)</div>
+          <div className="col-span-3 text-right">Receita</div>
+          <div className="col-span-3 text-right">Custo</div>
+          <div className="col-span-3 text-right">RAV</div>
         </div>
         <ul className="divide-y divide-white/[0.04]">
           {tipos.map((nome) => {
@@ -114,9 +98,9 @@ export function AlteracaoComparisonCard({ vendaOriginal, alteracao }: Props) {
             return (
               <li
                 key={nome}
-                className="grid grid-cols-12 gap-2 px-3 py-2 text-xs"
+                className="grid grid-cols-12 gap-2 px-3 py-3 text-xs"
               >
-                <div className="col-span-3 truncate text-white/85">
+                <div className="col-span-3 self-center truncate text-white/85">
                   {nome}
                   {novo && (
                     <span className="ml-1.5 inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300">
@@ -124,20 +108,20 @@ export function AlteracaoComparisonCard({ vendaOriginal, alteracao }: Props) {
                     </span>
                   )}
                 </div>
-                <DeltaTriple
+                <DeltaStack
                   className="col-span-3"
                   original={o.venda}
                   delta={a.venda}
                   efetivo={ef.venda}
                 />
-                <DeltaTriple
+                <DeltaStack
                   className="col-span-3"
                   original={o.custo}
                   delta={a.custo}
                   efetivo={ef.custo}
                   invertido
                 />
-                <DeltaTriple
+                <DeltaStack
                   className="col-span-3"
                   original={o.rav}
                   delta={a.rav}
@@ -146,37 +130,24 @@ export function AlteracaoComparisonCard({ vendaOriginal, alteracao }: Props) {
               </li>
             )
           })}
-          <li className="grid grid-cols-12 gap-2 border-t border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-xs font-semibold">
-            <div className="col-span-3 uppercase tracking-wider text-white/55">
-              Totais
-            </div>
-            <DeltaTriple
-              className="col-span-3"
-              original={totaisOrig.venda}
-              delta={totaisAlt.venda}
-              efetivo={totaisEfet.venda}
-            />
-            <DeltaTriple
-              className="col-span-3"
-              original={totaisOrig.custo}
-              delta={totaisAlt.custo}
-              efetivo={totaisEfet.custo}
-              invertido
-            />
-            <DeltaTriple
-              className="col-span-3"
-              original={totaisOrig.rav}
-              delta={totaisAlt.rav}
-              efetivo={totaisEfet.rav}
-            />
-          </li>
         </ul>
       </div>
     </div>
   )
 }
 
-function DeltaTriple({
+/**
+ * Célula compacta empilhada — três linhas com label à esquerda + valor
+ * tabular à direita. Cabe em qualquer largura.
+ *
+ *   orig    R$ 1.200,00
+ *   dif.    +R$ 100,00   (verde/vermelho conforme bom/ruim)
+ *   efet.   R$ 1.300,00
+ *
+ * Sem o símbolo Δ pra evitar confusão — usa "dif." (diferença) como label.
+ * Custo é `invertido`: subir é ruim (vermelho), descer é bom (verde).
+ */
+function DeltaStack({
   className,
   original,
   delta,
@@ -192,29 +163,39 @@ function DeltaTriple({
 }) {
   const positivoBom = invertido ? delta < 0 : delta > 0
   const deltaColor =
-    delta === 0
+    Math.abs(delta) < 0.01
       ? "text-white/30"
       : positivoBom
         ? "text-emerald-300"
-        : "text-amber-300"
+        : "text-rose-300"
+
   return (
-    <div
-      className={cn(
-        "flex items-center justify-end gap-1.5 tabular-nums",
-        className,
-      )}
-    >
-      <span className="text-white/45">{formatBRL(original)}</span>
-      <span className="text-white/30">→</span>
-      <span className={cn("font-medium", deltaColor)}>
-        {delta === 0
-          ? "—"
-          : delta > 0
-            ? `+${formatBRL(delta)}`
-            : `-${formatBRL(Math.abs(delta))}`}
-      </span>
-      <span className="text-white/30">→</span>
-      <span className="font-semibold text-white">{formatBRL(efetivo)}</span>
+    <div className={cn("space-y-0.5 tabular-nums", className)}>
+      <div className="flex items-baseline justify-between gap-1.5 text-[10px] text-white/40">
+        <span>orig</span>
+        <span>{formatBRL(original)}</span>
+      </div>
+      <div
+        className={cn(
+          "flex items-baseline justify-between gap-1.5 text-[10px] font-medium",
+          deltaColor,
+        )}
+      >
+        <span className="uppercase tracking-wider text-white/45">dif.</span>
+        <span>
+          {Math.abs(delta) < 0.01
+            ? "—"
+            : delta > 0
+              ? `+${formatBRL(delta)}`
+              : `-${formatBRL(Math.abs(delta))}`}
+        </span>
+      </div>
+      <div className="flex items-baseline justify-between gap-1.5 text-[11px] font-semibold text-white">
+        <span className="text-[10px] uppercase tracking-wider text-white/45">
+          efet.
+        </span>
+        <span>{formatBRL(efetivo)}</span>
+      </div>
     </div>
   )
 }

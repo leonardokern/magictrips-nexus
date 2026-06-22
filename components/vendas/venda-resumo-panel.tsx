@@ -9,12 +9,22 @@ import { COBRANCA_TIPO_LABEL, PGTO_FORMA_LABEL } from "@/lib/schemas/venda"
 import type { VendaDetalhes } from "@/app/(dashboard)/vendas/actions"
 import { obterUrlAnexo } from "@/app/(dashboard)/vendas/anexos-actions"
 import { RevisaoComprovanteLink } from "./comprovante-cobranca-upload"
+import { AlteracaoComparisonCard } from "./alteracao-comparison-card"
 import { cn } from "@/lib/utils"
 
 function formatDateBR(iso: string | null): string {
   if (!iso) return "—"
   const [y, m, d] = iso.split("-")
   return `${d}/${m}/${y}`
+}
+
+/** Em alteração, números podem ser negativos e o sinal importa. Prefixa
+ *  +/- explicitamente; em vendas normais delega pro formatBRL padrão. */
+function formatDelta(valor: number, delta: boolean): string {
+  if (!delta) return formatBRL(valor) || "—"
+  if (Math.abs(valor) < 0.01) return formatBRL(0)
+  const formatted = formatBRL(Math.abs(valor))
+  return valor > 0 ? `+ ${formatted}` : `- ${formatted}`
 }
 
 function Bloco({
@@ -297,6 +307,7 @@ type Props = {
 }
 
 export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraRelatorio }: Props) {
+  const ehAlteracao = d.tipoVenda === "alteracao_valores"
   const totalVenda = d.produtos.reduce((a, p) => a + p.valorVenda, 0)
   const totalCusto = d.produtos.reduce((a, p) => a + p.valorCusto, 0)
   // RAV total = RAV base (venda - custo) + RAV Extra Cliente + RAV Extra Fornecedor
@@ -342,6 +353,51 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
         </div>
       )}
 
+      {/* Card de comparação Original → Δ → Efetivo (só em alterações).
+          Mostrado acima do resumo regular pra dar contexto antes que o
+          leitor veja os valores delta exibidos como se fossem totais. */}
+      {ehAlteracao && d.vendaOriginal && (
+        <AlteracaoComparisonCard
+          vendaOriginal={{
+            id: d.vendaOriginal.id,
+            identificador: d.vendaOriginal.identificador,
+            produtos: d.vendaOriginal.produtos.map((p) => ({
+              tipo_produto_nome: p.tipoProdutoNome,
+              fornecedor_nome: p.fornecedorNome,
+              valor_venda: p.valorVenda,
+              valor_custo: p.valorCusto,
+              rav: p.rav,
+            })),
+          }}
+          alteracao={{
+            produtos: d.produtos.map((p) => ({
+              tipo_produto_nome: p.tipoNome,
+              fornecedor_nome: p.fornecedorNome,
+              valor_venda: p.valorVenda,
+              valor_custo: p.valorCusto,
+              rav: p.rav,
+            })),
+          }}
+        />
+      )}
+
+      {/* Banner explicativo quando alteração — deixa claro pro validador que
+          os valores nas seções abaixo são DELTAS (positivos ou negativos),
+          não os totais absolutos da venda. */}
+      {ehAlteracao && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.04] px-4 py-3 text-sm text-amber-300/85">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <p className="font-medium text-amber-300">Esta é uma alteração de venda</p>
+            <p className="mt-0.5 text-amber-300/70">
+              Os valores em &ldquo;Produtos&rdquo; e &ldquo;Resultado financeiro&rdquo;
+              abaixo representam apenas as <strong>diferenças</strong> em relação
+              à venda original. O comparativo Original → Δ → Efetivo está acima.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
         {/* ── Coluna esquerda ──────────────────────────────────── */}
         <div className="space-y-4 lg:col-span-2">
@@ -367,9 +423,9 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
                 <thead>
                   <tr className="border-b border-white/[0.06] text-[10px] uppercase tracking-wider text-white/45">
                     <th className="px-3 py-2 text-left">Tipo</th>
-                    <th className="px-3 py-2 text-right">Venda</th>
-                    <th className="px-3 py-2 text-right">Custo</th>
-                    <th className="px-3 py-2 text-right">RAV</th>
+                    <th className="px-3 py-2 text-right">{ehAlteracao ? "Δ Venda" : "Venda"}</th>
+                    <th className="px-3 py-2 text-right">{ehAlteracao ? "Δ Custo" : "Custo"}</th>
+                    <th className="px-3 py-2 text-right">{ehAlteracao ? "Δ RAV" : "RAV"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -453,29 +509,45 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
 
         {/* ── Coluna direita — painel financeiro (sticky) ──────── */}
         <div className="space-y-4 lg:col-span-1 lg:sticky lg:top-0">
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-5">
+          <div className={cn(
+            "rounded-xl border p-5",
+            ehAlteracao
+              ? "border-amber-500/20 bg-amber-500/[0.04]"
+              : "border-white/[0.08] bg-white/[0.03]",
+          )}>
             <p className="mb-4 text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
-              Resultado financeiro
+              {ehAlteracao ? "Resultado da alteração" : "Resultado financeiro"}
             </p>
 
-            <div className="rounded-lg border border-nexus-bright/20 bg-nexus-bright/[0.07] px-4 py-3">
-              <p className="mb-0.5 text-[11px] text-white/45">Total da venda</p>
+            <div className={cn(
+              "rounded-lg border px-4 py-3",
+              ehAlteracao
+                ? "border-amber-500/25 bg-amber-500/[0.07]"
+                : "border-nexus-bright/20 bg-nexus-bright/[0.07]",
+            )}>
+              <p className="mb-0.5 text-[11px] text-white/45">
+                {ehAlteracao ? "Δ Receita" : "Total da venda"}
+              </p>
               <p className="text-2xl font-bold tabular-nums text-white">
-                {formatBRL(totalVenda) || "—"}
+                {formatDelta(totalVenda, ehAlteracao)}
               </p>
             </div>
 
             <div className="mt-4 space-y-2.5">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-white/55">Custo total</span>
+                <span className="text-white/55">
+                  {ehAlteracao ? "Δ Custo" : "Custo total"}
+                </span>
                 <span className="tabular-nums text-white/75">
-                  {formatBRL(totalCusto) || "—"}
+                  {formatDelta(totalCusto, ehAlteracao)}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-white/55">RAV total</span>
+                <span className="text-white/55">
+                  {ehAlteracao ? "Δ RAV" : "RAV total"}
+                </span>
                 <span className="tabular-nums text-white/85">
-                  {formatBRL(totalRav) || "—"}
+                  {formatDelta(totalRav, ehAlteracao)}
                 </span>
               </div>
               {/* Breakdown do RAV — só mostra se algum extra (cliente ou
@@ -508,19 +580,23 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
                   )}
                 </div>
               )}
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-white/55">Margem RAV</span>
-                <span className="tabular-nums text-white/70">
-                  {margemRav !== null ? `${margemRav}%` : "—"}
-                </span>
-              </div>
+              {/* Margem RAV não faz sentido em delta (numerador e denominador
+                  são ambos deltas) — só mostra em vendas normais. */}
+              {!ehAlteracao && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/55">Margem RAV</span>
+                  <span className="tabular-nums text-white/70">
+                    {margemRav !== null ? `${margemRav}%` : "—"}
+                  </span>
+                </div>
+              )}
             </div>
 
             {mostraComissao && (
               <div className="mt-4 space-y-2 border-t border-white/[0.06] pt-3.5">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/55">
-                    Comissão Agente
+                    {ehAlteracao ? "Δ Comissão Agente" : "Comissão Agente"}
                     {d.comissaoPercentual != null && (
                       <span className="ml-1 text-white/35">
                         ({d.comissaoPercentual}%)
@@ -528,7 +604,7 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
                     )}
                   </span>
                   <span className="tabular-nums text-amber-300">
-                    {formatBRL(totalComissao)}
+                    {formatDelta(totalComissao, ehAlteracao)}
                   </span>
                 </div>
               </div>
@@ -536,12 +612,15 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
 
             <div className="mt-4 border-t border-white/[0.06] pt-3.5">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-white/55">Total cobrado</span>
+                <span className="text-white/55">
+                  {ehAlteracao ? "Δ Total cobrado" : "Total cobrado"}
+                </span>
                 <span className="tabular-nums text-white/85">
-                  {formatBRL(totalCobranca) || "—"}
+                  {formatDelta(totalCobranca, ehAlteracao)}
                 </span>
               </div>
-              {totalVenda > 0 &&
+              {!ehAlteracao &&
+                totalVenda > 0 &&
                 totalCobranca > 0 &&
                 Math.abs(totalCobranca - totalVenda) > 0.01 && (
                   <p className="mt-2 rounded-md border border-amber-500/20 bg-amber-500/[0.08] px-2.5 py-1.5 text-[11px] leading-snug text-amber-300/90">

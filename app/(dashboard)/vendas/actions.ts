@@ -212,6 +212,22 @@ export type VendaDetalhes = {
   dataAprovacao: string | null
   /** Percentual de comissão do agente congelado no momento da venda. */
   comissaoPercentual: number | null
+  /** "original" (default) ou "alteracao_valores". Em alteração, os valores
+   *  dos produtos são DELTAS — não totais absolutos. */
+  tipoVenda: string
+  /** Quando `tipoVenda === "alteracao_valores"`, traz os produtos da venda
+   *  original pra montar o card comparativo Original → Δ → Efetivo. */
+  vendaOriginal: {
+    id: string
+    identificador: string
+    produtos: {
+      tipoProdutoNome: string
+      fornecedorNome: string | null
+      valorVenda: number
+      valorCusto: number
+      rav: number
+    }[]
+  } | null
   produtos: {
     tipoNome: string
     icone: string | null
@@ -293,7 +309,7 @@ export async function getVendaDetalhes(
       `
       id, identificador, status, data_venda, pax, origem, observacoes, motivo_revisao,
       empresa_id, usuario_id, aprovado_por, data_aprovacao,
-      comissao_percentual,
+      comissao_percentual, tipo_venda, venda_original_id,
       empresa:empresas(nome),
       cliente:clientes(nome),
       agente:usuarios!vendas_usuario_id_fkey(id, nome, comissao_percentual, perfil_id, perfil:perfis_acesso(nome)),
@@ -430,6 +446,41 @@ export async function getVendaDetalhes(
   const dataFim =
     (produtos ?? []).find((p) => p.data_fim_viagem)?.data_fim_viagem ?? null
 
+  // Quando esta venda é uma alteração, carrega a original pra montar o card
+  // comparativo. Os produtos da alteração contêm DELTAS — pra exibir
+  // Original → Δ → Efetivo precisamos dos valores originais.
+  type VendaOriginal = VendaDetalhes["vendaOriginal"]
+  let vendaOriginal: VendaOriginal = null
+  const tipoVenda = (v as unknown as { tipo_venda: string | null }).tipo_venda ?? "original"
+  const vendaOriginalId = (v as unknown as { venda_original_id: string | null }).venda_original_id
+  if (tipoVenda === "alteracao_valores" && vendaOriginalId) {
+    const [{ data: orig }, { data: produtosOrig }] = await Promise.all([
+      supabase
+        .from("vendas")
+        .select("id, identificador")
+        .eq("id", vendaOriginalId)
+        .maybeSingle(),
+      supabase
+        .from("venda_produtos")
+        .select("tipo_produto_nome, fornecedor_nome, valor_venda, valor_custo, rav")
+        .eq("venda_id", vendaOriginalId)
+        .order("ordem"),
+    ])
+    if (orig) {
+      vendaOriginal = {
+        id: orig.id,
+        identificador: orig.identificador,
+        produtos: (produtosOrig ?? []).map((p) => ({
+          tipoProdutoNome: p.tipo_produto_nome,
+          fornecedorNome: p.fornecedor_nome ?? null,
+          valorVenda: Number(p.valor_venda ?? 0),
+          valorCusto: Number(p.valor_custo ?? 0),
+          rav: Number(p.rav ?? 0),
+        })),
+      }
+    }
+  }
+
   return {
     ok: true,
     data: {
@@ -451,6 +502,8 @@ export async function getVendaDetalhes(
       aprovadoPorNome: (v.aprovador as Simples)?.nome ?? null,
       dataAprovacao: v.data_aprovacao ? v.data_aprovacao.slice(0, 10) : null,
       comissaoPercentual,
+      tipoVenda,
+      vendaOriginal,
       produtos: (produtos ?? []).map((p) => {
         const rav = Number(p.rav ?? 0)
         const stored = Number(p.comissao_vendedor ?? 0)

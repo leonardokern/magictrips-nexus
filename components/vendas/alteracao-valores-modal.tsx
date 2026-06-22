@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { CurrencyInput } from "@/components/ui/currency-input"
+import { DateInput } from "@/components/ui/date-input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { ModalLoader } from "@/components/ui/modal-loader"
@@ -36,14 +37,16 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { formatBRL, parseValorComSoma } from "@/lib/utils/sum-parser"
+import {
+  COBRANCA_TIPO_LABEL,
+  type CobrancaTipo,
+} from "@/lib/schemas/venda"
 import { cn } from "@/lib/utils"
 import { VendaOriginalPreviewCard } from "./venda-original-preview-card"
 import {
   listarVendasParaAlteracao,
-  listarTiposProduto,
   obterVendaParaAlteracao,
   criarAlteracaoVenda,
-  type TipoProdutoOption,
   type VendaOriginalCompleta,
   type VendaParaAlteracao,
 } from "@/app/(dashboard)/vendas/actions-alteracao"
@@ -76,6 +79,36 @@ type Props = {
  *   delta = valor digitado.
  * - Para remover: marca `removido = true`, delta = -original.
  */
+/**
+ * Item de cobrança adicional na alteração. O cliente só pode INCLUIR
+ * cobranças novas — as originais permanecem intactas. O fluxo é equivalente
+ * a registrar um recebimento extra referente ao delta de receita.
+ */
+type CobrancaAdicionalState = {
+  uiKey: string
+  tipo: CobrancaTipo
+  valorStr: string
+  numParcelas: number
+  plataforma: "PagSeguro" | "Cielo" | ""
+  /** Data de pagamento de cada parcela (ISO YYYY-MM-DD ou ""). Sempre tem
+   *  exatamente `numParcelas` posições; ao mudar o nº de parcelas, é
+   *  redimensionado preservando o que foi preenchido. */
+  parcelasDatas: string[]
+}
+
+/**
+ * Soma `meses` meses a uma data ISO YYYY-MM-DD, preservando o dia quando
+ * possível (clipa pro último dia do mês se o destino não comportar).
+ */
+function adicionarMeses(iso: string, meses: number): string {
+  const [y, m, d] = iso.split("-").map(Number)
+  if (!y || !m || !d) return iso
+  const dt = new Date(y, m - 1 + meses, 1)
+  const ultimoDia = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate()
+  const dia = Math.min(d, ultimoDia)
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dia).padStart(2, "0")}`
+}
+
 type ProdutoEditavelState = {
   /** UUID local pra key do React */
   uiKey: string
@@ -87,6 +120,11 @@ type ProdutoEditavelState = {
   novoValorVendaStr: string
   novoValorCustoStr: string
   novoRavStr: string
+  /** Datas de viagem (ISO YYYY-MM-DD ou ""). Alteráveis pra produtos
+   *  existentes ou novos. Mudança de data conta como alteração mesmo sem
+   *  delta financeiro. */
+  novaDataInicioViagem: string
+  novaDataFimViagem: string
   removido: boolean
 }
 
@@ -98,20 +136,11 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
   )
   const [preview, setPreview] = useState<PreviewState>(null)
   const [produtos, setProdutos] = useState<ProdutoEditavelState[]>([])
-  const [tiposProduto, setTiposProduto] = useState<TipoProdutoOption[]>([])
-  const [novoTipoProdutoId, setNovoTipoProdutoId] = useState("")
   const [observacoes, setObservacoes] = useState("")
+  const [cobrancasExtras, setCobrancasExtras] = useState<
+    CobrancaAdicionalState[]
+  >([])
   const [isSubmitting, startSubmit] = useTransition()
-
-  // Carrega a lista de tipos de produto ativos do sistema — usada no
-  // seletor "Adicionar produto" do Step 2. Cacheia enquanto o modal estiver
-  // aberto; recarrega na próxima abertura.
-  useEffect(() => {
-    if (!open) return
-    listarTiposProduto().then((r) => {
-      if (r.ok && r.data) setTiposProduto(r.data)
-    })
-  }, [open])
 
   // Reset ao fechar
   useEffect(() => {
@@ -120,10 +149,74 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
       setVendaSelecionadaId(null)
       setPreview(null)
       setProdutos([])
-      setNovoTipoProdutoId("")
       setObservacoes("")
+      setCobrancasExtras([])
     }
   }, [open])
+
+  function adicionarCobranca() {
+    setCobrancasExtras((arr) => [
+      ...arr,
+      {
+        uiKey: crypto.randomUUID(),
+        tipo: "pix",
+        valorStr: "",
+        numParcelas: 1,
+        plataforma: "",
+        parcelasDatas: [""],
+      },
+    ])
+  }
+
+  function removerCobranca(uiKey: string) {
+    setCobrancasExtras((arr) => arr.filter((c) => c.uiKey !== uiKey))
+  }
+
+  function atualizarCobranca(
+    uiKey: string,
+    patch: Partial<CobrancaAdicionalState>,
+  ) {
+    setCobrancasExtras((arr) =>
+      arr.map((c) => {
+        if (c.uiKey !== uiKey) return c
+        const merged = { ...c, ...patch }
+        // Quando numParcelas muda, redimensiona o array de datas preservando
+        // as posições já preenchidas. Posições novas começam vazias.
+        if (patch.numParcelas != null && patch.numParcelas !== c.numParcelas) {
+          const n = Math.max(1, patch.numParcelas)
+          const existentes = merged.parcelasDatas ?? []
+          merged.parcelasDatas = Array.from(
+            { length: n },
+            (_, i) => existentes[i] ?? "",
+          )
+        }
+        return merged
+      }),
+    )
+  }
+
+  /**
+   * Mexe na data de uma parcela específica. Quando o usuário preenche a
+   * primeira parcela, preenche automaticamente as seguintes com a mesma
+   * data + 1 mês cada — mesmo padrão do Step 3 da venda regular.
+   */
+  function atualizarParcelaData(uiKey: string, idx: number, data: string) {
+    setCobrancasExtras((arr) =>
+      arr.map((c) => {
+        if (c.uiKey !== uiKey) return c
+        const datas = [...c.parcelasDatas]
+        datas[idx] = data
+        if (idx === 0 && data) {
+          for (let i = 1; i < datas.length; i++) {
+            // Só auto-preenche posições vazias — não sobrescreve datas que
+            // o usuário ajustou manualmente.
+            if (!datas[i]) datas[i] = adicionarMeses(data, i)
+          }
+        }
+        return { ...c, parcelasDatas: datas }
+      }),
+    )
+  }
 
   function selecionarVenda(venda: VendaParaAlteracao | null) {
     if (!venda) {
@@ -161,37 +254,12 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
         novoValorVendaStr: numToStr(Number(p.valor_venda ?? 0)),
         novoValorCustoStr: numToStr(Number(p.valor_custo ?? 0)),
         novoRavStr: numToStr(Number(p.rav ?? 0)),
+        novaDataInicioViagem: p.data_inicio_viagem ?? "",
+        novaDataFimViagem: p.data_fim_viagem ?? "",
         removido: false,
       })),
     )
     setView({ kind: "form", venda })
-  }
-
-  function adicionarProduto(venda: VendaOriginalCompleta) {
-    void venda
-    if (!novoTipoProdutoId) {
-      toast.error("Selecione um tipo de produto.")
-      return
-    }
-    const tipo = tiposProduto.find((t) => t.id === novoTipoProdutoId)
-    if (!tipo) {
-      toast.error("Tipo de produto não encontrado.")
-      return
-    }
-    setProdutos((arr) => [
-      ...arr,
-      {
-        uiKey: crypto.randomUUID(),
-        originalIndex: null,
-        tipoProdutoId: tipo.id,
-        tipoProdutoNome: tipo.nome,
-        novoValorVendaStr: "",
-        novoValorCustoStr: "",
-        novoRavStr: "",
-        removido: false,
-      },
-    ])
-    setNovoTipoProdutoId("")
   }
 
   function removerLinha(uiKey: string) {
@@ -210,11 +278,44 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
 
   function atualizarCampo(
     uiKey: string,
-    campo: "novoValorVendaStr" | "novoValorCustoStr" | "novoRavStr",
+    campo:
+      | "novoValorVendaStr"
+      | "novoValorCustoStr"
+      | "novoRavStr"
+      | "novaDataInicioViagem"
+      | "novaDataFimViagem",
     valor: string,
   ) {
     setProdutos((arr) =>
-      arr.map((p) => (p.uiKey === uiKey ? { ...p, [campo]: valor } : p)),
+      arr.map((p) => {
+        if (p.uiKey !== uiKey) return p
+        const novo = { ...p, [campo]: valor }
+
+        // Auto-cálculo financeiro — mesma regra do wizard de venda:
+        //  • Venda ou Custo mudam → RAV = Venda - Custo
+        //  • RAV muda → Custo = Venda - RAV
+        //  • Valor de venda nunca é preenchido pelo sistema
+        if (campo === "novoValorVendaStr" || campo === "novoValorCustoStr") {
+          const venda = parseValorComSoma(novo.novoValorVendaStr)
+          const custo = parseValorComSoma(novo.novoValorCustoStr)
+          const diff = venda - custo
+          novo.novoRavStr =
+            Number.isFinite(diff) && Math.abs(diff) >= 0.005
+              ? diff.toFixed(2).replace(".", ",")
+              : ""
+        } else if (campo === "novoRavStr") {
+          const venda = parseValorComSoma(novo.novoValorVendaStr)
+          const rav = parseValorComSoma(valor)
+          // Só recalcula custo se venda > 0 e RAV foi preenchido. Se RAV
+          // for limpo, mantém o custo intacto.
+          if (venda > 0 && valor.trim() !== "") {
+            const novoCusto = Math.max(0, venda - rav)
+            novo.novoValorCustoStr = novoCusto.toFixed(2).replace(".", ",")
+          }
+        }
+
+        return novo
+      }),
     )
   }
 
@@ -247,8 +348,24 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
         deltaRav = Number((novoRav - baseRav).toFixed(2))
       }
 
-      // Linha sem alteração → não envia (delta zero em tudo)
-      if (deltaVenda === 0 && deltaCusto === 0 && deltaRav === 0) continue
+      // Mudança de datas conta como alteração mesmo sem delta financeiro.
+      const dataInicioOriginal = original?.data_inicio_viagem ?? ""
+      const dataFimOriginal = original?.data_fim_viagem ?? ""
+      const dataInicioNova = p.removido ? "" : p.novaDataInicioViagem
+      const dataFimNova = p.removido ? "" : p.novaDataFimViagem
+      const datasMudaram =
+        dataInicioNova !== dataInicioOriginal ||
+        dataFimNova !== dataFimOriginal
+
+      // Linha sem alteração nenhuma → não envia.
+      if (
+        deltaVenda === 0 &&
+        deltaCusto === 0 &&
+        deltaRav === 0 &&
+        !datasMudaram
+      ) {
+        continue
+      }
 
       produtosPayload.push({
         ordem: i + 1,
@@ -261,6 +378,10 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
         rav_extra_cliente: 0,
         rav_extra_fornecedor: 0,
         valores_extras: {},
+        // Datas absolutas — a alteração armazena o novo valor desejado
+        // (não delta). Vazio = null no banco.
+        data_inicio_viagem: dataInicioNova || null,
+        data_fim_viagem: dataFimNova || null,
         pgto_modo: original?.pgto_modo ?? "comissionado",
         pgto_num_parcelas: 1,
         pgto_entrada: 0,
@@ -268,8 +389,77 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
       })
     }
 
-    if (produtosPayload.length === 0) {
-      toast.error("Nenhuma alteração de valores detectada.")
+    // Constrói a cobrança adicional (opcional) — só envia se houver itens
+    // com valor > 0. Cada item tem que ter os campos mínimos validados.
+    let cobrancaPayload: Record<string, unknown> | null = null
+    if (cobrancasExtras.length > 0) {
+      const itensValidos: Record<string, unknown>[] = []
+      for (const c of cobrancasExtras) {
+        const valor = parseValorComSoma(c.valorStr)
+        if (valor <= 0) {
+          toast.error("Cada cobrança adicional precisa de valor maior que zero.")
+          return
+        }
+        if (c.tipo === "link_externo" && !c.plataforma) {
+          toast.error("Selecione a plataforma do link externo.")
+          return
+        }
+        // Toda parcela precisa de data — vale tanto pra single (1 data) quanto
+        // pra parcelado (N datas, uma por parcela).
+        if (c.parcelasDatas.length !== c.numParcelas) {
+          toast.error("Datas das parcelas inconsistentes.")
+          return
+        }
+        for (let i = 0; i < c.numParcelas; i++) {
+          if (!c.parcelasDatas[i]) {
+            toast.error(
+              c.numParcelas > 1
+                ? `Informe a data da parcela ${i + 1}.`
+                : "Informe a data de pagamento.",
+            )
+            return
+          }
+        }
+        // Distribui o valor igualmente entre as parcelas (centavos sobram
+        // na última pra fechar exato).
+        const valorPorParcela = Number((valor / c.numParcelas).toFixed(2))
+        const parcelasDetalhe = c.parcelasDatas.map((data, i) => ({
+          ordem: i + 1,
+          valor:
+            i === c.numParcelas - 1
+              ? Number((valor - valorPorParcela * (c.numParcelas - 1)).toFixed(2))
+              : valorPorParcela,
+          data,
+        }))
+        itensValidos.push({
+          tipo: c.tipo,
+          valor_total: valor,
+          num_parcelas: c.numParcelas,
+          valor_parcela: c.numParcelas > 1 ? valorPorParcela : null,
+          plataforma_link: null,
+          plataforma: c.tipo === "link_externo" ? c.plataforma : null,
+          parcelas_detalhe: parcelasDetalhe,
+          taxa_adquirente: null,
+          valor_liquido: null,
+          data_inicio: c.parcelasDatas[0] ?? null,
+          data_primeiro_recebimento: c.parcelasDatas[0] ?? null,
+          fornecedor_destino: null,
+          observacoes: null,
+        })
+      }
+      const total = itensValidos.reduce(
+        (acc, it) => acc + Number(it.valor_total ?? 0),
+        0,
+      )
+      cobrancaPayload = {
+        valor_total: total,
+        observacoes: null,
+        itens: itensValidos,
+      }
+    }
+
+    if (produtosPayload.length === 0 && !cobrancaPayload) {
+      toast.error("Nenhuma alteração detectada.")
       return
     }
 
@@ -277,7 +467,7 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
       venda_original_id: venda.id,
       observacoes: observacoes.trim() || null,
       produtos: produtosPayload,
-      cobranca: null,
+      cobranca: cobrancaPayload,
     }
 
     startSubmit(async () => {
@@ -288,7 +478,8 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
       }
       toast.success("Alteração registrada. Aguardando aprovação.")
       onOpenChange(false)
-      router.push(`/vendas/${r.data!.id}`)
+      router.push("/vendas")
+      router.refresh()
     })
   }
 
@@ -321,14 +512,15 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
             <FormView
               venda={view.venda}
               produtos={produtos}
-              tiposProduto={tiposProduto}
-              novoTipoProdutoId={novoTipoProdutoId}
-              setNovoTipoProdutoId={setNovoTipoProdutoId}
-              onAdicionar={() => adicionarProduto(view.venda)}
               onRemover={removerLinha}
               onAtualizar={atualizarCampo}
               observacoes={observacoes}
               setObservacoes={setObservacoes}
+              cobrancasExtras={cobrancasExtras}
+              onAdicionarCobranca={adicionarCobranca}
+              onRemoverCobranca={removerCobranca}
+              onAtualizarCobranca={atualizarCobranca}
+              onAtualizarParcelaData={atualizarParcelaData}
             />
           )}
         </div>
@@ -544,29 +736,39 @@ function formatDateBr(iso: string): string {
 function FormView({
   venda,
   produtos,
-  tiposProduto,
-  novoTipoProdutoId,
-  setNovoTipoProdutoId,
-  onAdicionar,
   onRemover,
   onAtualizar,
   observacoes,
   setObservacoes,
+  cobrancasExtras,
+  onAdicionarCobranca,
+  onRemoverCobranca,
+  onAtualizarCobranca,
+  onAtualizarParcelaData,
 }: {
   venda: VendaOriginalCompleta
   produtos: ProdutoEditavelState[]
-  tiposProduto: TipoProdutoOption[]
-  novoTipoProdutoId: string
-  setNovoTipoProdutoId: (s: string) => void
-  onAdicionar: () => void
   onRemover: (uiKey: string) => void
   onAtualizar: (
     uiKey: string,
-    campo: "novoValorVendaStr" | "novoValorCustoStr" | "novoRavStr",
+    campo:
+      | "novoValorVendaStr"
+      | "novoValorCustoStr"
+      | "novoRavStr"
+      | "novaDataInicioViagem"
+      | "novaDataFimViagem",
     valor: string,
   ) => void
   observacoes: string
   setObservacoes: (s: string) => void
+  cobrancasExtras: CobrancaAdicionalState[]
+  onAdicionarCobranca: () => void
+  onRemoverCobranca: (uiKey: string) => void
+  onAtualizarCobranca: (
+    uiKey: string,
+    patch: Partial<CobrancaAdicionalState>,
+  ) => void
+  onAtualizarParcelaData: (uiKey: string, idx: number, data: string) => void
 }) {
   // Computa totais e deltas em runtime pra exibir o resumo
   const resumo = useMemo(() => {
@@ -647,14 +849,21 @@ function FormView({
             const dCusto = p.removido ? -baseCusto : novoCusto - baseCusto
             const dRav = p.removido ? -baseRav : novoRav - baseRav
 
+            const dataInicioOriginal = original?.data_inicio_viagem ?? ""
+            const dataFimOriginal = original?.data_fim_viagem ?? ""
+            const datasMudaram =
+              !p.removido &&
+              (p.novaDataInicioViagem !== dataInicioOriginal ||
+                p.novaDataFimViagem !== dataFimOriginal)
             return (
               <li
                 key={p.uiKey}
                 className={cn(
-                  "grid grid-cols-12 items-center gap-2 px-4 py-3",
+                  "px-4 py-3",
                   p.removido && "opacity-50",
                 )}
               >
+                <div className="grid grid-cols-12 items-center gap-2">
                 <div className="col-span-3 min-w-0">
                   <p className="truncate text-sm font-medium text-white">
                     {p.tipoProdutoNome}
@@ -693,6 +902,7 @@ function FormView({
                     novoStr={p.novoValorCustoStr}
                     delta={dCusto}
                     disabled={p.removido}
+                    invertido
                     onChange={(v) =>
                       onAtualizar(p.uiKey, "novoValorCustoStr", v)
                     }
@@ -724,46 +934,44 @@ function FormView({
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
+                </div>
+
+                {/* Sub-linha — datas de viagem editáveis. Original em legenda
+                    abaixo de cada campo, no mesmo padrão das colunas de valor. */}
+                <div className="mt-3 grid grid-cols-12 gap-2">
+                  <div className="col-span-3 text-[10px] font-semibold uppercase tracking-wider text-white/35">
+                    Datas da viagem
+                  </div>
+                  <div className="col-span-4">
+                    <DataCell
+                      label="Início"
+                      original={dataInicioOriginal}
+                      novo={p.novaDataInicioViagem}
+                      disabled={p.removido}
+                      mudou={datasMudaram && p.novaDataInicioViagem !== dataInicioOriginal}
+                      onChange={(v) =>
+                        onAtualizar(p.uiKey, "novaDataInicioViagem", v)
+                      }
+                    />
+                  </div>
+                  <div className="col-span-4">
+                    <DataCell
+                      label="Fim"
+                      original={dataFimOriginal}
+                      novo={p.novaDataFimViagem}
+                      disabled={p.removido}
+                      mudou={datasMudaram && p.novaDataFimViagem !== dataFimOriginal}
+                      onChange={(v) =>
+                        onAtualizar(p.uiKey, "novaDataFimViagem", v)
+                      }
+                    />
+                  </div>
+                  <div className="col-span-1" />
+                </div>
               </li>
             )
           })}
         </ul>
-
-        {/* Adicionar produto — só aceita tipos cadastrados no sistema
-            (não permite texto livre). */}
-        <div className="flex items-center gap-2 border-t border-white/[0.06] bg-white/[0.015] px-4 py-3">
-          <Select
-            value={novoTipoProdutoId}
-            onValueChange={setNovoTipoProdutoId}
-          >
-            <SelectTrigger className="h-9 border-white/10 bg-white/[0.04] text-sm">
-              <SelectValue placeholder="Adicionar produto: selecione o tipo…" />
-            </SelectTrigger>
-            <SelectContent>
-              {tiposProduto.length === 0 ? (
-                <div className="px-2 py-3 text-center text-xs text-white/45">
-                  Carregando tipos…
-                </div>
-              ) : (
-                tiposProduto.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.nome}
-                  </SelectItem>
-                ))
-              )}
-            </SelectContent>
-          </Select>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onAdicionar}
-            disabled={!novoTipoProdutoId}
-          >
-            <Plus className="mr-1 h-3.5 w-3.5" />
-            Adicionar
-          </Button>
-        </div>
       </div>
 
       {/* Resumo dos deltas */}
@@ -771,6 +979,196 @@ function FormView({
         <DeltaResumo label="Δ Receita" valor={resumo.delta_venda} />
         <DeltaResumo label="Δ Custo" valor={resumo.delta_custo} invertido />
         <DeltaResumo label="Δ RAV" valor={resumo.delta_rav} />
+      </div>
+
+      {/* Cobranças adicionais — opcional. Não substitui as cobranças da
+          venda original; apenas registra recebimentos extras referentes ao
+          delta de receita desta alteração. */}
+      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02]">
+        <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
+          <div>
+            <p className="text-sm font-medium text-white">
+              Cobranças adicionais{" "}
+              <span className="text-xs font-normal text-white/45">
+                (opcional)
+              </span>
+            </p>
+            <p className="text-[11px] text-white/40">
+              Registre o recebimento da diferença. Não altera as cobranças
+              originais.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onAdicionarCobranca}
+          >
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Adicionar cobrança
+          </Button>
+        </div>
+
+        {cobrancasExtras.length === 0 ? (
+          <p className="px-4 py-4 text-center text-xs text-white/35">
+            Nenhuma cobrança adicional registrada.
+          </p>
+        ) : (
+          <ul className="divide-y divide-white/[0.04]">
+            {cobrancasExtras.map((c) => (
+              <li key={c.uiKey} className="grid grid-cols-12 gap-3 px-4 py-3">
+                <div className="col-span-12 sm:col-span-3">
+                  <Label className="mb-1 block text-[10px] uppercase tracking-wider text-white/45">
+                    Tipo
+                  </Label>
+                  <Select
+                    value={c.tipo}
+                    onValueChange={(v) =>
+                      onAtualizarCobranca(c.uiKey, {
+                        tipo: v as CobrancaTipo,
+                        // Limpa plataforma se sair de link_externo
+                        plataforma:
+                          v === "link_externo" ? c.plataforma : "",
+                      })
+                    }
+                  >
+                    <SelectTrigger className="h-9 border-white/10 bg-white/[0.04] text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    {/* Mesmos tipos do Step 3 da venda regular — sem
+                        cartao_debito/transferencia/dinheiro. */}
+                    <SelectContent>
+                      <SelectItem value="pix">{COBRANCA_TIPO_LABEL["pix"]}</SelectItem>
+                      <SelectItem value="boleto">{COBRANCA_TIPO_LABEL["boleto"]}</SelectItem>
+                      <SelectItem value="cartao_credito">
+                        {COBRANCA_TIPO_LABEL["cartao_credito"]}
+                      </SelectItem>
+                      <SelectItem value="faturado">
+                        {COBRANCA_TIPO_LABEL["faturado"]}
+                      </SelectItem>
+                      <SelectItem value="link_externo">
+                        {COBRANCA_TIPO_LABEL["link_externo"]}
+                      </SelectItem>
+                      <SelectItem value="outro">{COBRANCA_TIPO_LABEL["outro"]}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="col-span-6 sm:col-span-3">
+                  <Label className="mb-1 block text-[10px] uppercase tracking-wider text-white/45">
+                    Valor
+                  </Label>
+                  <CurrencyInput
+                    value={c.valorStr}
+                    onChange={(v) =>
+                      onAtualizarCobranca(c.uiKey, { valorStr: v })
+                    }
+                    placeholder="0,00"
+                  />
+                </div>
+
+                <div className="col-span-6 sm:col-span-2">
+                  <Label className="mb-1 block text-[10px] uppercase tracking-wider text-white/45">
+                    Parcelas
+                  </Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={36}
+                    value={c.numParcelas}
+                    onChange={(e) =>
+                      onAtualizarCobranca(c.uiKey, {
+                        numParcelas: Math.max(
+                          1,
+                          Math.min(36, Number(e.target.value) || 1),
+                        ),
+                      })
+                    }
+                    className="h-9 border-white/10 bg-white/[0.04] text-sm"
+                  />
+                </div>
+
+                {c.tipo === "link_externo" ? (
+                  <div className="col-span-10 sm:col-span-3">
+                    <Label className="mb-1 block text-[10px] uppercase tracking-wider text-white/45">
+                      Plataforma *
+                    </Label>
+                    <Select
+                      value={c.plataforma || undefined}
+                      onValueChange={(v) =>
+                        onAtualizarCobranca(c.uiKey, {
+                          plataforma: v as "PagSeguro" | "Cielo",
+                        })
+                      }
+                    >
+                      <SelectTrigger className="h-9 border-white/10 bg-white/[0.04] text-sm">
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PagSeguro">PagSeguro</SelectItem>
+                        <SelectItem value="Cielo">Cielo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="col-span-10 sm:col-span-3" />
+                )}
+
+                <div className="col-span-2 flex items-end justify-end sm:col-span-1">
+                  <button
+                    type="button"
+                    onClick={() => onRemoverCobranca(c.uiKey)}
+                    title="Remover cobrança"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-white/55 transition-colors hover:bg-white/[0.07]"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                {/* Datas — em 1 parcela mostra um único campo "Data de
+                    pagamento". Em N parcelas, lista N campos (auto-preenche
+                    mensal a partir da primeira). */}
+                {c.numParcelas === 1 ? (
+                  <div className="col-span-12 sm:col-span-6">
+                    <Label className="mb-1 block text-[10px] uppercase tracking-wider text-white/45">
+                      Data de pagamento *
+                    </Label>
+                    <DateInput
+                      value={c.parcelasDatas[0] ?? ""}
+                      onChange={(v) => onAtualizarParcelaData(c.uiKey, 0, v)}
+                    />
+                  </div>
+                ) : (
+                  <div className="col-span-12">
+                    <Label className="mb-1 block text-[10px] uppercase tracking-wider text-white/45">
+                      Datas das parcelas *
+                    </Label>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {c.parcelasDatas.map((data, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center gap-2 rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1.5"
+                        >
+                          <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-white/45">
+                            Parc. {i + 1}
+                          </span>
+                          <div className="flex-1">
+                            <DateInput
+                              value={data}
+                              onChange={(v) =>
+                                onAtualizarParcelaData(c.uiKey, i, v)
+                              }
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* Observações */}
@@ -796,14 +1194,26 @@ function ValorCell({
   novoStr,
   delta,
   disabled,
+  invertido,
   onChange,
 }: {
   original: number
   novoStr: string
   delta: number
   disabled?: boolean
+  /** Para custo: + é ruim (vermelho) e - é bom (verde). Para venda/RAV
+   *  vale o oposto (default). */
+  invertido?: boolean
   onChange: (v: string) => void
 }) {
+  // Sinal "positivo bom" — em venda/RAV é delta > 0; em custo, delta < 0.
+  const positivoBom = invertido ? delta < 0 : delta > 0
+  const deltaColor =
+    delta === 0
+      ? "text-white/30"
+      : positivoBom
+        ? "text-emerald-300"
+        : "text-rose-300"
   return (
     <div className="space-y-1">
       <CurrencyInput
@@ -823,15 +1233,53 @@ function ValorCell({
         <div
           className={cn(
             "flex items-center justify-between gap-1 font-medium",
-            delta > 0
-              ? "text-emerald-300"
-              : delta < 0
-                ? "text-amber-300"
-                : "text-white/30",
+            deltaColor,
           )}
         >
           <span>Δ</span>
           <span>{delta === 0 ? "—" : formatBRL(delta)}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DataCell({
+  label,
+  original,
+  novo,
+  disabled,
+  mudou,
+  onChange,
+}: {
+  label: string
+  original: string
+  novo: string
+  disabled?: boolean
+  mudou: boolean
+  onChange: (v: string) => void
+}) {
+  const formatDate = (iso: string) => {
+    if (!iso) return "—"
+    const [y, m, d] = iso.split("-")
+    return d && m && y ? `${d}/${m}/${y}` : iso
+  }
+  return (
+    <div className="space-y-1">
+      <DateInput value={novo} onChange={onChange} disabled={disabled} />
+      <div className="space-y-0.5 px-1 text-[10px] tabular-nums">
+        <div className="flex items-center justify-between gap-1 text-white/35">
+          <span>{label} (orig)</span>
+          <span>{formatDate(original)}</span>
+        </div>
+        <div
+          className={cn(
+            "flex items-center justify-between gap-1 font-medium",
+            mudou ? "text-amber-300" : "text-white/30",
+          )}
+        >
+          <span>Δ</span>
+          <span>{mudou ? formatDate(novo) : "—"}</span>
         </div>
       </div>
     </div>

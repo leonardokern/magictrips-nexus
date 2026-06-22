@@ -231,7 +231,8 @@ export type VendaProdutoAlteracaoInput = z.infer<typeof vendaProdutoAlteracaoSch
 export const vendaAlteracaoCreateSchema = z.object({
   venda_original_id: z.string().uuid("Venda original inválida"),
   observacoes: z.string().trim().max(500).nullable().optional(),
-  produtos: z.array(vendaProdutoAlteracaoSchema).min(1, "Adicione ao menos um produto"),
+  // Pode vir vazio quando a alteração só ajusta cobrança (sem delta de produto).
+  produtos: z.array(vendaProdutoAlteracaoSchema).default([]),
   /** Cobrança opcional — só é gerada quando o cliente vai pagar a diferença. */
   cobranca: cobrancaSchema.nullable().optional(),
 })
