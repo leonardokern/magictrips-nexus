@@ -10,7 +10,11 @@ export const clienteNovoBasicoSchema = z.object({
   email: z.string().trim().toLowerCase().refine(emailValido, "E-mail inválido"),
   telefone_ddi: z.string().default("+55"),
   telefone: z.string().min(4, "Telefone inválido"),
-  cpf: z.string().length(11, "CPF deve ter 11 dígitos"),
+  // Cliente brasileiro: 11 dígitos (CPF). Estrangeiro: identificação livre
+  // (qualquer string não-vazia, alfanumérica). O flag `estrangeiro` define o
+  // tipo — a validação fica permissiva pra cobrir os dois.
+  cpf: z.string().trim().min(1, "Identificação obrigatória").max(30),
+  estrangeiro: z.boolean().default(false),
   data_nascimento: z.string().optional().nullable(),
   tipo: z.enum(["regular", "faturado"]).default("regular"),
   dia_faturamento: z.number().int().min(1).max(31).optional().nullable(),

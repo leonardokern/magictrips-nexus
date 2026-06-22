@@ -284,6 +284,9 @@ type PassageiroState = {
 
 type ClienteNovoState = {
   tipo_pessoa: "fisica" | "juridica"
+  /** Cliente PF brasileiro (CPF) ou estrangeiro (identificação alfanumérica
+   *  livre no mesmo campo). Default brasileiro. */
+  estrangeiro: boolean
   // PF
   nome: string
   cpf: string
@@ -502,6 +505,7 @@ export function VendaWizard(props: Props) {
     () =>
       d?.clienteNovo ?? {
         tipo_pessoa: "fisica",
+        estrangeiro: false,
         nome: "",
         cpf: "",
         data_nascimento: "",
@@ -651,7 +655,12 @@ export function VendaWizard(props: Props) {
       if (clienteNovo.tipo_pessoa === "fisica") {
         if (clienteNovo.nome.trim().length < 2)
           e.novo_nome = "Informe o nome do cliente."
-        if (!cpfValido(clienteNovo.cpf)) e.novo_cpf = "CPF inválido."
+        if (clienteNovo.estrangeiro) {
+          // Estrangeiro — identificação livre. Aceita qualquer string não-vazia.
+          if (!clienteNovo.cpf.trim()) e.novo_cpf = "Identificação obrigatória."
+        } else {
+          if (!cpfValido(clienteNovo.cpf)) e.novo_cpf = "CPF inválido."
+        }
         if (!clienteNovo.data_nascimento)
           e.novo_data_nascimento = "Data de nascimento obrigatória."
         // Passaporte é opcional. Validação só de formato se preenchido.
@@ -1314,7 +1323,12 @@ export function VendaWizard(props: Props) {
                 email: clienteNovo.email.trim().toLowerCase(),
                 telefone_ddi: clienteNovo.telefone_ddi,
                 telefone: clienteNovo.telefone_ddi === "+55" ? onlyDigits(clienteNovo.telefone) : clienteNovo.telefone.trim(),
-                cpf: onlyDigits(clienteNovo.cpf),
+                // Estrangeiro mantém a identificação alfanumérica como veio;
+                // brasileiro normaliza pra 11 dígitos do CPF.
+                cpf: clienteNovo.estrangeiro
+                  ? clienteNovo.cpf.trim().toUpperCase()
+                  : onlyDigits(clienteNovo.cpf),
+                estrangeiro: clienteNovo.estrangeiro,
                 data_nascimento: clienteNovo.data_nascimento || null,
                 passaporte: clienteNovo.passaporte.trim() || null,
                 tipo: clienteNovo.tipo,
@@ -1882,6 +1896,9 @@ function Step1(props: {
   }>({})
 
   async function onCpfBlur() {
+    // Estrangeiro usa o campo como identificação alfanumérica livre — não
+    // tem sentido buscar duplicidade de CPF.
+    if (props.clienteNovo.estrangeiro) return
     if (!cpfValido(props.clienteNovo.cpf) || !props.empresaId) return
     setCheckingDoc("cpf")
     try {
@@ -2021,10 +2038,15 @@ function Step1(props: {
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-4">
             {props.clienteNovo.tipo_pessoa === "fisica" ? (
               <>
-                <Field label="Nome completo" error={e.novo_nome}>
+                {/* Linha 1: Nome (2) + Toggle BR/Estr. (1) + CPF (1) */}
+                <Field
+                  label="Nome completo"
+                  error={e.novo_nome}
+                  className="sm:col-span-2"
+                >
                   <Input
                     value={props.clienteNovo.nome}
                     onChange={(ev) =>
@@ -2039,18 +2061,66 @@ function Step1(props: {
                     required
                   />
                 </Field>
-                <Field label="CPF" error={e.novo_cpf}>
+
+                <Field label="Nacionalidade" className="sm:col-span-1">
+                  <div className="grid h-9 grid-cols-2 overflow-hidden rounded-md border border-white/10 bg-background">
+                    {(["br", "estr"] as const).map((opt) => {
+                      const ativo =
+                        (opt === "br" && !props.clienteNovo.estrangeiro) ||
+                        (opt === "estr" && props.clienteNovo.estrangeiro)
+                      return (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => {
+                            // Ao alternar, limpa o campo CPF — formatos
+                            // incompatíveis entre brasileiro e estrangeiro.
+                            props.setClienteNovo((s) => ({
+                              ...s,
+                              estrangeiro: opt === "estr",
+                              cpf: "",
+                            }))
+                            setDocDuplicate((prev) => ({ ...prev, cpf: null }))
+                            props.setAsyncError("novo_cpf", null)
+                          }}
+                          className={cn(
+                            "text-xs font-medium transition-colors",
+                            ativo
+                              ? "bg-nexus-bright/15 text-nexus-bright"
+                              : "text-white/55 hover:text-white",
+                          )}
+                        >
+                          {opt === "br" ? "Brasileiro" : "Estrangeiro"}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </Field>
+
+                <Field
+                  label={props.clienteNovo.estrangeiro ? "Identificação" : "CPF"}
+                  error={e.novo_cpf}
+                  className="sm:col-span-1"
+                >
                   <div className="relative">
                     <Input
-                      value={formatCpf(props.clienteNovo.cpf)}
+                      value={
+                        props.clienteNovo.estrangeiro
+                          ? props.clienteNovo.cpf
+                          : formatCpf(props.clienteNovo.cpf)
+                      }
                       onChange={(ev) => {
                         props.setClienteNovo((s) => ({ ...s, cpf: ev.target.value }))
                         setDocDuplicate((prev) => ({ ...prev, cpf: null }))
                         props.setAsyncError("novo_cpf", null)
                       }}
                       onBlur={onCpfBlur}
-                      placeholder="000.000.000-00"
-                      maxLength={14}
+                      placeholder={
+                        props.clienteNovo.estrangeiro
+                          ? "Ex: A1234567"
+                          : "000.000.000-00"
+                      }
+                      maxLength={props.clienteNovo.estrangeiro ? 30 : 14}
                     />
                     {checkingDoc === "cpf" && (
                       <Spinner
@@ -2068,9 +2138,11 @@ function Step1(props: {
                   )}
                 </Field>
 
+                {/* Linha 2: Nascimento (2) + Passaporte (2) */}
                 <Field
                   label="Data de nascimento *"
                   error={e.novo_data_nascimento}
+                  className="sm:col-span-2"
                 >
                   <DateInput
                     value={props.clienteNovo.data_nascimento}
@@ -2080,7 +2152,7 @@ function Step1(props: {
                   />
                 </Field>
 
-                <Field label="Passaporte">
+                <Field label="Passaporte" className="sm:col-span-2">
                   <Input
                     value={props.clienteNovo.passaporte}
                     onChange={(ev) =>
@@ -2097,7 +2169,11 @@ function Step1(props: {
               </>
             ) : (
               <>
-                <Field label="Razão social" error={e.novo_razao_social}>
+                <Field
+                  label="Razão social"
+                  error={e.novo_razao_social}
+                  className="sm:col-span-2"
+                >
                   <Input
                     value={props.clienteNovo.razao_social}
                     onChange={(ev) =>
@@ -2109,7 +2185,7 @@ function Step1(props: {
                     required
                   />
                 </Field>
-                <Field label="Nome fantasia">
+                <Field label="Nome fantasia" className="sm:col-span-2">
                   <Input
                     value={props.clienteNovo.nome_fantasia}
                     onChange={(ev) =>
@@ -2120,7 +2196,7 @@ function Step1(props: {
                     }
                   />
                 </Field>
-                <Field label="CNPJ" error={e.novo_cnpj}>
+                <Field label="CNPJ" error={e.novo_cnpj} className="sm:col-span-2">
                   <div className="relative">
                     <Input
                       value={formatCnpj(props.clienteNovo.cnpj)}
@@ -2148,7 +2224,7 @@ function Step1(props: {
                     </p>
                   )}
                 </Field>
-                <Field label="Nome do responsável">
+                <Field label="Nome do responsável" className="sm:col-span-2">
                   <Input
                     value={props.clienteNovo.responsavel}
                     onChange={(ev) =>
@@ -2161,7 +2237,7 @@ function Step1(props: {
                 </Field>
               </>
             )}
-            <Field label="E-mail" error={e.novo_email}>
+            <Field label="E-mail" error={e.novo_email} className="sm:col-span-2">
               <Input
                 type="email"
                 value={props.clienteNovo.email}
@@ -2175,7 +2251,7 @@ function Step1(props: {
                 className="lowercase"
               />
             </Field>
-            <Field label="Telefone" error={e.novo_telefone}>
+            <Field label="Telefone" error={e.novo_telefone} className="sm:col-span-2">
               <PhoneInput
                 ddi={props.clienteNovo.telefone_ddi ?? "+55"}
                 onDdiChange={(ddi) =>
