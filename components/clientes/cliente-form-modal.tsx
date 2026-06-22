@@ -505,7 +505,7 @@ export function ClienteFormModal(props: Props) {
               )}
 
               <Field
-                label="E-mail *"
+                label="E-mail"
                 error={errors.email}
                 className="sm:col-span-3"
               >
@@ -515,7 +515,6 @@ export function ClienteFormModal(props: Props) {
                   onChange={(e) =>
                     update(
                       "email",
-                      // E-mail: sempre minúsculo + sem espaços.
                       e.target.value.replace(/\s/g, "").toLowerCase(),
                     )
                   }
@@ -526,7 +525,6 @@ export function ClienteFormModal(props: Props) {
                   }}
                   placeholder="cliente@email.com.br"
                   className="lowercase"
-                  required
                 />
               </Field>
 

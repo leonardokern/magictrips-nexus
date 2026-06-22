@@ -208,3 +208,32 @@ export const vendaCreateSchema = z
   )
 
 export type VendaCreateInput = z.infer<typeof vendaCreateSchema>
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Alteração de Valores de Venda
+// ─────────────────────────────────────────────────────────────────────────────
+// Diferente da venda normal: valores são DELTAS (positivos ou negativos),
+// cliente é herdado da original (sem cliente_novo), cobrança é opcional.
+// O cliente envia os deltas já calculados; o RPC criar_alteracao_venda grava
+// como uma nova venda do tipo `alteracao_valores` vinculada à original.
+
+export const vendaProdutoAlteracaoSchema = vendaProdutoSchema.extend({
+  // Deltas podem ser negativos (estorno ou redução).
+  valor_venda: z.number(),
+  valor_custo: z.number(),
+  rav: z.number().nullable().optional(),
+  rav_extra_cliente: z.number().default(0),
+  rav_extra_fornecedor: z.number().default(0),
+})
+
+export type VendaProdutoAlteracaoInput = z.infer<typeof vendaProdutoAlteracaoSchema>
+
+export const vendaAlteracaoCreateSchema = z.object({
+  venda_original_id: z.string().uuid("Venda original inválida"),
+  observacoes: z.string().trim().max(500).nullable().optional(),
+  produtos: z.array(vendaProdutoAlteracaoSchema).min(1, "Adicione ao menos um produto"),
+  /** Cobrança opcional — só é gerada quando o cliente vai pagar a diferença. */
+  cobranca: cobrancaSchema.nullable().optional(),
+})
+
+export type VendaAlteracaoCreateInput = z.infer<typeof vendaAlteracaoCreateSchema>

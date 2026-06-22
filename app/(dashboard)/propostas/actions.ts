@@ -19,7 +19,7 @@ export type ActionResult<T = void> =
 export type PropostaStatus = "rascunho" | "enviada" | "aceita" | "recusada" | "expirada"
 
 export type DadosNovaProposta = {
-  clientes: { id: string; nome: string; email: string; empresa_id: string }[]
+  clientes: { id: string; nome: string; email: string | null; empresa_id: string }[]
   tiposProduto: { id: string; nome: string }[]
   fornecedores: { id: string; nome: string }[]
   empresas: { id: string; nome: string; slug: string }[]

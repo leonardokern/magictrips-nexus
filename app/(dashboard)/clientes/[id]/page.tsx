@@ -118,7 +118,7 @@ export default async function ClienteDetailPage({
                 nome_fantasia: cliente.nome_fantasia ?? "",
                 cnpj: cliente.cnpj ?? "",
                 responsavel: cliente.responsavel ?? "",
-                email: cliente.email,
+                email: cliente.email ?? "",
                 telefone_ddi: cliente.telefone_ddi ?? "+55",
                 telefone: cliente.telefone,
                 endereco: (cliente.endereco as ClienteFormValues["endereco"]) ?? {},

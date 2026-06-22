@@ -18,6 +18,7 @@ import { can } from "@/lib/hooks/use-permissions"
 import { formatBRL } from "@/lib/utils/sum-parser"
 import { formatCpf } from "@/lib/utils/formatters"
 import { AprovarVendaButton } from "@/components/vendas/aprovar-venda-button"
+import { AlteracaoComparisonCard } from "@/components/vendas/alteracao-comparison-card"
 
 export const metadata: Metadata = { title: "Venda" }
 
@@ -46,12 +47,14 @@ export default async function VendaDetailPage({
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: v } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: v } = await (supabase as any)
     .from("vendas")
     .select(
       `
       id, data_venda, status, pax, indicacao_percentual, origem, observacoes,
       empresa_id, created_at, aprovado_por, data_aprovacao,
+      tipo_venda, venda_original_id, identificador,
       empresa:empresas(nome, slug),
       cliente:clientes(id, nome, cpf, email, telefone, tipo),
       agente:usuarios!vendas_usuario_id_fkey(nome, email),
@@ -62,6 +65,42 @@ export default async function VendaDetailPage({
     .maybeSingle()
 
   if (!v) notFound()
+
+  // Quando é uma alteração de valores, carrega a original pra exibir o
+  // comparativo Original → Δ → Efetivo no topo da página.
+  let vendaOriginalParaComparacao: {
+    id: string
+    identificador: string
+    produtos: Array<{
+      tipo_produto_nome: string
+      fornecedor_nome: string | null
+      valor_venda: number | string | null
+      valor_custo: number | string | null
+      rav: number | string | null
+    }>
+  } | null = null
+
+  if (v.tipo_venda === "alteracao_valores" && v.venda_original_id) {
+    const [{ data: orig }, { data: prodOrig }] = await Promise.all([
+      supabase
+        .from("vendas")
+        .select("id, identificador")
+        .eq("id", v.venda_original_id)
+        .maybeSingle(),
+      supabase
+        .from("venda_produtos")
+        .select("tipo_produto_nome, fornecedor_nome, valor_venda, valor_custo, rav")
+        .eq("venda_id", v.venda_original_id)
+        .order("ordem"),
+    ])
+    if (orig) {
+      vendaOriginalParaComparacao = {
+        id: orig.id,
+        identificador: orig.identificador,
+        produtos: prodOrig ?? [],
+      }
+    }
+  }
 
   const [
     { data: produtos },
@@ -148,6 +187,14 @@ export default async function VendaDetailPage({
       <p className="text-sm text-white/55">
         Criada em {formatDateBR(v.data_venda)} · ID {v.id.slice(0, 8)}
       </p>
+
+      {/* Card comparativo Original → Δ → Efetivo (só em alteração) */}
+      {vendaOriginalParaComparacao && (
+        <AlteracaoComparisonCard
+          vendaOriginal={vendaOriginalParaComparacao}
+          alteracao={{ produtos: produtos ?? [] }}
+        />
+      )}
 
       {/* Banner de aprovação */}
       {v.status === "aprovado" && (

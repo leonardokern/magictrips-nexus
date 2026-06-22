@@ -416,7 +416,7 @@ function FieldError({ msg }: { msg?: string }) {
 
 // ─── Step 1: Cliente + dados gerais ──────────────────────────────────────────
 
-type ClienteOption = { id: string; nome: string; email: string; empresa_id: string }
+type ClienteOption = { id: string; nome: string; email: string | null; empresa_id: string }
 
 function Step1({
   data, errors, update, clearError, setFieldError, clientes, empresas, isProspect, selectedCliente,

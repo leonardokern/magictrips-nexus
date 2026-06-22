@@ -42,7 +42,7 @@ export async function createCliente(
     values.empresa_id,
     payload.cpf,
     payload.cnpj,
-    values.email,
+    values.email ?? null,
   )
   if (dup) {
     return { ok: false, error: dup.message, fieldErrors: dup.fieldErrors }
@@ -104,7 +104,7 @@ export async function updateCliente(
     values.empresa_id,
     payload.cpf,
     payload.cnpj,
-    values.email,
+    values.email ?? null,
     id,
   )
   if (dup) {
@@ -225,7 +225,7 @@ export type ClienteOverview = {
     nome_fantasia: string | null
     cnpj: string | null
     responsavel: string | null
-    email: string
+    email: string | null
     telefone_ddi: string | null
     telefone: string
     endereco: Record<string, unknown> | null
@@ -400,7 +400,7 @@ function montarPayloadCliente(values: ClienteFormValues) {
     cnpj,
     data_nascimento: isPJ ? null : values.data_nascimento || null,
     passaporte: isPJ ? null : values.passaporte?.trim() || null,
-    email: values.email,
+    email: values.email?.trim() || null,
     telefone_ddi: values.telefone_ddi ?? "+55",
     telefone: values.telefone,
     endereco: sanitizeEndereco(values.endereco),
@@ -417,7 +417,7 @@ async function checkDuplicateDocOrEmail(
   empresaId: string,
   cpf: string | null,
   cnpj: string | null,
-  email: string,
+  email: string | null,
   exceptId?: string,
 ): Promise<{ message: string; fieldErrors: Record<string, string> } | null> {
   const supabase = await createClient()
@@ -435,7 +435,7 @@ async function checkDuplicateDocOrEmail(
   const checks: Array<{ key: "cpf" | "cnpj" | "email"; value: string }> = []
   if (cpf) checks.push({ key: "cpf", value: cpf })
   if (cnpj) checks.push({ key: "cnpj", value: cnpj })
-  checks.push({ key: "email", value: email })
+  if (email) checks.push({ key: "email", value: email })
 
   const results = await Promise.all(checks.map((c) => buildQuery(c.key, c.value)))
   for (let i = 0; i < checks.length; i++) {

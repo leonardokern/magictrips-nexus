@@ -32,7 +32,7 @@ const STATUS_PENDENTES = ["pendente_validacao", "em_revisao"] as const
 
 const SELECT_LISTA = `
   id, identificador, data_venda, status, pax, created_at, usuario_id,
-  comissao_percentual,
+  comissao_percentual, tipo_venda,
   empresa:empresas(nome, slug),
   cliente:clientes(nome),
   agente:usuarios!vendas_usuario_id_fkey(nome),
@@ -314,6 +314,7 @@ type Linha = {
   status: string
   pax: number
   usuario_id: string
+  tipo_venda?: string | null
   empresa: { nome: string; slug: string } | { nome: string; slug: string }[] | null
   cliente: { nome: string } | { nome: string }[] | null
   agente: { nome: string } | { nome: string }[] | null
@@ -468,7 +469,14 @@ function VendasSection({
                     }
                   >
                     <TableCell className="font-mono text-xs font-medium text-nexus-bright">
-                      {v.identificador}
+                      <span className="inline-flex items-center gap-1.5">
+                        {v.identificador}
+                        {v.tipo_venda === "alteracao_valores" && (
+                          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300">
+                            Alteração
+                          </span>
+                        )}
+                      </span>
                     </TableCell>
                     <TableCell className="text-sm text-white/85">
                       {formatDateBR(v.data_venda)}
@@ -557,8 +565,13 @@ function VendasSection({
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-xs font-semibold text-nexus-bright">
+                  <span className="inline-flex items-center gap-1.5 font-mono text-xs font-semibold text-nexus-bright">
                     {v.identificador}
+                    {v.tipo_venda === "alteracao_valores" && (
+                      <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300">
+                        Alteração
+                      </span>
+                    )}
                   </span>
                   <span
                     className={

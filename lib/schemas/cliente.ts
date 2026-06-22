@@ -75,7 +75,9 @@ export const clienteBaseSchema = z
       .string()
       .trim()
       .toLowerCase()
-      .refine(emailValido, "E-mail inválido"),
+      .optional()
+      .or(z.literal(""))
+      .refine((v) => !v || emailValido(v), "E-mail inválido"),
     /** DDI salvo como "+55", "+351", etc. Default Brasil. */
     telefone_ddi: z.string().default("+55"),
     /**

@@ -354,7 +354,7 @@ export type Database = {
           crm_id: string | null
           data_nascimento: string | null
           dia_faturamento: number | null
-          email: string
+          email: string | null
           empresa_id: string
           endereco: Json | null
           estrangeiro: boolean
@@ -380,7 +380,7 @@ export type Database = {
           crm_id?: string | null
           data_nascimento?: string | null
           dia_faturamento?: number | null
-          email: string
+          email?: string | null
           empresa_id: string
           endereco?: Json | null
           estrangeiro?: boolean
@@ -406,7 +406,7 @@ export type Database = {
           crm_id?: string | null
           data_nascimento?: string | null
           dia_faturamento?: number | null
-          email?: string
+          email?: string | null
           empresa_id?: string
           endereco?: Json | null
           estrangeiro?: boolean
@@ -1795,8 +1795,10 @@ export type Database = {
           origem: string | null
           pax: number
           status: string
+          tipo_venda: string
           updated_at: string
           usuario_id: string
+          venda_original_id: string | null
         }
         Insert: {
           aprovado_por?: string | null
@@ -1819,8 +1821,10 @@ export type Database = {
           origem?: string | null
           pax?: number
           status?: string
+          tipo_venda?: string
           updated_at?: string
           usuario_id: string
+          venda_original_id?: string | null
         }
         Update: {
           aprovado_por?: string | null
@@ -1843,8 +1847,10 @@ export type Database = {
           origem?: string | null
           pax?: number
           status?: string
+          tipo_venda?: string
           updated_at?: string
           usuario_id?: string
+          venda_original_id?: string | null
         }
         Relationships: [
           {
@@ -2010,6 +2016,8 @@ export type Database = {
         Returns: string
       }
       criar_venda_completa: { Args: { p_payload: Json }; Returns: string }
+      criar_alteracao_venda: { Args: { p_payload: Json }; Returns: string }
+      obter_venda_para_alteracao: { Args: { p_venda_id: string }; Returns: Json }
       devolver_venda: {
         Args: { p_motivo: string; p_revisor_id: string; p_venda_id: string }
         Returns: undefined

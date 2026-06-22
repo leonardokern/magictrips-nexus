@@ -521,7 +521,9 @@ export function VendaWizard(props: Props) {
         dia_faturamento: "20",
       },
   )
-  const [pax, setPax] = useState(() => d?.pax ?? 1)
+  // PAX é derivado de `passageiros.length` — não é mais editável manualmente
+  // no Step 1. Mínimo de 1 garante que o RPC (que exige pax >= 1) sempre
+  // recebe um valor válido mesmo antes do Step 4 ter passageiros cadastrados.
   const [origem, setOrigem] = useState(() => d?.origem ?? "")
   const [agenteId, setAgenteId] = useState(
     () => d?.agenteId ?? props.usuarioLogadoId,
@@ -590,6 +592,14 @@ export function VendaWizard(props: Props) {
     () => d?.passageiros ?? [],
   )
 
+  // PAX derivado — mínimo 1 (o RPC exige pax >= 1). Substitui o antigo
+  // useState/input manual. Atualiza automaticamente conforme o usuário
+  // adiciona/remove passageiros no Step 4.
+  const pax = useMemo(
+    () => Math.max(1, passageiros.length),
+    [passageiros.length],
+  )
+
   // Sugestões de passageiros vindas de vendas anteriores deste cliente — usado
   // no Step 4 como tags clicáveis pra preencher rápido. Recarregado sempre
   // que o cliente selecionado muda.
@@ -625,15 +635,11 @@ export function VendaWizard(props: Props) {
     [props.cartoes, empresaId],
   )
 
-  // Ao entrar no passo 4: garante que a lista tem exatamente `pax` passageiros
-  // (ou mais, se o usuário já adicionou extras). Primeiro passageiro recebe o
-  // nome do cliente se ainda não tiver nome.
+  // Ao entrar no passo 4: garante que a lista tem pelo menos 1 passageiro
+  // pra dar ao usuário um slot inicial pra preencher. PAX agora é derivado
+  // de `passageiros.length` — o usuário usa Adicionar/Remover no Step 4.
   function sincronizarPassageiros() {
-    setPassageiros((prev) => {
-      const result = [...prev]
-      while (result.length < pax) result.push(novoPassageiro())
-      return result
-    })
+    setPassageiros((prev) => (prev.length >= 1 ? prev : [novoPassageiro()]))
   }
 
   // Total geral da venda (soma valor_venda dos produtos)
@@ -673,7 +679,6 @@ export function VendaWizard(props: Props) {
       else if (!emailValido(clienteNovo.email)) e.novo_email = "E-mail inválido."
       if (!clienteNovo.telefone) e.novo_telefone = "Telefone obrigatório."
     }
-    if (pax < 1) e.pax = "PAX precisa ser ≥ 1."
     if (!origem) e.origem = "Selecione a origem do lead."
     return e
   }
@@ -1408,8 +1413,6 @@ export function VendaWizard(props: Props) {
             clienteNovo={clienteNovo}
             setClienteNovo={setClienteNovo}
             setAsyncError={setAsyncError}
-            pax={pax}
-            setPax={setPax}
             origens={props.origens}
             origem={origem}
             setOrigem={setOrigem}
@@ -1479,7 +1482,6 @@ export function VendaWizard(props: Props) {
           <Step4Passageiros
             passageiros={passageiros}
             setPassageiros={setPassageiros}
-            pax={pax}
             clienteNome={
               clienteValue === "novo"
                 ? clienteNovo.nome
@@ -1628,10 +1630,10 @@ export function VendaWizard(props: Props) {
         )}
       </div>
 
-      {/* Aviso de valor em aberto — sempre no passo 3 (vale também no modo
-          restrito cartão cliente, onde Faturado/Link Externo precisam fechar
-          o total da venda). */}
-      {step === 3 && (() => {
+      {/* Aviso de valor em aberto — só no passo 3 quando há itens de cobrança
+          a fechar. Quando todos os produtos são `cartao_cliente` o passo é
+          dispensado e a "diferença" não faz sentido (o fornecedor cobra direto). */}
+      {step === 3 && !todosCartaoCliente && (() => {
         const totalCobrado = cobrancaItens.reduce(
           (acc, it) => acc + (parseValorComSoma(it.valor_total_str) || 0), 0,
         )
@@ -1875,8 +1877,6 @@ function Step1(props: {
   clienteNovo: ClienteNovoState
   setClienteNovo: React.Dispatch<React.SetStateAction<ClienteNovoState>>
   setAsyncError: (key: string, msg: string | null) => void
-  pax: number
-  setPax: (n: number) => void
   origens: Origem[]
   origem: string
   setOrigem: (v: string) => void
@@ -1961,35 +1961,6 @@ function Step1(props: {
           />
         </Field>
 
-        <Field label="PAX (passageiros)" error={e.pax}>
-          <div className="flex items-stretch gap-2">
-            <button
-              type="button"
-              onClick={() => props.setPax(Math.max(1, props.pax - 1))}
-              disabled={props.pax <= 1}
-              aria-label="Diminuir"
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-white/75 transition-colors hover:border-white/25 hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Minus className="h-4 w-4" />
-            </button>
-            <Input
-              type="number"
-              min={1}
-              inputMode="numeric"
-              value={props.pax}
-              onChange={(ev) => props.setPax(Math.max(1, Number(ev.target.value) || 1))}
-              className="flex-1 text-center tabular-nums"
-            />
-            <button
-              type="button"
-              onClick={() => props.setPax(props.pax + 1)}
-              aria-label="Aumentar"
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-nexus-bright/25 bg-nexus-bright/[0.08] text-nexus-bright transition-colors hover:border-nexus-bright/50 hover:bg-nexus-bright/15"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-          </div>
-        </Field>
       </div>
 
       <Field
@@ -3886,7 +3857,6 @@ function Step3Cobranca(props: {
 function Step4Passageiros(props: {
   passageiros: PassageiroState[]
   setPassageiros: React.Dispatch<React.SetStateAction<PassageiroState[]>>
-  pax: number
   clienteNome: string
   clienteCpf: string
   clienteDataNascimento: string
@@ -3973,9 +3943,9 @@ function Step4Passageiros(props: {
   return (
     <div className="space-y-4">
       <p className="text-sm text-white/55">
-        PAX informado: <span className="text-white">{props.pax}</span>. Cadastre
-        os passageiros aqui — todos serão associados a todos os produtos da
-        venda. Granularidade por produto vem em V1.1.
+        Cadastre os passageiros — todos serão associados a todos os produtos
+        da venda. O número de PAX é calculado automaticamente a partir desta
+        lista. Granularidade por produto vem em V1.1.
       </p>
 
       {props.passageiros.map((p, i) => {
