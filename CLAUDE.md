@@ -151,6 +151,18 @@ Selects de filtro ocultos no mobile com `<div className="hidden md:contents">`. 
 
 ---
 
+## Clientes — peculiaridades
+
+- **Email opcional** (migration 079): `clientes.email` aceita NULL. Checagem de duplicidade por email só roda se email preenchido.
+- **Estrangeiro** (migration 078): toggle "Brasileiro(a) / Estrangeiro(a)" ao lado do nome. Quando estrangeiro: CPF → doc livre, CEP → código postal livre sem ViaCEP, UF/Cidade → texto livre, País → `PaisCombobox` (195 países, busca PT-BR). País salvo em `endereco.pais` (ISO 3166-1 alpha-2). Obrigatório para estrangeiros.
+- **Filtros de listagem**: página de clientes tem apenas busca por nome/CPF/CNPJ/e-mail. Selects de tipo/status/empresa foram removidos.
+
+## Perfis de acesso — peculiaridades
+
+- **Tipo `marketing`** (migration 074): terceiro tipo além de `operacao` e `agente`. Cross-empresa (`empresa_id = null`), comissão especial, badge amarelo. Comportamento igual a `operacao` por ora.
+- **Clonar perfil**: botão "Novo Perfil" abre picker com "Do zero" ou "A partir de um perfil existente". Segunda opção pré-preenche permissões da cópia, nome fica vazio. `components/perfis/novo-perfil-button.tsx`.
+- **Reset de senha**: usa `createAdminClient().auth.admin.generateLink({ type: "recovery" })` + envia via Resend. **Não** usa `supabase.auth.resetPasswordForEmail()` (SMTP nativo do Supabase — limite 4/h, cai em spam).
+
 ## Pegadinhas conhecidas
 
 - **`gen_salt`/`crypt`**: pgcrypto vive em `extensions` schema no Supabase. RPCs com `SET search_path = public` precisam qualificar como `extensions.gen_salt`/`extensions.crypt` ou falham com `function does not exist`.
