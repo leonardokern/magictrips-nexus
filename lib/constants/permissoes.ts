@@ -80,9 +80,9 @@ export const MODULOS_PERMISSAO: ModuloDef[] = [
   {
     key: "financeiro",
     label: "Financeiro",
-    description: "Contas a receber, contas a pagar, fluxo de caixa, clientes faturados.",
+    description:
+      "Contas a Receber, Contas a Pagar e Fluxo de Caixa. Sem essa permissão, o usuário não vê nenhuma das três seções no menu.",
     acoes: CRUD_BASE,
-    naoDisponivel: true,
   },
   {
     key: "cartoes",

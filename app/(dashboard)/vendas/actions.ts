@@ -1205,6 +1205,8 @@ export type VendaParaEditar = {
       pgto_data_entrada_str: string
       /** Valor extra na 1ª parcela — taxas/IOF (pgto_primeira_parcela_extra). */
       pgto_primeira_parcela_extra_str: string
+      /** Parcelas detalhadas do pagamento ao fornecedor (faturado). */
+      pgto_parcelas_faturado: { ordem: number; valor_str: string; data: string }[]
     }[]
     cobrancaItens: {
       tipo: string; outro_descricao: string; valor_total_str: string
@@ -1261,7 +1263,7 @@ export async function getVendaParaEditar(
         .maybeSingle(),
       supabase
         .from("venda_produtos")
-        .select("tipo_produto_id, fornecedor_id, fornecedor_nome, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, comissao_vendedor, valores_extras, data_emissao, pgto_modo, pgto_forma, pgto_cartao_id, pgto_valor_total, pgto_entrada, pgto_num_parcelas, pgto_valor_parcela, pgto_data_debito, pgto_primeira_parcela_extra, data_inicio_viagem, data_fim_viagem")
+        .select("tipo_produto_id, fornecedor_id, fornecedor_nome, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, comissao_vendedor, valores_extras, data_emissao, pgto_modo, pgto_forma, pgto_cartao_id, pgto_valor_total, pgto_entrada, pgto_num_parcelas, pgto_valor_parcela, pgto_data_debito, pgto_primeira_parcela_extra, pgto_parcelas_detalhe, data_inicio_viagem, data_fim_viagem")
         .eq("venda_id", id)
         .order("ordem"),
       supabase
@@ -1342,6 +1344,15 @@ export async function getVendaParaEditar(
       pgto_num_parcelas:        Number(p.pgto_num_parcelas ?? 1),
       pgto_data_entrada_str:    p.pgto_data_debito ?? "",
       pgto_primeira_parcela_extra_str: numStr(p.pgto_primeira_parcela_extra),
+      pgto_parcelas_faturado: (
+        (p.pgto_parcelas_detalhe as unknown as
+          | { ordem?: number; valor?: number | string; data?: string | null }[]
+          | null) ?? []
+      ).map((parc, j) => ({
+        ordem: Number(parc?.ordem ?? j + 1),
+        valor_str: numStr(parc?.valor ?? 0),
+        data: parc?.data ?? "",
+      })),
     })),
     cobrancaItens: itensRaw.map((it) => ({
       tipo:                     it.tipo ?? "pix",

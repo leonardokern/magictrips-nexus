@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react"
 import {
   addMonths,
@@ -98,6 +99,10 @@ export function DateInput({
   })
   const prevIso = useRef(value)
   const wrapperRef = useRef<HTMLDivElement>(null)
+  // O popover é portaled pra document.body, então não está dentro do
+  // wrapperRef. Compartilhamos esse ref pra que o handler de clique fora
+  // reconheça cliques dentro do calendário como "internos".
+  const popoverRef = useRef<HTMLDivElement>(null)
 
   // Sincroniza quando o prop muda externamente (ex: reset do form)
   useEffect(() => {
@@ -113,8 +118,10 @@ export function DateInput({
   useEffect(() => {
     if (!open) return
     function onClick(e: MouseEvent) {
-      if (!wrapperRef.current) return
-      if (!wrapperRef.current.contains(e.target as Node)) setOpen(false)
+      const target = e.target as Node
+      if (wrapperRef.current?.contains(target)) return
+      if (popoverRef.current?.contains(target)) return
+      setOpen(false)
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false)
@@ -191,6 +198,8 @@ export function DateInput({
 
       {open && !disabled && (
         <CalendarPopover
+          anchorRef={wrapperRef}
+          popoverRef={popoverRef}
           viewMonth={viewMonth}
           onChangeViewMonth={setViewMonth}
           selectedDate={selectedDate}
@@ -206,6 +215,8 @@ export function DateInput({
 // ─── Calendar popover ────────────────────────────────────────────────────────
 
 function CalendarPopover({
+  anchorRef,
+  popoverRef,
   viewMonth,
   onChangeViewMonth,
   selectedDate,
@@ -213,6 +224,8 @@ function CalendarPopover({
   onPick,
   isDisabled,
 }: {
+  anchorRef: React.RefObject<HTMLDivElement | null>
+  popoverRef: React.RefObject<HTMLDivElement | null>
   viewMonth: Date
   onChangeViewMonth: (d: Date) => void
   selectedDate: Date | null
@@ -220,6 +233,56 @@ function CalendarPopover({
   onPick: (d: Date) => void
   isDisabled: (d: Date) => boolean
 }) {
+  // Posicionamento via portal — escapa qualquer overflow:hidden/auto do
+  // contêiner pai (ex.: modal scrollável do wizard). Mede o anchor a cada
+  // open/scroll/resize e decide se abre pra baixo ou pra cima.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const POPOVER_W = 260
+  const POPOVER_H_APROX = 290 // height estimada do calendário
+
+  useLayoutEffect(() => {
+    function compute() {
+      const el = anchorRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      // Espaço disponível abaixo do input — se não cabe, abre pra cima.
+      const espacoAbaixo = window.innerHeight - r.bottom
+      const abrirPraCima = espacoAbaixo < POPOVER_H_APROX + 12 && r.top > POPOVER_H_APROX
+      const top = abrirPraCima ? r.top - POPOVER_H_APROX - 4 : r.bottom + 4
+      // Alinha à direita se transbordaria o lado direito da viewport.
+      let left = r.left
+      const overflowDir = r.left + POPOVER_W - window.innerWidth
+      if (overflowDir > 0) left = Math.max(8, r.left - overflowDir - 8)
+      setPos({ top, left })
+    }
+    compute()
+    window.addEventListener("resize", compute)
+    window.addEventListener("scroll", compute, true)
+    return () => {
+      window.removeEventListener("resize", compute)
+      window.removeEventListener("scroll", compute, true)
+    }
+  }, [anchorRef])
+
+  // Eventos React em conteúdo portaled propagam pela árvore virtual do
+  // React — não pela árvore DOM. Mas o DismissableLayer do Radix Dialog
+  // escuta `pointerdown` nativo em document, e como o popover (em body)
+  // é DOM-ancestral de document, o evento nativo bubble até lá e o Radix
+  // entende como "click outside" → fecha/bloqueia. Anexamos um listener
+  // nativo direto no popover pra parar a propagação DOM antes de atingir
+  // document. Isso preserva o click no botão (target phase) e bloqueia o
+  // Radix simultaneamente.
+  useEffect(() => {
+    const el = popoverRef.current
+    if (!el) return
+    const stop = (e: Event) => e.stopPropagation()
+    el.addEventListener("pointerdown", stop)
+    el.addEventListener("mousedown", stop)
+    return () => {
+      el.removeEventListener("pointerdown", stop)
+      el.removeEventListener("mousedown", stop)
+    }
+  }, [popoverRef, pos])
   // Grade: 6 linhas x 7 colunas, começando no domingo (locale ptBR)
   const days = useMemo(() => {
     const start = startOfWeek(startOfMonth(viewMonth), { locale: ptBR })
@@ -250,10 +313,23 @@ function CalendarPopover({
     onChangeViewMonth(delta < 0 ? subMonths(viewMonth, -delta) : addMonths(viewMonth, delta))
   }
 
-  return (
+  if (typeof document === "undefined" || !pos) return null
+
+  return createPortal(
     <div
+      ref={popoverRef as React.RefObject<HTMLDivElement>}
       role="dialog"
-      className="absolute z-50 mt-1 w-[260px] rounded-md border border-white/10 bg-[#0b1424] p-3 shadow-xl shadow-black/40"
+      // pointer-events: auto cobre o caso do Radix Dialog setar
+      // pointer-events: none no body quando o modal está aberto — sem isso
+      // o calendário renderiza mas não recebe cliques.
+      style={{
+        position: "fixed",
+        top: pos.top,
+        left: pos.left,
+        width: POPOVER_W,
+        pointerEvents: "auto",
+      }}
+      className="z-[60] rounded-md border border-white/10 bg-[#0b1424] p-3 shadow-xl shadow-black/40"
     >
       {/* Header: navegação por mês + ano */}
       <div className="mb-2 flex items-center justify-between gap-1">
@@ -349,6 +425,7 @@ function CalendarPopover({
           Hoje
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

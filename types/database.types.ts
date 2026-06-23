@@ -367,8 +367,8 @@ export type Database = {
           razao_social: string | null
           responsavel: string | null
           status: string
-          telefone_ddi: string
           telefone: string
+          telefone_ddi: string
           tipo: string
           tipo_pessoa: string
           updated_at: string
@@ -393,8 +393,8 @@ export type Database = {
           razao_social?: string | null
           responsavel?: string | null
           status?: string
-          telefone_ddi?: string
           telefone: string
+          telefone_ddi?: string
           tipo?: string
           tipo_pessoa?: string
           updated_at?: string
@@ -419,8 +419,8 @@ export type Database = {
           razao_social?: string | null
           responsavel?: string | null
           status?: string
-          telefone_ddi?: string
           telefone?: string
+          telefone_ddi?: string
           tipo?: string
           tipo_pessoa?: string
           updated_at?: string
@@ -1659,6 +1659,7 @@ export type Database = {
           pgto_forma: string | null
           pgto_modo: string
           pgto_num_parcelas: number | null
+          pgto_parcelas_detalhe: Json
           pgto_primeira_parcela_extra: number
           pgto_status: string
           pgto_valor_parcela: number | null
@@ -1693,6 +1694,7 @@ export type Database = {
           pgto_forma?: string | null
           pgto_modo?: string
           pgto_num_parcelas?: number | null
+          pgto_parcelas_detalhe?: Json
           pgto_primeira_parcela_extra?: number
           pgto_status?: string
           pgto_valor_parcela?: number | null
@@ -1727,6 +1729,7 @@ export type Database = {
           pgto_forma?: string | null
           pgto_modo?: string
           pgto_num_parcelas?: number | null
+          pgto_parcelas_detalhe?: Json
           pgto_primeira_parcela_extra?: number
           pgto_status?: string
           pgto_valor_parcela?: number | null
@@ -1895,6 +1898,13 @@ export type Database = {
             referencedRelation: "usuarios"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "vendas_venda_original_id_fkey"
+            columns: ["venda_original_id"]
+            isOneToOne: false
+            referencedRelation: "vendas"
+            referencedColumns: ["id"]
+          },
         ]
       }
       vendas_rascunho: {
@@ -1991,6 +2001,7 @@ export type Database = {
         Returns: number
       }
       compartilham_empresa: { Args: { p_usuario_id: string }; Returns: boolean }
+      criar_alteracao_venda: { Args: { p_payload: Json }; Returns: string }
       criar_fornecedor: {
         Args: {
           p_cnpj: string
@@ -2016,8 +2027,6 @@ export type Database = {
         Returns: string
       }
       criar_venda_completa: { Args: { p_payload: Json }; Returns: string }
-      criar_alteracao_venda: { Args: { p_payload: Json }; Returns: string }
-      obter_venda_para_alteracao: { Args: { p_venda_id: string }; Returns: Json }
       devolver_venda: {
         Args: { p_motivo: string; p_revisor_id: string; p_venda_id: string }
         Returns: undefined
@@ -2055,6 +2064,14 @@ export type Database = {
           valor: number
         }[]
       }
+      get_usuario_completo: { Args: { p_user_id: string }; Returns: Json }
+      get_usuarios_ultimo_login: {
+        Args: { p_user_ids: string[] }
+        Returns: {
+          ultimo_login: string
+          usuario_id: string
+        }[]
+      }
       has_permissao: {
         Args: { acao: string; modulo: string }
         Returns: boolean
@@ -2071,6 +2088,10 @@ export type Database = {
         }[]
       }
       mesma_empresa: { Args: { p_empresa_id: string }; Returns: boolean }
+      obter_venda_para_alteracao: {
+        Args: { p_venda_id: string }
+        Returns: Json
+      }
       resetar_senha_usuario: {
         Args: { p_nova_senha: string; p_user_id: string }
         Returns: undefined
@@ -2079,6 +2100,7 @@ export type Database = {
         Args: { p_payload: Json; p_venda_id: string }
         Returns: undefined
       }
+      tem_permissao_dashboard: { Args: never; Returns: boolean }
     }
     Enums: {
       [_ in never]: never

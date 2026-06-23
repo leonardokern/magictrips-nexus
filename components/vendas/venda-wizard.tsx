@@ -234,6 +234,10 @@ type ProdutoState = {
   pgto_data_entrada_str: string
   /** Valor extra na 1ª parcela (taxas no cartão). Diluído nas demais. */
   pgto_primeira_parcela_extra_str: string
+  /** Parcelas detalhadas do pagamento ao fornecedor (faturado). Cada
+   *  parcela traz valor + data prevista, alimentando o controle de contas
+   *  a pagar. Em outras formas de pagamento fica []. */
+  pgto_parcelas_faturado: ParcelaDetalhe[]
 }
 
 type ParcelaDetalhe = {
@@ -340,6 +344,7 @@ function novoProduto(): ProdutoState {
     pgto_num_parcelas: 1,
     pgto_data_entrada_str: "",
     pgto_primeira_parcela_extra_str: "",
+    pgto_parcelas_faturado: [],
   }
 }
 
@@ -719,6 +724,25 @@ export function VendaWizard(props: Props) {
         e[`produto_${i}_valor_custo`] = "Valor de custo obrigatório."
       if (!p.pgto_forma)
         e[`produto_${i}_pgto_forma`] = "Forma de pagamento obrigatória."
+
+      // Parcelas faturadas — cada parcela precisa de valor > 0 e data.
+      if (p.pgto_forma === "faturado") {
+        if (p.pgto_parcelas_faturado.length === 0) {
+          e[`produto_${i}_pgto_parcelas`] = "Defina ao menos uma parcela."
+        } else {
+          p.pgto_parcelas_faturado.forEach((parc, j) => {
+            const v = parseValorComSoma(parc.valor_str)
+            if (!v || v <= 0) {
+              e[`produto_${i}_pgto_parcela_${j}_valor`] =
+                `Valor da parcela ${parc.ordem} obrigatório.`
+            }
+            if (!parc.data) {
+              e[`produto_${i}_pgto_parcela_${j}_data`] =
+                `Data da parcela ${parc.ordem} obrigatória.`
+            }
+          })
+        }
+      }
 
       // Campos extras obrigatórios
       const tp = props.tiposProduto.find((t) => t.id === p.tipo_produto_id)
@@ -1260,6 +1284,16 @@ export function VendaWizard(props: Props) {
         p.pgto_forma === "cartao_agencia" && p.pgto_data_entrada_str
           ? p.pgto_data_entrada_str
           : null,
+      // Parcelas detalhadas — só faz sentido em faturado. Demais formas
+      // mandam [] (DB já tem default igual).
+      pgto_parcelas_detalhe:
+        p.pgto_forma === "faturado"
+          ? p.pgto_parcelas_faturado.map((parc) => ({
+              ordem: parc.ordem,
+              valor: parseValorComSoma(parc.valor_str),
+              data: parc.data || null,
+            }))
+          : [],
       }
     })
 
@@ -2342,6 +2376,96 @@ function Step2Produtos(props: {
     )
   }
 
+  /** Soma `meses` meses a uma data ISO YYYY-MM-DD, clipando o dia se o mês
+   *  destino não comportar. Usado pra auto-preencher datas das parcelas
+   *  do pagamento ao fornecedor (faturado). */
+  function adicionarMesesISO(iso: string, meses: number): string {
+    const [y, m, d] = iso.split("-").map(Number)
+    if (!y || !m || !d) return iso
+    const dt = new Date(y, m - 1 + meses, 1)
+    const ultimoDia = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate()
+    const dia = Math.min(d, ultimoDia)
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dia).padStart(2, "0")}`
+  }
+
+  function fmtBRL(n: number): string {
+    if (!Number.isFinite(n) || n <= 0) return ""
+    return n.toFixed(2).replace(".", ",")
+  }
+
+  /** Cria/redimensiona o array de parcelas do faturado. Quando o nº de
+   *  parcelas muda, redistribui `valor_total` igualmente entre todas as
+   *  parcelas (sobrescreve os valores já digitados) — centavos sobram na
+   *  última pra fechar exato. Datas já preenchidas são preservadas. */
+  function redistribuirParcelasFaturado(
+    atual: ParcelaDetalhe[],
+    n: number,
+    valorTotal: number,
+  ): ParcelaDetalhe[] {
+    const novo: ParcelaDetalhe[] = []
+    const base = valorTotal > 0 ? Number((valorTotal / n).toFixed(2)) : 0
+    for (let i = 0; i < n; i++) {
+      const existente = atual[i]
+      const ehUltima = i === n - 1
+      const valorPadrao =
+        valorTotal > 0
+          ? ehUltima
+            ? Number((valorTotal - base * (n - 1)).toFixed(2))
+            : base
+          : 0
+      novo.push({
+        ordem: i + 1,
+        // Recalcula o valor sempre que a função roda — não preserva o que
+        // estava digitado, garantindo soma = valor_total após mexer no nº.
+        valor_str: fmtBRL(valorPadrao),
+        // Datas seguem preservadas (auto-fill mensal continua se aplicável).
+        data: existente?.data ?? "",
+      })
+    }
+    return novo
+  }
+
+  /** Muda o número de parcelas faturado de um produto, preservando os
+   *  campos já preenchidos. Usa o `valor_custo` como base de distribuição. */
+  function setNumParcelasFaturado(produtoId: string, n: number) {
+    const safe = Math.max(1, Math.min(360, n))
+    patch(produtoId, (prev) => {
+      const valorBase = parseValorComSoma(prev.valor_custo_str)
+      return {
+        pgto_parcelas_faturado: redistribuirParcelasFaturado(
+          prev.pgto_parcelas_faturado,
+          safe,
+          valorBase,
+        ),
+      }
+    })
+  }
+
+  /** Atualiza valor ou data de uma parcela faturado. Quando a data da
+   *  primeira parcela é preenchida e as demais estão vazias, auto-preenche
+   *  as seguintes com +1 mês cada (mesmo padrão das cobranças). */
+  function patchParcelaFaturado(
+    produtoId: string,
+    idx: number,
+    campo: "valor_str" | "data",
+    valor: string,
+  ) {
+    patch(produtoId, (prev) => {
+      const arr = prev.pgto_parcelas_faturado.map((p, i) =>
+        i === idx ? { ...p, [campo]: valor } : p,
+      )
+      if (campo === "data" && idx === 0 && valor) {
+        for (let i = 1; i < arr.length; i++) {
+          const item = arr[i]
+          if (item && !item.data) {
+            arr[i] = { ...item, data: adicionarMesesISO(valor, i) }
+          }
+        }
+      }
+      return { pgto_parcelas_faturado: arr }
+    })
+  }
+
   /** Allow apenas dígitos, vírgula, ponto, '+' e espaço (formato BRL com soma). */
   function filtrarValor(raw: string): string {
     return raw.replace(/[^0-9.,+ ]/g, "")
@@ -3076,13 +3200,31 @@ function Step2Produtos(props: {
                         const nova = v as PgtoForma
                         // Limpa campos que não fazem sentido nas formas onde
                         // a Magic não controla o fluxo (faturado, cartao_cliente)
-                        if (nova === "cartao_cliente" || nova === "faturado") {
+                        if (nova === "cartao_cliente") {
                           return {
                             pgto_forma: nova,
                             pgto_cartao_id: "",
                             pgto_valor_total_str: "",
                             pgto_entrada_str: "",
                             pgto_num_parcelas: 1,
+                            pgto_parcelas_faturado: [],
+                          }
+                        }
+                        if (nova === "faturado") {
+                          // Inicializa com 1 parcela = valor_custo. O agente
+                          // pode aumentar pra parcelar; valores e datas vêm
+                          // editáveis abaixo.
+                          const valorBase = parseValorComSoma(prev.valor_custo_str)
+                          return {
+                            pgto_forma: nova,
+                            pgto_cartao_id: "",
+                            pgto_valor_total_str: "",
+                            pgto_entrada_str: "",
+                            pgto_num_parcelas: 1,
+                            pgto_parcelas_faturado:
+                              prev.pgto_parcelas_faturado.length > 0
+                                ? prev.pgto_parcelas_faturado
+                                : redistribuirParcelasFaturado([], 1, valorBase),
                           }
                         }
                         // Cartão agência: auto-preenche Valor Total com o custo.
@@ -3116,15 +3258,85 @@ function Step2Produtos(props: {
                   </Select>
                 </Field>
 
-                {/* ── FATURADO ─ Sistema só registra a forma ──────────── */}
+                {/* ── FATURADO ─ Parcelas com valor + data por parcela ── */}
                 {p.pgto_forma === "faturado" && (
-                  <div className="col-span-12 sm:col-span-8 flex items-center">
-                    <div className="w-full rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-xs leading-relaxed text-white/55">
-                      Fornecedor desconta das comissões com a Magic; se faltar
-                      saldo, gera fatura direta. O contas a pagar deste fluxo é
-                      tratado fora do sistema nesta fase.
+                  <>
+                    {/* Stepper de número de parcelas */}
+                    <div className="col-span-6 sm:col-span-3">
+                      <Label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-white/55">
+                        Parcelas
+                      </Label>
+                      <div className="flex h-10 items-center overflow-hidden rounded-md border border-white/[0.08]">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setNumParcelasFaturado(
+                              p.id,
+                              p.pgto_parcelas_faturado.length - 1,
+                            )
+                          }
+                          disabled={p.pgto_parcelas_faturado.length <= 1}
+                          className="flex h-full w-9 shrink-0 items-center justify-center border-r border-white/[0.08] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-30"
+                          aria-label="Diminuir parcelas"
+                        >
+                          <Minus className="h-3.5 w-3.5" />
+                        </button>
+                        <span className="flex-1 text-center text-sm tabular-nums text-white">
+                          {p.pgto_parcelas_faturado.length || 1}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setNumParcelasFaturado(
+                              p.id,
+                              p.pgto_parcelas_faturado.length + 1,
+                            )
+                          }
+                          disabled={p.pgto_parcelas_faturado.length >= 360}
+                          className="flex h-full w-9 shrink-0 items-center justify-center border-l border-white/[0.08] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-30"
+                          aria-label="Aumentar parcelas"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
+
+                    {/* Linhas — valor + data por parcela */}
+                    <div className="col-span-12">
+                      <Label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-white/55">
+                        Valor e data por parcela
+                      </Label>
+                      <div className="space-y-2">
+                        {p.pgto_parcelas_faturado.map((parc, idx) => (
+                          <div
+                            key={parc.ordem}
+                            className="grid grid-cols-12 items-center gap-2 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                          >
+                            <div className="col-span-3 text-[11px] font-medium uppercase tracking-wider text-white/55 sm:col-span-2">
+                              Parc. {parc.ordem}
+                            </div>
+                            <div className="col-span-5 sm:col-span-5">
+                              <CurrencyInput
+                                value={parc.valor_str}
+                                onChange={(v) =>
+                                  patchParcelaFaturado(p.id, idx, "valor_str", v)
+                                }
+                                placeholder="0,00"
+                              />
+                            </div>
+                            <div className="col-span-4 sm:col-span-5">
+                              <DateInput
+                                value={parc.data}
+                                onChange={(v) =>
+                                  patchParcelaFaturado(p.id, idx, "data", v)
+                                }
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
                 )}
 
                 {/* ── CARTÃO CLIENTE ─ Cliente paga direto ao fornecedor ── */}

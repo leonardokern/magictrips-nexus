@@ -93,19 +93,16 @@ export default async function DashboardLayout({
                 href: "/financeiro/receber",
                 label: "Contas a Receber",
                 icon: "receber",
-                comingSoon: true,
               } as NavItem,
               {
                 href: "/financeiro/pagar",
                 label: "Contas a Pagar",
                 icon: "pagar",
-                comingSoon: true,
               } as NavItem,
               {
                 href: "/fluxo-de-caixa",
                 label: "Fluxo de Caixa",
                 icon: "caixa",
-                comingSoon: true,
               } as NavItem,
             ]
           : []),

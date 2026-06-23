@@ -57,6 +57,13 @@ export const TIPO_COMISSAO_LABEL: Record<TipoComissao, string> = {
   incentivado: "Incentivado",
 }
 
+/** Distribuição planejada de uma parcela individual (valor + data). */
+export const parcelaDetalheSchema = z.object({
+  ordem: z.number().int().min(1),
+  valor: z.number().min(0),
+  data: z.string().nullable().optional(),
+})
+
 export const vendaProdutoSchema = z.object({
   ordem: z.number().int().min(1).default(1),
   tipo_produto_id: z.string().uuid("Tipo de produto inválido"),
@@ -89,6 +96,11 @@ export const vendaProdutoSchema = z.object({
   pgto_data_debito: z.string().nullable().optional(),
   /** Valor extra embutido na 1ª parcela (taxas etc.). Diluído nas demais. */
   pgto_primeira_parcela_extra: z.number().min(0).default(0),
+  /** Distribuição planejada das parcelas do pagamento ao fornecedor —
+   *  usado quando pgto_forma = "faturado". Cada parcela traz valor + data
+   *  prevista, alimentando o controle de contas a pagar. Default [] = sem
+   *  parcelamento detalhado. */
+  pgto_parcelas_detalhe: z.array(parcelaDetalheSchema).default([]),
 })
 
 export type VendaProdutoInput = z.infer<typeof vendaProdutoSchema>
@@ -121,13 +133,6 @@ export const COBRANCA_TIPO_LABEL: Record<CobrancaTipo, string> = {
   link_externo: "Link externo (PagSeguro/Cielo)",
   outro: "Outro",
 }
-
-/** Distribuição planejada de uma parcela individual (valor + data). */
-export const parcelaDetalheSchema = z.object({
-  ordem: z.number().int().min(1),
-  valor: z.number().min(0),
-  data: z.string().nullable().optional(),
-})
 
 export const cobrancaItemSchema = z.object({
   tipo: z.enum(COBRANCA_TIPOS),
