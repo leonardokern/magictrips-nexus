@@ -14,6 +14,7 @@ import {
   Package,
   Percent,
   Receipt,
+  ScrollText,
   Shield,
   ShoppingCart,
   Tag,
@@ -56,6 +57,7 @@ const ICONS: Record<string, LucideIcon> = {
   comissoes: Percent,
   origens: Tag,
   tipos_produto: Boxes,
+  faturas: ScrollText,
   relatorios: FileBarChart,
   auditoria: History,
 }

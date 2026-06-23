@@ -104,6 +104,11 @@ export default async function DashboardLayout({
                 label: "Fluxo de Caixa",
                 icon: "caixa",
               } as NavItem,
+              {
+                href: "/faturas",
+                label: "Faturas",
+                icon: "faturas",
+              } as NavItem,
             ]
           : []),
         ...(perms.can("cartoes", "ler")
