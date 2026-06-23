@@ -1215,6 +1215,7 @@ export type VendaParaEditar = {
       plataforma: "" | "PagSeguro" | "Cielo"
       /** Distribuição de parcelas — array com valor + data. */
       parcelas_detalhe: { ordem: number; valor_str: string; data: string }[]
+      taxa_cobranca_str: string
       taxa_adquirente_str: string; valor_liquido_str: string
       data_inicio: string; data_primeiro_recebimento: string; observacoes: string
       /** Comprovante de pagamento (obrigatório no nível da UI). */
@@ -1273,7 +1274,7 @@ export async function getVendaParaEditar(
         .order("ordem"),
       supabase
         .from("cobranca_cliente")
-        .select("observacoes, itens:cobranca_cliente_itens(tipo, valor_total, num_parcelas, valor_parcela, plataforma_link, plataforma, parcelas_detalhe, taxa_adquirente, valor_liquido, data_inicio, data_primeiro_recebimento, observacoes, comprovante_storage_path, comprovante_nome_arquivo, comprovante_mime_type, comprovante_tamanho_bytes)")
+        .select("observacoes, itens:cobranca_cliente_itens(tipo, valor_total, num_parcelas, valor_parcela, plataforma_link, plataforma, parcelas_detalhe, taxa_cobranca, taxa_adquirente, valor_liquido, data_inicio, data_primeiro_recebimento, observacoes, comprovante_storage_path, comprovante_nome_arquivo, comprovante_mime_type, comprovante_tamanho_bytes)")
         .eq("venda_id", id)
         .maybeSingle(),
     ])
@@ -1287,6 +1288,7 @@ export async function getVendaParaEditar(
     valor_parcela: number | null; plataforma_link: string | null
     plataforma: string | null
     parcelas_detalhe: { ordem: number; valor: number | string; data: string | null }[] | null
+    taxa_cobranca: number | string | null
     taxa_adquirente: number | null; valor_liquido: number | null
     data_inicio: string | null; data_primeiro_recebimento: string | null
     observacoes: string | null
@@ -1369,6 +1371,9 @@ export async function getVendaParaEditar(
         valor_str: numStr(Number(p.valor ?? 0)),
         data: p.data ?? "",
       })),
+      taxa_cobranca_str:        it.taxa_cobranca != null && Number(it.taxa_cobranca) > 0
+                                  ? Number(it.taxa_cobranca).toFixed(2).replace(".", ",")
+                                  : "",
       taxa_adquirente_str:      numStr(it.taxa_adquirente),
       valor_liquido_str:        numStr(it.valor_liquido),
       data_inicio:              it.data_inicio ?? "",

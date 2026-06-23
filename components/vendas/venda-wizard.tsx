@@ -260,6 +260,10 @@ type CobrancaItemState = {
   plataforma: "" | "PagSeguro" | "Cielo"
   /** Distribuição das parcelas — vazia em pagamento à vista. */
   parcelas_detalhe: ParcelaDetalhe[]
+  /** Taxa em % cobrada do CLIENTE — acrescentada ao valor_total.
+   *  Ex.: pix de R$ 1000 com 2.99% → cobra R$ 1029,90. Format livre
+   *  X.XX, parseado no submit. */
+  taxa_cobranca_str: string
   taxa_adquirente_str: string
   valor_liquido_str: string
   data_inicio: string
@@ -367,6 +371,7 @@ function novoItemCobranca(): CobrancaItemState {
     plataforma_link: "",
     plataforma: "",
     parcelas_detalhe: [],
+    taxa_cobranca_str: "",
     taxa_adquirente_str: "",
     valor_liquido_str: "",
     data_inicio: "",
@@ -1327,6 +1332,7 @@ export function VendaWizard(props: Props) {
         plataforma_link: it.plataforma_link || null,
         plataforma: it.plataforma || null,
         parcelas_detalhe: parcelasDet,
+        taxa_cobranca: Number(it.taxa_cobranca_str.replace(",", ".")) || 0,
         taxa_adquirente: it.taxa_adquirente_str
           ? parseValorComSoma(it.taxa_adquirente_str)
           : null,
@@ -3810,7 +3816,7 @@ function Step3Cobranca(props: {
               <Field
                 label="Valor"
                 error={props.errors[`cobranca_${i}_valor`]}
-                className="col-span-12 sm:col-span-3"
+                className="col-span-9 sm:col-span-2"
               >
                 <CurrencyInput
                   value={it.valor_total_str}
@@ -3839,6 +3845,39 @@ function Step3Cobranca(props: {
                         : "Sem restante a preencher"}
                   </button>
                 )}
+              </Field>
+
+              {/* Taxa cobrada do cliente — % adicional sobre o valor.
+                  Opcional. Quando preenchida, o valor final cobrado fica
+                  exibido logo abaixo (não mexe no valor digitado, só
+                  acrescenta na hora de gravar/exibir). */}
+              <Field
+                label="Taxa %"
+                hint="Cobrada do cliente"
+                className="col-span-3 sm:col-span-1"
+              >
+                <Input
+                  value={it.taxa_cobranca_str}
+                  onChange={(ev) =>
+                    patch(i, {
+                      taxa_cobranca_str: ev.target.value.replace(/[^0-9.,]/g, ""),
+                    })
+                  }
+                  placeholder="0,00"
+                  className="tabular-nums"
+                />
+                {(() => {
+                  const base = parseValorComSoma(it.valor_total_str) || 0
+                  const tx =
+                    Number(it.taxa_cobranca_str.replace(",", ".")) || 0
+                  if (base <= 0 || tx <= 0) return null
+                  const final = base * (1 + tx / 100)
+                  return (
+                    <p className="mt-1 text-[11px] text-amber-300/85">
+                      Total c/ taxa: {formatBRL(final)}
+                    </p>
+                  )
+                })()}
               </Field>
 
               {!semParcelas && (

@@ -145,6 +145,9 @@ export const cobrancaItemSchema = z.object({
   plataforma: z.enum(["PagSeguro", "Cielo"]).nullable().optional(),
   /** Distribuição planejada das parcelas (vazia em pagamento à vista). */
   parcelas_detalhe: z.array(parcelaDetalheSchema).default([]),
+  /** Taxa em % repassada ao CLIENTE — soma sobre valor_total.
+   *  Ex.: 2.99% num pix de R$ 1000 → cliente paga R$ 1029,90. */
+  taxa_cobranca: z.number().min(0).max(100).default(0),
   taxa_adquirente: z.number().min(0).nullable().optional(),
   valor_liquido: z.number().min(0).nullable().optional(),
   data_inicio: z.string().nullable().optional(),

@@ -485,6 +485,7 @@ export type Database = {
           plataforma: string | null
           plataforma_link: string | null
           taxa_adquirente: number | null
+          taxa_cobranca: number
           tipo: string
           valor_liquido: number | null
           valor_parcela: number | null
@@ -507,6 +508,7 @@ export type Database = {
           plataforma?: string | null
           plataforma_link?: string | null
           taxa_adquirente?: number | null
+          taxa_cobranca?: number
           tipo: string
           valor_liquido?: number | null
           valor_parcela?: number | null
@@ -529,6 +531,7 @@ export type Database = {
           plataforma?: string | null
           plataforma_link?: string | null
           taxa_adquirente?: number | null
+          taxa_cobranca?: number
           tipo?: string
           valor_liquido?: number | null
           valor_parcela?: number | null

@@ -81,13 +81,14 @@ export async function getParcelaParaFatura(
     .from("parcelas_receber")
     .select(
       `
-      id, venda_id, numero, total_parcelas, descricao, valor, forma_pagamento,
+      id, venda_id, cobranca_item_id, numero, total_parcelas, descricao, valor, forma_pagamento,
       data_vencimento, data_pagamento, status,
       cliente:clientes(nome, cpf, cnpj, email, telefone),
       venda:vendas(
         identificador, data_venda,
         empresa:empresas(nome, slug, cor_primaria, logo_path, cnpj, cidade, razao_social, banco_nome, banco_agencia, banco_conta)
-      )
+      ),
+      cobranca_item:cobranca_cliente_itens(taxa_cobranca, valor_total)
     `,
     )
     .eq("id", parcelaId)
@@ -251,6 +252,23 @@ export async function getParcelaParaFatura(
       numero: parcela.numero,
       total: parcela.total_parcelas,
       itens: itensVenda,
+      taxaCobranca: (() => {
+        const it = Array.isArray(parcela.cobranca_item)
+          ? parcela.cobranca_item[0]
+          : parcela.cobranca_item
+        const t = (it as { taxa_cobranca?: number | string } | null | undefined)?.taxa_cobranca
+        return t == null ? 0 : Number(t)
+      })(),
+      valorBase: (() => {
+        const valor = Number(parcela.valor ?? 0)
+        const it = Array.isArray(parcela.cobranca_item)
+          ? parcela.cobranca_item[0]
+          : parcela.cobranca_item
+        const t = (it as { taxa_cobranca?: number | string } | null | undefined)?.taxa_cobranca
+        const taxa = t == null ? 0 : Number(t)
+        if (taxa <= 0) return valor
+        return Number((valor / (1 + taxa / 100)).toFixed(2))
+      })(),
       valor: Number(parcela.valor ?? 0),
       dataVencimento: parcela.data_vencimento,
       formaPagamento: parcela.forma_pagamento

@@ -45,6 +45,13 @@ export type FaturaData = {
   parcela: {
     numero: number
     total: number
+    /** Taxa em % cobrada do cliente sobre o valor base. 0 = sem taxa.
+     *  Quando > 0, exibida no resumo abaixo do Subtotal. */
+    taxaCobranca: number
+    /** Valor BASE (sem taxa) — usado pra calcular o subtotal/quanto da
+     *  taxa foi acrescentado. Em parcelas geradas com taxa, o valor já
+     *  vem inflado; o base é = valor / (1+taxa/100). */
+    valorBase: number
     /**
      * Linhas estruturadas pra renderizar na descrição. Cada item é
      * um produto da venda, com 3 sub-linhas opcionais. A primeira
@@ -539,24 +546,25 @@ export function FaturaPDF({
             </View>
           </View>
 
-          {/* Totais — Subtotal (tamanho normal), Desconto / Taxa em
-              tamanho reduzido pra economizar espaço vertical, Total
-              em destaque. */}
+          {/* Totais — Subtotal (valor BASE sem taxa) + linha de Taxa
+              quando aplicável + Total final. */}
           <View style={styles.totaisBox}>
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Subtotal:</Text>
               <Text style={styles.totalValor}>
-                {formatBRL(data.parcela.valor)}
+                {formatBRL(data.parcela.valorBase)}
               </Text>
             </View>
-            <View style={styles.totalRowSmall}>
-              <Text style={styles.totalLabelSmall}>Desconto:</Text>
-              <Text style={styles.totalValorSmall}>{formatBRL(0)}</Text>
-            </View>
-            <View style={styles.totalRowSmall}>
-              <Text style={styles.totalLabelSmall}>Taxa / Imposto:</Text>
-              <Text style={styles.totalValorSmall}>{formatBRL(0)}</Text>
-            </View>
+            {data.parcela.taxaCobranca > 0 && (
+              <View style={styles.totalRowSmall}>
+                <Text style={styles.totalLabelSmall}>
+                  Taxa de cobrança ({data.parcela.taxaCobranca.toFixed(2).replace(".", ",")}%):
+                </Text>
+                <Text style={styles.totalValorSmall}>
+                  {formatBRL(data.parcela.valor - data.parcela.valorBase)}
+                </Text>
+              </View>
+            )}
             <View style={styles.grandTotalRow}>
               <Text style={styles.grandTotalLabel}>Total:</Text>
               <Text style={styles.grandTotalValor}>

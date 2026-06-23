@@ -65,10 +65,16 @@ export function ClienteCombobox({
   const filtrados = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return clientes.slice(0, 20)
+    // Só compara CPF por dígitos quando o termo tem dígitos. Sem essa
+    // guarda, `"cpf".includes("")` retorna true e o filtro deixa passar
+    // TODOS os clientes (bug visto quando o termo é só letras, ex: "leona").
+    const qDigits = q.replace(/\D/g, "")
     return clientes
       .filter((c) => {
         const haystack = `${c.nome} ${c.cpf} ${c.email}`.toLowerCase()
-        return haystack.includes(q) || c.cpf.replace(/\D/g, "").includes(q.replace(/\D/g, ""))
+        if (haystack.includes(q)) return true
+        if (qDigits && c.cpf.replace(/\D/g, "").includes(qDigits)) return true
+        return false
       })
       .slice(0, 30)
   }, [query, clientes])
