@@ -20,6 +20,7 @@ import {
   type ParcelaStatus,
 } from "@/components/financeiro/parcela-status-badge"
 import { MarcarPagoButton } from "@/components/financeiro/marcar-pago-button"
+import { GerarFaturaButton } from "@/components/financeiro/gerar-fatura-button"
 
 export const metadata: Metadata = { title: "Contas a Receber" }
 
@@ -262,7 +263,7 @@ export default async function ContasReceberPage({
                 <TableHead>Forma</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-[60px]" />
+                <TableHead className="w-[100px]" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -310,16 +311,23 @@ export default async function ContasReceberPage({
                       <ParcelaStatusBadge status={status} />
                     </TableCell>
                     <TableCell>
-                      {podeEditar && status !== "cancelado" && (
-                        <div className="flex justify-end">
+                      <div className="flex justify-end gap-1.5">
+                        {/* Fatura só pra cobranças "tradicionais" — link
+                            externo já foi pago pelo cliente via plataforma. */}
+                        {p.forma_pagamento &&
+                          p.forma_pagamento !== "link_externo" &&
+                          status !== "cancelado" && (
+                            <GerarFaturaButton parcelaId={p.id} />
+                          )}
+                        {podeEditar && status !== "cancelado" && (
                           <MarcarPagoButton
                             tipo="receber"
                             parcelaId={p.id}
                             acao={ehPago ? "pendente" : "pago"}
                             resumo={`Parcela ${p.numero}/${p.total_parcelas} de ${cli?.nome ?? "—"} · ${formatBRL(Number(p.valor ?? 0))}`}
                           />
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 )

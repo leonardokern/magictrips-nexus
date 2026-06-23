@@ -592,6 +592,10 @@ export type Database = {
       empresas: {
         Row: {
           ativo: boolean
+          banco_agencia: string | null
+          banco_conta: string | null
+          banco_nome: string | null
+          cidade: string | null
           cnpj: string | null
           cor_primaria: string | null
           cor_secundaria: string | null
@@ -601,10 +605,15 @@ export type Database = {
           nome: string
           prefixo_identificador: string
           proximo_num_venda: number
+          razao_social: string | null
           slug: string
         }
         Insert: {
           ativo?: boolean
+          banco_agencia?: string | null
+          banco_conta?: string | null
+          banco_nome?: string | null
+          cidade?: string | null
           cnpj?: string | null
           cor_primaria?: string | null
           cor_secundaria?: string | null
@@ -614,10 +623,15 @@ export type Database = {
           nome: string
           prefixo_identificador?: string
           proximo_num_venda?: number
+          razao_social?: string | null
           slug: string
         }
         Update: {
           ativo?: boolean
+          banco_agencia?: string | null
+          banco_conta?: string | null
+          banco_nome?: string | null
+          cidade?: string | null
           cnpj?: string | null
           cor_primaria?: string | null
           cor_secundaria?: string | null
@@ -627,6 +641,7 @@ export type Database = {
           nome?: string
           prefixo_identificador?: string
           proximo_num_venda?: number
+          razao_social?: string | null
           slug?: string
         }
         Relationships: []
@@ -1971,10 +1986,12 @@ export type Database = {
       }
       app_user_empresas: { Args: never; Returns: string[] }
       app_user_perfil_nome: { Args: never; Returns: string }
-      aprovar_venda: {
-        Args: { p_aprovador_id: string; p_venda_id: string }
-        Returns: undefined
-      }
+      aprovar_venda:
+        | { Args: { p_venda_id: string }; Returns: undefined }
+        | {
+            Args: { p_aprovador_id: string; p_venda_id: string }
+            Returns: undefined
+          }
       atualizar_empresas_usuario: {
         Args: { p_empresa_ids: string[]; p_user_id: string }
         Returns: undefined
@@ -2044,6 +2061,7 @@ export type Database = {
         Args: { p_empresa_id: string }
         Returns: string
       }
+      gerar_parcelas_pagar: { Args: { p_venda_id: string }; Returns: undefined }
       gerar_parcelas_receber: {
         Args: { p_venda_id: string }
         Returns: undefined

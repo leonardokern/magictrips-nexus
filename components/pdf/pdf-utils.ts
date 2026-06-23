@@ -1,4 +1,36 @@
-import { StyleSheet } from "@react-pdf/renderer"
+import path from "node:path"
+import { Font, StyleSheet } from "@react-pdf/renderer"
+
+/**
+ * Fonte padrão dos PDFs do Nexus.
+ *
+ * O sistema usa `font-sans` do Tailwind (que cai pra fontes do SO — SF Pro
+ * no Mac, Segoe UI no Windows). Pra deixar os PDFs com a mesma feel,
+ * registramos a Inter localmente (TTF/OTF em `/public/fonts`). Inter é
+ * desenhada como substituta de fontes system-ui e funciona bem em PDF.
+ *
+ * Registramos uma única vez no carregamento do módulo — qualquer
+ * componente PDF que importe daqui já recebe a fonte registrada.
+ */
+const FONTS_DIR = path.join(process.cwd(), "public", "fonts")
+Font.register({
+  family: "Inter",
+  fonts: [
+    { src: path.join(FONTS_DIR, "Inter-Regular.otf"), fontWeight: "normal" },
+    {
+      src: path.join(FONTS_DIR, "Inter-Bold.otf"),
+      fontWeight: "bold",
+    },
+    {
+      src: path.join(FONTS_DIR, "Inter-Italic.otf"),
+      fontWeight: "normal",
+      fontStyle: "italic",
+    },
+  ],
+})
+
+/** Família tipográfica padrão dos PDFs Nexus. */
+export const FONTE_NEXUS = "Inter"
 
 // ─── Cores ────────────────────────────────────────────────────────────────────
 
@@ -40,6 +72,33 @@ export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—"
   const [y, m, d] = iso.split("-")
   return `${d}/${m}/${y}`
+}
+
+const MESES_PT = [
+  "Janeiro",
+  "Fevereiro",
+  "Março",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro",
+]
+
+/**
+ * Data por extenso em pt-BR — "23 de Junho de 2026".
+ * Aceita ISO YYYY-MM-DD. Devolve "—" pra entradas inválidas.
+ */
+export function formatDateLong(iso: string | null | undefined): string {
+  if (!iso) return "—"
+  const [y, m, d] = iso.split("-").map(Number)
+  if (!y || !m || !d) return "—"
+  const mes = MESES_PT[m - 1] ?? ""
+  return `${d} de ${mes} de ${y}`
 }
 
 export function formatCPF(cpf: string | null | undefined): string {
