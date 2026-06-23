@@ -21,6 +21,8 @@ import {
 } from "@/components/financeiro/parcela-status-badge"
 import { MarcarPagoButton } from "@/components/financeiro/marcar-pago-button"
 import { GerarFaturaButton } from "@/components/financeiro/gerar-fatura-button"
+import { GerarFaturaModalTrigger } from "@/components/financeiro/gerar-fatura-modal-trigger"
+import { getClientesComParcelasPendentes } from "@/app/(dashboard)/financeiro/actions"
 
 export const metadata: Metadata = { title: "Contas a Receber" }
 
@@ -42,11 +44,6 @@ const FORMA_LABEL: Record<string, string> = {
   outro: "Outro",
 }
 
-/**
- * Status derivado: parcela `pendente` com vencimento no passado vira
- * "atrasado" na UI. O banco continua guardando `pendente` — a derivação
- * facilita filtrar/exibir sem precisar de cron de update.
- */
 function derivarStatus(
   statusDb: string,
   vencimentoIso: string,
@@ -66,7 +63,6 @@ function mesAtualISO(): string {
   return new Date().toISOString().slice(0, 7)
 }
 
-/** Primeira e última data do mês informado (YYYY-MM) em formato ISO date. */
 function rangeDoMes(yyyyMm: string): { from: string; to: string } {
   const [y, m] = yyyyMm.split("-").map(Number)
   if (!y || !m) {
@@ -99,6 +95,7 @@ export default async function ContasReceberPage({
     )
   }
   const podeEditar = can(user, "financeiro", "editar")
+  const podeCriar = can(user, "financeiro", "criar")
 
   const sp = await searchParams
   const statusFiltro = sp.status ?? ""
@@ -115,7 +112,8 @@ export default async function ContasReceberPage({
       id, numero, total_parcelas, descricao, valor, forma_pagamento,
       data_vencimento, data_pagamento, status,
       cliente:clientes(id, nome),
-      venda:vendas(id, identificador)
+      venda:vendas(id, identificador),
+      fatura_parcelas(fatura_id)
     `,
     )
     .order("data_vencimento", { ascending: true })
@@ -134,19 +132,21 @@ export default async function ContasReceberPage({
     queryBase = queryBase.gte("data_vencimento", from).lte("data_vencimento", to)
   }
 
-  const { data: parcelasRaw, error } = await queryBase
+  const [{ data: parcelasRaw, error }, { data: kpiRows }, clientesFatura] =
+    await Promise.all([
+      queryBase,
+      supabase
+        .from("parcelas_receber")
+        .select("valor, data_vencimento, data_pagamento, status"),
+      podeCriar ? getClientesComParcelasPendentes() : Promise.resolve([]),
+    ])
 
-  // KPIs — agrega TODOS os registros do escopo do usuário (RLS aplicada).
-  // Em escala, mover pra RPC com agregação SQL.
   type KpiRow = {
     valor: number | string
     data_vencimento: string
     data_pagamento: string | null
     status: string
   }
-  const { data: kpiRows } = await supabase
-    .from("parcelas_receber")
-    .select("valor, data_vencimento, data_pagamento, status")
 
   const kpis = (() => {
     const rows = (kpiRows ?? []) as KpiRow[]
@@ -182,6 +182,10 @@ export default async function ContasReceberPage({
       | { id: string; identificador: string }
       | { id: string; identificador: string }[]
       | null
+    fatura_parcelas:
+      | { fatura_id: string }
+      | { fatura_id: string }[]
+      | null
   }
   let parcelas = (parcelasRaw ?? []) as unknown as ParcelaRow[]
 
@@ -206,6 +210,9 @@ export default async function ContasReceberPage({
             venda é aprovada.
           </p>
         </div>
+        {podeCriar && (
+          <GerarFaturaModalTrigger clientes={clientesFatura} />
+        )}
       </div>
 
       {/* KPIs */}
@@ -270,6 +277,12 @@ export default async function ContasReceberPage({
               {parcelas.map((p) => {
                 const cli = Array.isArray(p.cliente) ? p.cliente[0] : p.cliente
                 const vnd = Array.isArray(p.venda) ? p.venda[0] : p.venda
+                const fps = Array.isArray(p.fatura_parcelas)
+                  ? p.fatura_parcelas
+                  : p.fatura_parcelas
+                    ? [p.fatura_parcelas]
+                    : []
+                const faturaId = (fps[0] as { fatura_id?: string } | undefined)?.fatura_id ?? null
                 const status = derivarStatus(p.status, p.data_vencimento, hoje)
                 const ehPago = status === "pago"
                 const ehAtrasado = status === "atrasado"
@@ -312,12 +325,10 @@ export default async function ContasReceberPage({
                     </TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1.5">
-                        {/* Fatura só pra cobranças "tradicionais" — link
-                            externo já foi pago pelo cliente via plataforma. */}
-                        {p.forma_pagamento &&
+                        {faturaId &&
                           p.forma_pagamento !== "link_externo" &&
                           status !== "cancelado" && (
-                            <GerarFaturaButton parcelaId={p.id} />
+                            <GerarFaturaButton faturaId={faturaId} />
                           )}
                         {podeEditar && status !== "cancelado" && (
                           <MarcarPagoButton

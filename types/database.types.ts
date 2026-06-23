@@ -600,6 +600,7 @@ export type Database = {
           banco_nome: string | null
           cidade: string | null
           cnpj: string | null
+          codigo_fatura: string | null
           cor_primaria: string | null
           cor_secundaria: string | null
           created_at: string
@@ -618,6 +619,7 @@ export type Database = {
           banco_nome?: string | null
           cidade?: string | null
           cnpj?: string | null
+          codigo_fatura?: string | null
           cor_primaria?: string | null
           cor_secundaria?: string | null
           created_at?: string
@@ -636,6 +638,7 @@ export type Database = {
           banco_nome?: string | null
           cidade?: string | null
           cnpj?: string | null
+          codigo_fatura?: string | null
           cor_primaria?: string | null
           cor_secundaria?: string | null
           created_at?: string
@@ -648,6 +651,102 @@ export type Database = {
           slug?: string
         }
         Relationships: []
+      }
+      fatura_parcelas: {
+        Row: {
+          fatura_id: string
+          id: string
+          parcela_id: string
+        }
+        Insert: {
+          fatura_id: string
+          id?: string
+          parcela_id: string
+        }
+        Update: {
+          fatura_id?: string
+          id?: string
+          parcela_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fatura_parcelas_fatura_id_fkey"
+            columns: ["fatura_id"]
+            isOneToOne: false
+            referencedRelation: "faturas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fatura_parcelas_parcela_id_fkey"
+            columns: ["parcela_id"]
+            isOneToOne: true
+            referencedRelation: "parcelas_receber"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      faturas: {
+        Row: {
+          ano: number
+          cliente_id: string
+          created_at: string
+          data_emissao: string
+          empresa_id: string
+          id: string
+          numero: string
+          numero_display: string
+          numero_sequencial: number
+          observacoes: string | null
+          status: string
+          updated_at: string
+          valor_total: number
+        }
+        Insert: {
+          ano: number
+          cliente_id: string
+          created_at?: string
+          data_emissao?: string
+          empresa_id: string
+          id?: string
+          numero: string
+          numero_display: string
+          numero_sequencial: number
+          observacoes?: string | null
+          status?: string
+          updated_at?: string
+          valor_total: number
+        }
+        Update: {
+          ano?: number
+          cliente_id?: string
+          created_at?: string
+          data_emissao?: string
+          empresa_id?: string
+          id?: string
+          numero?: string
+          numero_display?: string
+          numero_sequencial?: number
+          observacoes?: string | null
+          status?: string
+          updated_at?: string
+          valor_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "faturas_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faturas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       feature_flags: {
         Row: {
@@ -2112,6 +2211,10 @@ export type Database = {
       obter_venda_para_alteracao: {
         Args: { p_venda_id: string }
         Returns: Json
+      }
+      proximo_numero_fatura: {
+        Args: { p_ano: number; p_empresa_id: string }
+        Returns: number
       }
       resetar_senha_usuario: {
         Args: { p_nova_senha: string; p_user_id: string }
