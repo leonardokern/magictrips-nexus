@@ -127,7 +127,11 @@ export default async function DashboardLayout({
           : []),
         ...(perms.can("comissoes", "ler")
           ? [
-              { href: "/comissoes", label: "Comissões", icon: "comissoes" } as NavItem,
+              // "Comissões" foi escondida da nav porque ficou ambígua com
+              // "Origens de venda" — a regra de comissão é cadastrada por
+              // origem, então a UX consolidada vive em /origens. A rota
+              // /comissoes continua acessível por URL direta (não removida)
+              // e os Server Actions seguem ativos pra retrocompat.
               { href: "/origens", label: "Origens de venda", icon: "origens" } as NavItem,
             ]
           : []),
