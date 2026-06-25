@@ -280,6 +280,95 @@ export async function listarTiposProduto(): Promise<
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Dados para recalcular comissão quando origem/cliente mudam
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Payload usado pelo modal de alteração pra permitir troca de cliente +
+ * origem. As regras de comissão (mesma hierarquia do wizard) viajam
+ * juntas pro front pra que a comissão seja recalculada localmente — e
+ * aí enviada explícita no payload final do RPC.
+ */
+export type DadosAlteracao = {
+  /** Clientes da MESMA empresa da venda original (limit 200 mais recentes). */
+  clientes: {
+    id: string
+    nome: string
+    cpf: string | null
+    cnpj: string | null
+    tipo_pessoa: "fisica" | "juridica"
+  }[]
+  /** Origens cadastradas (todas — não dependem da empresa pra listar). */
+  origens: { id: string; nome: string; comissao_percentual: number | null }[]
+  /** Regras de comissão por empresa+origem aplicáveis à empresa da venda. */
+  comissoesRegras: { origem_id: string; percentual: number }[]
+  /** Regras por perfil+origem (qualquer perfil). */
+  perfisComissoes: { perfil_id: string; origem_id: string; percentual: number }[]
+  /** Agente da venda original (pra rodar a hierarquia de comissão). */
+  agente: {
+    id: string
+    perfil_id: string | null
+    comissao_percentual: number | null
+  } | null
+}
+
+export async function getDadosAlteracao(
+  vendaOriginalId: string,
+): Promise<ActionResult<DadosAlteracao>> {
+  const user = await requireCurrentUser()
+  if (!can(user, "vendas", "criar")) {
+    return { ok: false, error: "Sem permissão." }
+  }
+
+  const supabase = await createClient()
+
+  // Carrega a venda original só pra saber empresa_id + agente_id
+  const { data: venda } = await supabase
+    .from("vendas")
+    .select("empresa_id, usuario_id")
+    .eq("id", vendaOriginalId)
+    .maybeSingle()
+  if (!venda) return { ok: false, error: "Venda não encontrada." }
+
+  const [
+    { data: clientes },
+    { data: origens },
+    { data: comissoesRegras },
+    { data: perfisComissoes },
+    { data: agente },
+  ] = await Promise.all([
+    supabase
+      .from("clientes")
+      .select("id, nome, cpf, cnpj, tipo_pessoa")
+      .eq("empresa_id", venda.empresa_id)
+      .order("nome")
+      .limit(200),
+    supabase.from("origens_venda").select("id, nome, comissao_percentual").order("nome"),
+    supabase
+      .from("comissoes_regras")
+      .select("origem_id, percentual")
+      .eq("empresa_id", venda.empresa_id),
+    supabase.from("perfis_comissoes").select("perfil_id, origem_id, percentual"),
+    supabase
+      .from("usuarios")
+      .select("id, perfil_id, comissao_percentual")
+      .eq("id", venda.usuario_id)
+      .maybeSingle(),
+  ])
+
+  return {
+    ok: true,
+    data: {
+      clientes: (clientes ?? []) as DadosAlteracao["clientes"],
+      origens: (origens ?? []) as DadosAlteracao["origens"],
+      comissoesRegras: (comissoesRegras ?? []) as DadosAlteracao["comissoesRegras"],
+      perfisComissoes: (perfisComissoes ?? []) as DadosAlteracao["perfisComissoes"],
+      agente: agente as DadosAlteracao["agente"],
+    },
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Criar alteração de venda
 // ─────────────────────────────────────────────────────────────────────────────
 

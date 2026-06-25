@@ -371,7 +371,7 @@ function novoItemCobranca(): CobrancaItemState {
     plataforma_link: "",
     plataforma: "",
     parcelas_detalhe: [],
-    taxa_cobranca_str: "",
+    taxa_cobranca_str: "0,00",
     taxa_adquirente_str: "",
     valor_liquido_str: "",
     data_inicio: "",
@@ -412,16 +412,23 @@ function normalizarCobrancaItem(
 }
 
 /** Recalcula `parcelas_detalhe` distribuindo o valor total igualmente.
+ *  Considera a taxa de cobrança (% acrescida do cliente): se preenchida,
+ *  cada parcela divide `valor_total * (1 + taxa/100)`.
  *  Mantém datas já preenchidas; cria entradas faltantes com data vazia. */
 function redistribuirParcelas(it: CobrancaItemState): ParcelaDetalhe[] {
   const n = Math.max(1, it.num_parcelas)
-  const total = parseValorComSoma(it.valor_total_str) || 0
-  const base = total / n
+  const base = parseValorComSoma(it.valor_total_str) || 0
+  const taxa = Number((it.taxa_cobranca_str || "0").replace(",", ".")) || 0
+  const totalComTaxa = base * (1 + taxa / 100)
+  const valorParcela = totalComTaxa / n
   return Array.from({ length: n }).map((_, i) => {
     const existente = it.parcelas_detalhe[i]
     return {
       ordem: i + 1,
-      valor_str: base > 0 ? formatBRL(base) : (existente?.valor_str ?? ""),
+      valor_str:
+        valorParcela > 0
+          ? formatBRL(valorParcela)
+          : (existente?.valor_str ?? ""),
       data: existente?.data ?? "",
     }
   })
@@ -3648,31 +3655,37 @@ function Step3Cobranca(props: {
 
         function setNumParcelas(novo: number) {
           // Ao adicionar/remover parcela, REDISTRIBUI o valor total
-          // igualmente entre todas as parcelas. Datas existentes são
-          // preservadas (o operador pode ter planejado as datas mesmo
-          // antes de saber o número final de parcelas).
-          const total = parseValorComSoma(it.valor_total_str) || 0
-          const base = total / Math.max(1, novo)
+          // (com taxa, se houver) igualmente entre todas as parcelas.
+          // Datas existentes são preservadas (o operador pode ter planejado
+          // as datas mesmo antes de saber o número final de parcelas).
+          const base = parseValorComSoma(it.valor_total_str) || 0
+          const taxa =
+            Number((it.taxa_cobranca_str || "0").replace(",", ".")) || 0
+          const totalComTaxa = base * (1 + taxa / 100)
+          const valor = totalComTaxa / Math.max(1, novo)
           const novas: ParcelaDetalhe[] = Array.from({ length: novo }).map((_, j) => ({
             ordem: j + 1,
-            valor_str: base > 0 ? formatBRL(base) : "",
+            valor_str: valor > 0 ? formatBRL(valor) : "",
             data: it.parcelas_detalhe[j]?.data ?? "",
           }))
           patch(i, { num_parcelas: novo, parcelas_detalhe: novas })
         }
 
         function setValorTotal(v: string) {
-          // Sempre que o valor total mudar, refaz a distribuição mantendo as
-          // datas. Operador pode customizar valores depois.
+          // Sempre que o valor total mudar, refaz a distribuição (já com
+          // taxa) mantendo as datas. Operador pode customizar valores depois.
           const next: Partial<CobrancaItemState> = { valor_total_str: v }
           if (!semParcelas) {
-            const total = parseValorComSoma(v) || 0
+            const base = parseValorComSoma(v) || 0
+            const taxa =
+              Number((it.taxa_cobranca_str || "0").replace(",", ".")) || 0
+            const totalComTaxa = base * (1 + taxa / 100)
             const n = Math.max(1, it.num_parcelas)
-            const base = total / n
+            const valor = totalComTaxa / n
             next.parcelas_detalhe = Array.from({ length: n }).map(
               (_, j) => ({
                 ordem: j + 1,
-                valor_str: base > 0 ? formatBRL(base) : "",
+                valor_str: valor > 0 ? formatBRL(valor) : "",
                 data: it.parcelas_detalhe[j]?.data ?? "",
               }),
             )
@@ -3853,16 +3866,32 @@ function Step3Cobranca(props: {
                   acrescenta na hora de gravar/exibir). */}
               <Field
                 label="Taxa %"
-                hint="Cobrada do cliente"
                 className="col-span-3 sm:col-span-1"
               >
                 <Input
                   value={it.taxa_cobranca_str}
-                  onChange={(ev) =>
+                  onChange={(ev) => {
+                    // Máscara live tipo money input: extrai dígitos, divide
+                    // por 100 pra colocar a vírgula sempre nas 2 últimas
+                    // casas e clampa em 100,00 (máximo permitido).
+                    const digits = ev.target.value.replace(/\D/g, "")
+                    const taxaNova = !digits
+                      ? "0,00"
+                      : Math.min(100, Number(digits) / 100)
+                          .toFixed(2)
+                          .replace(".", ",")
+                    // Redistribui valores das parcelas usando o total já com a
+                    // nova taxa aplicada — assim o detalhamento reflete na
+                    // hora o quanto o cliente vai pagar em cada parcela.
                     patch(i, {
-                      taxa_cobranca_str: ev.target.value.replace(/[^0-9.,]/g, ""),
+                      taxa_cobranca_str: taxaNova,
+                      parcelas_detalhe: redistribuirParcelas({
+                        ...it,
+                        taxa_cobranca_str: taxaNova,
+                      }),
                     })
-                  }
+                  }}
+                  inputMode="decimal"
                   placeholder="0,00"
                   className="tabular-nums"
                 />
@@ -4040,13 +4069,20 @@ function Step3Cobranca(props: {
                     (acc, p) => acc + (parseValorComSoma(p.valor_str) || 0),
                     0,
                   )
-                  const diff = somaParcelas - valorItem
+                  // O total esperado é valor base + taxa de cobrança — é o
+                  // que o cliente vai efetivamente pagar e o que as parcelas
+                  // devem somar.
+                  const taxaItem =
+                    Number((it.taxa_cobranca_str || "0").replace(",", ".")) || 0
+                  const totalEsperado = valorItem * (1 + taxaItem / 100)
+                  const diff = somaParcelas - totalEsperado
                   if (Math.abs(diff) < 0.01) return null
                   return (
                     <p className="text-[11px] text-amber-300/80">
                       Soma das parcelas: {formatBRL(somaParcelas)} ·{" "}
                       {diff > 0 ? "+" : "−"}
-                      {formatBRL(Math.abs(diff))} em relação ao valor total
+                      {formatBRL(Math.abs(diff))} em relação ao total
+                      {taxaItem > 0 ? " c/ taxa" : ""}
                     </p>
                   )
                 })()}

@@ -243,6 +243,14 @@ export const vendaAlteracaoCreateSchema = z.object({
   produtos: z.array(vendaProdutoAlteracaoSchema).default([]),
   /** Cobrança opcional — só é gerada quando o cliente vai pagar a diferença. */
   cobranca: cobrancaSchema.nullable().optional(),
+  /**
+   * Overrides opcionais — quando o usuário troca cliente ou origem no modal.
+   * Quando ausentes/null, a RPC herda da venda original. Comissão é
+   * recalculada no front pela hierarquia padrão; null = mantém da original.
+   */
+  cliente_id: z.string().uuid().nullable().optional(),
+  origem: z.string().trim().max(120).nullable().optional(),
+  comissao_percentual: z.number().min(0).max(100).nullable().optional(),
 })
 
 export type VendaAlteracaoCreateInput = z.infer<typeof vendaAlteracaoCreateSchema>

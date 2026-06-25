@@ -47,6 +47,8 @@ import {
   listarVendasParaAlteracao,
   obterVendaParaAlteracao,
   criarAlteracaoVenda,
+  getDadosAlteracao,
+  type DadosAlteracao,
   type VendaOriginalCompleta,
   type VendaParaAlteracao,
 } from "@/app/(dashboard)/vendas/actions-alteracao"
@@ -140,6 +142,13 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
   const [cobrancasExtras, setCobrancasExtras] = useState<
     CobrancaAdicionalState[]
   >([])
+  // Override de cliente / origem (vazio = mantém o da original).
+  // `clienteId === null` significa "não alterado" — a venda usa o da original.
+  const [clienteId, setClienteId] = useState<string | null>(null)
+  const [origem, setOrigem] = useState<string | null>(null)
+  const [dadosAlteracao, setDadosAlteracao] = useState<DadosAlteracao | null>(
+    null,
+  )
   const [isSubmitting, startSubmit] = useTransition()
 
   // Reset ao fechar
@@ -151,6 +160,9 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
       setProdutos([])
       setObservacoes("")
       setCobrancasExtras([])
+      setClienteId(null)
+      setOrigem(null)
+      setDadosAlteracao(null)
     }
   }, [open])
 
@@ -259,7 +271,41 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
         removido: false,
       })),
     )
+    setClienteId(venda.cliente_id)
+    setOrigem(venda.origem)
     setView({ kind: "form", venda })
+    // Carrega dados de comissão em paralelo (não bloqueia a abertura do form;
+    // se demorar, o select de origem fica disabled brevemente).
+    getDadosAlteracao(venda.id).then((r) => {
+      if (r.ok && r.data) setDadosAlteracao(r.data)
+    })
+  }
+
+  /**
+   * Recalcula a comissão_percentual usando a mesma hierarquia do wizard:
+   *  1. usuarios.comissao_percentual (override fixo, ex: Jéssica 12%)
+   *  2. perfis_comissoes (perfil + origem)
+   *  3. comissoes_regras (empresa + origem)
+   *  4. origens_venda.comissao_percentual (default da origem)
+   * Quando nenhum bate, retorna `null` — server cai no valor da venda
+   * original ao processar o RPC.
+   */
+  function calcularComissao(origemNome: string | null): number | null {
+    if (!dadosAlteracao || !origemNome) return null
+    const { agente, origens, perfisComissoes, comissoesRegras } = dadosAlteracao
+    if (agente?.comissao_percentual != null) return Number(agente.comissao_percentual)
+    const origemObj = origens.find((o) => o.nome === origemNome)
+    if (!origemObj) return null
+    if (agente?.perfil_id) {
+      const overridePerfil = perfisComissoes.find(
+        (p) => p.perfil_id === agente.perfil_id && p.origem_id === origemObj.id,
+      )
+      if (overridePerfil) return Number(overridePerfil.percentual)
+    }
+    const regra = comissoesRegras.find((r) => r.origem_id === origemObj.id)
+    if (regra) return Number(regra.percentual)
+    if (origemObj.comissao_percentual != null) return Number(origemObj.comissao_percentual)
+    return null
   }
 
   function removerLinha(uiKey: string) {
@@ -463,11 +509,20 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
       return
     }
 
+    // Overrides de cliente / origem / comissão: só enviamos quando MUDOU
+    // em relação à venda original — assim o RPC herda o resto.
+    const clienteMudou = clienteId != null && clienteId !== venda.cliente_id
+    const origemMudou = origem != null && origem !== venda.origem
+    const novaComissao = origemMudou ? calcularComissao(origem) : null
+
     const payload = {
       venda_original_id: venda.id,
       observacoes: observacoes.trim() || null,
       produtos: produtosPayload,
       cobranca: cobrancaPayload,
+      cliente_id: clienteMudou ? clienteId : null,
+      origem: origemMudou ? origem : null,
+      comissao_percentual: origemMudou ? novaComissao : null,
     }
 
     startSubmit(async () => {
@@ -521,6 +576,12 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
               onRemoverCobranca={removerCobranca}
               onAtualizarCobranca={atualizarCobranca}
               onAtualizarParcelaData={atualizarParcelaData}
+              clienteId={clienteId}
+              setClienteId={setClienteId}
+              origem={origem}
+              setOrigem={setOrigem}
+              dadosAlteracao={dadosAlteracao}
+              comissaoCalculada={calcularComissao(origem)}
             />
           )}
         </div>
@@ -745,6 +806,12 @@ function FormView({
   onRemoverCobranca,
   onAtualizarCobranca,
   onAtualizarParcelaData,
+  clienteId,
+  setClienteId,
+  origem,
+  setOrigem,
+  dadosAlteracao,
+  comissaoCalculada,
 }: {
   venda: VendaOriginalCompleta
   produtos: ProdutoEditavelState[]
@@ -769,6 +836,12 @@ function FormView({
     patch: Partial<CobrancaAdicionalState>,
   ) => void
   onAtualizarParcelaData: (uiKey: string, idx: number, data: string) => void
+  clienteId: string | null
+  setClienteId: (v: string | null) => void
+  origem: string | null
+  setOrigem: (v: string | null) => void
+  dadosAlteracao: DadosAlteracao | null
+  comissaoCalculada: number | null
 }) {
   // Computa totais e deltas em runtime pra exibir o resumo
   const resumo = useMemo(() => {
@@ -814,11 +887,102 @@ function FormView({
         </div>
         <div className="text-right">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-white/45">
-            Cliente · Agente
+            Agente
           </p>
-          <p className="text-sm text-white/85">
-            {venda.cliente.nome} · {venda.agente.nome}
-          </p>
+          <p className="text-sm text-white/85">{venda.agente.nome}</p>
+        </div>
+      </div>
+
+      {/* Cliente + Origem — editáveis. Quando origem muda, a comissão é
+          recalculada automaticamente pela mesma hierarquia do wizard
+          (usuario.comissao → perfis_comissoes → comissoes_regras → default
+          da origem). */}
+      <div className="grid gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 sm:grid-cols-2">
+        <div>
+          <Label className="mb-1.5 block text-[10px] uppercase tracking-wider text-white/55">
+            Cliente
+          </Label>
+          {dadosAlteracao ? (
+            <Select
+              value={clienteId ?? venda.cliente_id}
+              onValueChange={(v) => setClienteId(v)}
+            >
+              <SelectTrigger className="h-10 border-white/10 bg-white/[0.04]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {dadosAlteracao.clientes.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <p className="text-sm text-white/55">{venda.cliente.nome}</p>
+          )}
+          {clienteId && clienteId !== venda.cliente_id && (
+            <div className="mt-2 flex items-center gap-2 rounded-md border border-amber-300/20 bg-amber-300/[0.04] px-2.5 py-1.5">
+              <span className="inline-flex h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300" />
+              <p className="text-[11px] text-amber-200/90">
+                Cliente alterado{" · "}
+                <span className="text-white/45 line-through decoration-white/20">
+                  {venda.cliente.nome}
+                </span>
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div>
+          <Label className="mb-1.5 block text-[10px] uppercase tracking-wider text-white/55">
+            Origem do lead
+          </Label>
+          {dadosAlteracao ? (
+            <Select
+              value={origem ?? venda.origem ?? undefined}
+              onValueChange={(v) => setOrigem(v)}
+            >
+              <SelectTrigger className="h-10 border-white/10 bg-white/[0.04]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {dadosAlteracao.origens.map((o) => (
+                  <SelectItem key={o.id} value={o.nome}>
+                    {o.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <p className="text-sm text-white/55">{venda.origem ?? "—"}</p>
+          )}
+          {origem && origem !== venda.origem && (
+            <div className="mt-2 flex flex-col gap-1 rounded-md border border-amber-300/20 bg-amber-300/[0.04] px-2.5 py-1.5">
+              <p className="flex items-center gap-2 text-[11px] text-amber-200/90">
+                <span className="inline-flex h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300" />
+                Origem alterada{" · "}
+                <span className="text-white/45 line-through decoration-white/20">
+                  {venda.origem ?? "—"}
+                </span>
+              </p>
+              {comissaoCalculada != null && (
+                <p className="ml-3.5 text-[11px] text-white/65">
+                  Comissão recalculada:{" "}
+                  <span className="tabular-nums text-white/45">
+                    {Number(venda.comissao_percentual ?? 0)
+                      .toFixed(2)
+                      .replace(".", ",")}
+                    %
+                  </span>{" "}
+                  <span className="text-white/35">→</span>{" "}
+                  <strong className="font-semibold tabular-nums text-amber-300">
+                    {comissaoCalculada.toFixed(2).replace(".", ",")}%
+                  </strong>
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
