@@ -1,7 +1,7 @@
-import Link from "next/link"
-import { ExternalLink, Pencil } from "lucide-react"
+import { Pencil } from "lucide-react"
 import { formatBRL } from "@/lib/utils/sum-parser"
 import { cn } from "@/lib/utils"
+import { VerVendaOriginalButton } from "./ver-venda-original-button"
 
 type Produto = {
   tipo_produto_nome: string
@@ -15,9 +15,17 @@ type Props = {
   vendaOriginal: {
     id: string
     identificador: string
+    /** Cliente + origem da venda original — quando informados e diferentes
+     *  dos da alteração, o card destaca a mudança no topo. */
+    clienteNome?: string
+    origem?: string | null
+    comissaoPercentual?: number | null
     produtos: Produto[]
   }
   alteracao: {
+    clienteNome?: string
+    origem?: string | null
+    comissaoPercentual?: number | null
     produtos: Produto[]
   }
 }
@@ -67,14 +75,77 @@ export function AlteracaoComparisonCard({ vendaOriginal, alteracao }: Props) {
           <Pencil className="h-4 w-4 text-amber-300" />
           Alteração de valores
         </h3>
-        <Link
-          href={`/vendas/${vendaOriginal.id}`}
-          className="inline-flex items-center gap-1 text-xs text-white/55 hover:text-white"
-        >
-          Ver venda original ({vendaOriginal.identificador})
-          <ExternalLink className="h-3 w-3" />
-        </Link>
+        <VerVendaOriginalButton
+          vendaId={vendaOriginal.id}
+          identificador={vendaOriginal.identificador}
+        />
       </div>
+
+      {/* Bloco de mudanças de identificação — cliente, origem, %comissão.
+          Renderiza só os campos que mudaram. Se nada mudou ali, o bloco
+          some por completo (mantém o card menor pra alterações puras de
+          valor). */}
+      {(() => {
+        const linhas: {
+          label: string
+          antes: string
+          depois: string
+        }[] = []
+        if (
+          vendaOriginal.clienteNome &&
+          alteracao.clienteNome &&
+          vendaOriginal.clienteNome !== alteracao.clienteNome
+        ) {
+          linhas.push({
+            label: "Cliente",
+            antes: vendaOriginal.clienteNome,
+            depois: alteracao.clienteNome,
+          })
+        }
+        if (
+          (vendaOriginal.origem ?? "") !== (alteracao.origem ?? "") &&
+          (vendaOriginal.origem || alteracao.origem)
+        ) {
+          linhas.push({
+            label: "Origem",
+            antes: vendaOriginal.origem ?? "—",
+            depois: alteracao.origem ?? "—",
+          })
+        }
+        if (
+          vendaOriginal.comissaoPercentual != null &&
+          alteracao.comissaoPercentual != null &&
+          Math.abs(
+            vendaOriginal.comissaoPercentual - alteracao.comissaoPercentual,
+          ) > 0.001
+        ) {
+          linhas.push({
+            label: "Comissão",
+            antes: `${vendaOriginal.comissaoPercentual.toFixed(2).replace(".", ",")}%`,
+            depois: `${alteracao.comissaoPercentual.toFixed(2).replace(".", ",")}%`,
+          })
+        }
+        if (linhas.length === 0) return null
+        return (
+          <div className="mb-3 grid gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+            {linhas.map((l) => (
+              <div
+                key={l.label}
+                className="flex flex-wrap items-baseline gap-x-2 text-xs"
+              >
+                <span className="text-[10px] uppercase tracking-wider text-white/45">
+                  {l.label}
+                </span>
+                <span className="text-white/45 line-through decoration-white/20">
+                  {l.antes}
+                </span>
+                <span className="text-white/35">→</span>
+                <span className="font-medium text-amber-300">{l.depois}</span>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
 
       <div className="overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.02]">
         {/* Header — só as 4 colunas, sem o subtítulo "(orig → Δ → efetivo)"

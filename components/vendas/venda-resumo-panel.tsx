@@ -325,10 +325,48 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
   // `p.comissao` armazenado em DB — garante que vendas antigas (gravadas com
   // base que excluía rav_extra_fornecedor) também exibam o valor correto
   // pela regra atual.
-  const totalComissao = ((d.comissaoPercentual ?? 0) * totalRav) / 100
+  //
+  // Em alteração: Δ Comissão = comissão_efetiva − comissão_original.
+  // A comissão pode mudar por DOIS motivos: RAV mudou OU a % mudou (troca
+  // de origem). Calcular apenas (%_nova × ΔRAV) ignora o caso em que só a
+  // origem mudou — o usuário verá Δ=0 mesmo com comissão muito diferente.
+  // Por isso, em alteração, calculamos os dois lados (original e efetivo)
+  // e subtraímos. Em venda original (não-alteração), basta `% × RAV total`.
+  const totalComissao = (() => {
+    if (!ehAlteracao || !d.vendaOriginal) {
+      return ((d.comissaoPercentual ?? 0) * totalRav) / 100
+    }
+    const ravOriginal = d.vendaOriginal.produtos.reduce(
+      (a, p) => a + p.rav + p.ravExtraCliente + p.ravExtraFornecedor,
+      0,
+    )
+    const ravEfetivo = ravOriginal + totalRav // totalRav aqui é o Δ
+    const comissaoNova = (d.comissaoPercentual ?? 0) * ravEfetivo / 100
+    const comissaoAntiga =
+      (d.vendaOriginal.comissaoPercentual ?? 0) * ravOriginal / 100
+    return comissaoNova - comissaoAntiga
+  })()
   const totalCobranca = d.cobranca.reduce((a, c) => a + c.valor, 0)
   const margemRav =
     totalVenda > 0 ? ((totalRav / totalVenda) * 100).toFixed(1) : null
+
+  // Quando é alteração, totalizamos os valores ORIGINAIS pra exibir o
+  // subtítulo "orig R$ X → efet R$ Y" em cada linha do painel de
+  // resultado. Mantém o validador com o cenário completo sem precisar
+  // alternar pra outra tela.
+  const orig = ehAlteracao && d.vendaOriginal ? d.vendaOriginal : null
+  const origVenda = orig?.produtos.reduce((a, p) => a + p.valorVenda, 0) ?? 0
+  const origCusto = orig?.produtos.reduce((a, p) => a + p.valorCusto, 0) ?? 0
+  const origRav =
+    orig?.produtos.reduce(
+      (a, p) => a + p.rav + p.ravExtraCliente + p.ravExtraFornecedor,
+      0,
+    ) ?? 0
+  const origComissao = ((orig?.comissaoPercentual ?? 0) * origRav) / 100
+  const efetVenda = origVenda + totalVenda
+  const efetCusto = origCusto + totalCusto
+  const efetRav = origRav + totalRav
+  const efetComissao = ((d.comissaoPercentual ?? 0) * efetRav) / 100
 
   return (
     <div className="space-y-4">
@@ -353,14 +391,33 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
         </div>
       )}
 
-      {/* Card de comparação Original → Δ → Efetivo (só em alterações).
-          Mostrado acima do resumo regular pra dar contexto antes que o
-          leitor veja os valores delta exibidos como se fossem totais. */}
+      {/* Banner explicativo quando alteração — vem ANTES do card de
+          comparação pra introduzir o contexto antes de mostrar os
+          números. Deixa claro pro validador que os valores em "Produtos"
+          e "Resultado financeiro" são DELTAS, não absolutos. */}
+      {ehAlteracao && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.04] px-4 py-3 text-sm text-amber-300/85">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <p className="font-medium text-amber-300">Esta é uma alteração de venda</p>
+            <p className="mt-0.5 text-amber-300/70">
+              Os valores em &ldquo;Produtos&rdquo; e &ldquo;Resultado financeiro&rdquo;
+              abaixo representam apenas as <strong>diferenças</strong> em relação
+              à venda original. O comparativo Original → Δ → Efetivo está logo abaixo.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Card de comparação Original → Δ → Efetivo (só em alterações). */}
       {ehAlteracao && d.vendaOriginal && (
         <AlteracaoComparisonCard
           vendaOriginal={{
             id: d.vendaOriginal.id,
             identificador: d.vendaOriginal.identificador,
+            clienteNome: d.vendaOriginal.clienteNome,
+            origem: d.vendaOriginal.origem,
+            comissaoPercentual: d.vendaOriginal.comissaoPercentual,
             produtos: d.vendaOriginal.produtos.map((p) => ({
               tipo_produto_nome: p.tipoProdutoNome,
               fornecedor_nome: p.fornecedorNome,
@@ -370,6 +427,9 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
             })),
           }}
           alteracao={{
+            clienteNome: d.clienteNome,
+            origem: d.origem,
+            comissaoPercentual: d.comissaoPercentual,
             produtos: d.produtos.map((p) => ({
               tipo_produto_nome: p.tipoNome,
               fornecedor_nome: p.fornecedorNome,
@@ -379,23 +439,6 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
             })),
           }}
         />
-      )}
-
-      {/* Banner explicativo quando alteração — deixa claro pro validador que
-          os valores nas seções abaixo são DELTAS (positivos ou negativos),
-          não os totais absolutos da venda. */}
-      {ehAlteracao && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.04] px-4 py-3 text-sm text-amber-300/85">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <div>
-            <p className="font-medium text-amber-300">Esta é uma alteração de venda</p>
-            <p className="mt-0.5 text-amber-300/70">
-              Os valores em &ldquo;Produtos&rdquo; e &ldquo;Resultado financeiro&rdquo;
-              abaixo representam apenas as <strong>diferenças</strong> em relação
-              à venda original. O comparativo Original → Δ → Efetivo está acima.
-            </p>
-          </div>
-        </div>
       )}
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
@@ -531,24 +574,45 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
               <p className="text-2xl font-bold tabular-nums text-white">
                 {formatDelta(totalVenda, ehAlteracao)}
               </p>
+              {ehAlteracao && (
+                <OrigEfet original={origVenda} efetivo={efetVenda} />
+              )}
             </div>
 
             <div className="mt-4 space-y-2.5">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-white/55">
-                  {ehAlteracao ? "Δ Custo" : "Custo total"}
-                </span>
-                <span className="tabular-nums text-white/75">
-                  {formatDelta(totalCusto, ehAlteracao)}
-                </span>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/55">
+                    {ehAlteracao ? "Δ Custo" : "Custo total"}
+                  </span>
+                  <span className="tabular-nums text-white/75">
+                    {formatDelta(totalCusto, ehAlteracao)}
+                  </span>
+                </div>
+                {ehAlteracao && (
+                  <OrigEfet
+                    original={origCusto}
+                    efetivo={efetCusto}
+                    align="right"
+                  />
+                )}
               </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-white/55">
-                  {ehAlteracao ? "Δ RAV" : "RAV total"}
-                </span>
-                <span className="tabular-nums text-white/85">
-                  {formatDelta(totalRav, ehAlteracao)}
-                </span>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/55">
+                    {ehAlteracao ? "Δ RAV" : "RAV total"}
+                  </span>
+                  <span className="tabular-nums text-white/85">
+                    {formatDelta(totalRav, ehAlteracao)}
+                  </span>
+                </div>
+                {ehAlteracao && (
+                  <OrigEfet
+                    original={origRav}
+                    efetivo={efetRav}
+                    align="right"
+                  />
+                )}
               </div>
               {/* Breakdown do RAV — só mostra se algum extra (cliente ou
                   fornecedor) > 0. Inclui as 3 linhas existentes (só as > 0). */}
@@ -593,7 +657,7 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
             </div>
 
             {mostraComissao && (
-              <div className="mt-4 space-y-2 border-t border-white/[0.06] pt-3.5">
+              <div className="mt-4 space-y-1 border-t border-white/[0.06] pt-3.5">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/55">
                     {ehAlteracao ? "Δ Comissão Agente" : "Comissão Agente"}
@@ -607,6 +671,13 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
                     {formatDelta(totalComissao, ehAlteracao)}
                   </span>
                 </div>
+                {ehAlteracao && (
+                  <OrigEfet
+                    original={origComissao}
+                    efetivo={efetComissao}
+                    align="right"
+                  />
+                )}
               </div>
             )}
 
@@ -671,6 +742,35 @@ function formatCPF(cpf: string): string {
   const d = cpf.replace(/\D/g, "")
   if (d.length !== 11) return cpf
   return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`
+}
+
+/**
+ * Subtítulo "orig R$ X → efet R$ Y" exibido abaixo de cada linha do
+ * painel de Resultado da alteração. Dá ao validador o cenário completo
+ * (antes/depois) além do delta. Usa cor apagada pra não competir com a
+ * linha principal.
+ */
+function OrigEfet({
+  original,
+  efetivo,
+  align = "left",
+}: {
+  original: number
+  efetivo: number
+  align?: "left" | "right"
+}) {
+  return (
+    <p
+      className={cn(
+        "flex items-center gap-1 text-[11px] tabular-nums text-white/40",
+        align === "right" && "justify-end",
+      )}
+    >
+      <span>orig {formatBRL(original)}</span>
+      <span className="text-white/25">→</span>
+      <span className="text-white/65">efet {formatBRL(efetivo)}</span>
+    </p>
+  )
 }
 
 function PassageiroCard({

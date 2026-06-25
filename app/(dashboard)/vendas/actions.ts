@@ -220,12 +220,21 @@ export type VendaDetalhes = {
   vendaOriginal: {
     id: string
     identificador: string
+    /** Cliente e origem vigentes na venda original — usados pelo card de
+     *  comparação pra destacar quando a alteração trocou um ou outro. */
+    clienteNome: string
+    origem: string | null
+    /** % de comissão vigente na venda original — usado pra mostrar
+     *  delta correto quando a alteração mudou a origem. */
+    comissaoPercentual: number | null
     produtos: {
       tipoProdutoNome: string
       fornecedorNome: string | null
       valorVenda: number
       valorCusto: number
       rav: number
+      ravExtraCliente: number
+      ravExtraFornecedor: number
     }[]
   } | null
   produtos: {
@@ -457,25 +466,44 @@ export async function getVendaDetalhes(
     const [{ data: orig }, { data: produtosOrig }] = await Promise.all([
       supabase
         .from("vendas")
-        .select("id, identificador")
+        .select(
+          "id, identificador, comissao_percentual, origem, cliente:clientes(nome)",
+        )
         .eq("id", vendaOriginalId)
         .maybeSingle(),
       supabase
         .from("venda_produtos")
-        .select("tipo_produto_nome, fornecedor_nome, valor_venda, valor_custo, rav")
+        .select(
+          "tipo_produto_nome, fornecedor_nome, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor",
+        )
         .eq("venda_id", vendaOriginalId)
         .order("ordem"),
     ])
     if (orig) {
+      const origCliente = orig.cliente as
+        | { nome: string }
+        | { nome: string }[]
+        | null
+      const origClienteNome = Array.isArray(origCliente)
+        ? origCliente[0]?.nome ?? "—"
+        : origCliente?.nome ?? "—"
       vendaOriginal = {
         id: orig.id,
         identificador: orig.identificador,
+        clienteNome: origClienteNome,
+        origem: orig.origem ?? null,
+        comissaoPercentual:
+          orig.comissao_percentual != null
+            ? Number(orig.comissao_percentual)
+            : null,
         produtos: (produtosOrig ?? []).map((p) => ({
           tipoProdutoNome: p.tipo_produto_nome,
           fornecedorNome: p.fornecedor_nome ?? null,
           valorVenda: Number(p.valor_venda ?? 0),
           valorCusto: Number(p.valor_custo ?? 0),
           rav: Number(p.rav ?? 0),
+          ravExtraCliente: Number(p.rav_extra_cliente ?? 0),
+          ravExtraFornecedor: Number(p.rav_extra_fornecedor ?? 0),
         })),
       }
     }
