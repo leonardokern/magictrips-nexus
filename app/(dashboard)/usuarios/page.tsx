@@ -139,14 +139,16 @@ export default async function UsuariosPage({
   }
   const totalEmpresasAtivas = (empresasAtivas ?? []).length
 
-  // Último login via SECURITY DEFINER function (acessa auth.users)
+  // Última interação via SECURITY DEFINER function — combina audit_logs
+  // (qualquer mutação) com last_sign_in_at (acessa auth.users). Retorna o
+  // mais recente entre os dois sinais.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: ultimoLoginData } = userIds.length
-    ? await (supabase as any).rpc("get_usuarios_ultimo_login", { p_user_ids: userIds })
-    : { data: [] as { usuario_id: string; ultimo_login: string | null }[] }
-  const ultimoLoginMap = new Map<string, string | null>(
-    ((ultimoLoginData ?? []) as { usuario_id: string; ultimo_login: string | null }[]).map(
-      (r) => [r.usuario_id, r.ultimo_login],
+  const { data: ultimaInteracaoData } = userIds.length
+    ? await (supabase as any).rpc("get_usuarios_ultima_interacao", { p_user_ids: userIds })
+    : { data: [] as { usuario_id: string; ultima_interacao: string | null }[] }
+  const ultimaInteracaoMap = new Map<string, string | null>(
+    ((ultimaInteracaoData ?? []) as { usuario_id: string; ultima_interacao: string | null }[]).map(
+      (r) => [r.usuario_id, r.ultima_interacao],
     ),
   )
 
@@ -190,7 +192,7 @@ export default async function UsuariosPage({
               <TableHead className="text-white/55">E-mail</TableHead>
               <TableHead className="text-white/55">Perfil</TableHead>
               <TableHead className="text-white/55">Status</TableHead>
-              <TableHead className="text-white/55">Último login</TableHead>
+              <TableHead className="text-white/55">Última interação</TableHead>
               <TableHead className="text-right text-white/55">Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -243,7 +245,7 @@ export default async function UsuariosPage({
                       <UsuarioAtivoBadge ativo={u.ativo} />
                     </TableCell>
                     <TableCell className="text-sm text-white/50">
-                      <UltimoLogin iso={ultimoLoginMap.get(u.id) ?? null} />
+                      <UltimaInteracao iso={ultimaInteracaoMap.get(u.id) ?? null} />
                     </TableCell>
                     <TableCell className="text-right">
                       <UsuarioRowActions
@@ -327,12 +329,12 @@ export default async function UsuariosPage({
                   <div className="mt-1.5 pl-12">
                     <PerfilUsuarioBadge nome={perfilNome} />
                   </div>
-                  {/* Row 4: último login */}
+                  {/* Row 4: última interação */}
                   {(() => {
-                    const ul = ultimoLoginMap.get(u.id) ?? null
+                    const ul = ultimaInteracaoMap.get(u.id) ?? null
                     return ul ? (
                       <p className="mt-1 pl-12 text-[11px] text-white/40">
-                        Último login: <UltimoLogin iso={ul} />
+                        Última interação: <UltimaInteracao iso={ul} />
                       </p>
                     ) : null
                   })()}
@@ -422,10 +424,13 @@ export default async function UsuariosPage({
   )
 }
 
-function UltimoLogin({ iso }: { iso: string | null }) {
+function UltimaInteracao({ iso }: { iso: string | null }) {
   if (!iso) return <span className="text-white/30">Nunca</span>
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return <span className="text-white/30">—</span>
+  // A RPC usa GREATEST com epoch como fallback — se o usuário nunca logou
+  // nem mutou nada, a query retorna 1970. Exibimos como "Nunca" pra leitura.
+  if (d.getUTCFullYear() < 2000) return <span className="text-white/30">Nunca</span>
   const dia = String(d.getDate()).padStart(2, "0")
   const mes = String(d.getMonth() + 1).padStart(2, "0")
   const ano = d.getFullYear()

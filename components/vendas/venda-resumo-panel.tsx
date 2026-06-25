@@ -273,10 +273,12 @@ function MiniStat({
   label,
   value,
   accent,
+  compact,
 }: {
   label: string
   value: string
   accent?: "amber" | "bright"
+  compact?: boolean
 }) {
   const valueClass =
     accent === "amber"
@@ -287,10 +289,10 @@ function MiniStat({
 
   return (
     <div>
-      <p className="mb-0.5 text-[10px] uppercase tracking-wider text-white/35">
+      <p className={cn("mb-0.5 uppercase tracking-wider text-white/35", compact ? "text-[9px]" : "text-[10px]")}>
         {label}
       </p>
-      <p className={cn("text-sm", valueClass)}>{value}</p>
+      <p className={cn(compact ? "text-xs" : "text-sm", valueClass)}>{value}</p>
     </div>
   )
 }
@@ -842,18 +844,19 @@ function PassageiroCard({
       </div>
 
       {temExtra && (
-        <div className="mt-2.5 grid grid-cols-3 gap-x-6 gap-y-2">
+        <div className="mt-2.5 flex flex-wrap gap-x-5 gap-y-1.5">
           {pax.cpf && (
-            <MiniStat label="CPF" value={formatCPF(pax.cpf)} />
+            <MiniStat label="CPF" value={formatCPF(pax.cpf)} compact />
           )}
           {pax.dataNascimento && (
             <MiniStat
               label="Nascimento"
               value={formatDateBR(pax.dataNascimento)}
+              compact
             />
           )}
           {pax.passaporte && (
-            <MiniStat label="Passaporte" value={pax.passaporte} />
+            <MiniStat label="Passaporte" value={pax.passaporte} compact />
           )}
         </div>
       )}

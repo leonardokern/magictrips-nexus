@@ -20,6 +20,7 @@ import {
   type ParcelaStatus,
 } from "@/components/financeiro/parcela-status-badge"
 import { MarcarPagoButton } from "@/components/financeiro/marcar-pago-button"
+import { VerVendaLink } from "@/components/vendas/ver-venda-link"
 
 export const metadata: Metadata = { title: "Contas a Pagar" }
 
@@ -303,8 +304,16 @@ export default async function ContasPagarPage({
                     <TableCell className="text-sm text-white">
                       {p.fornecedor_nome || "—"}
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-nexus-bright">
-                      {vnd?.identificador ?? "—"}
+                    <TableCell>
+                      {vnd?.id && vnd?.identificador ? (
+                        <VerVendaLink
+                          vendaId={vnd.id}
+                          identificador={vnd.identificador}
+                          mostraComissao={podeEditar}
+                        />
+                      ) : (
+                        <span className="font-mono text-xs text-white/30">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-xs text-white/70">
                       {p.numero}/{p.total_parcelas}

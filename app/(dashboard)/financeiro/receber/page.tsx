@@ -20,6 +20,8 @@ import {
   type ParcelaStatus,
 } from "@/components/financeiro/parcela-status-badge"
 import { GerarFaturaModalTrigger } from "@/components/financeiro/gerar-fatura-modal-trigger"
+import { MarcarParcelaPagaButton } from "@/components/financeiro/marcar-parcela-paga-button"
+import { VerVendaLink } from "@/components/vendas/ver-venda-link"
 import { getClientesComParcelasPendentes } from "@/app/(dashboard)/financeiro/actions"
 import { getCaixas } from "@/app/(dashboard)/cartoes/actions"
 
@@ -96,6 +98,7 @@ export default async function ContasReceberPage({
     )
   }
   const podeCriar = can(user, "financeiro", "criar")
+  const podeEditar = can(user, "financeiro", "editar")
 
   const sp = await searchParams
   const statusFiltro = sp.status ?? ""
@@ -273,6 +276,7 @@ export default async function ContasReceberPage({
                 <TableHead className="text-right">Valor</TableHead>
                 <TableHead className="w-[150px]">Pago em</TableHead>
                 <TableHead>Status</TableHead>
+                {podeEditar && <TableHead className="w-[60px]" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -291,8 +295,16 @@ export default async function ContasReceberPage({
                       </span>
                     </TableCell>
                     <TableCell className="text-sm text-white">{cli?.nome ?? "—"}</TableCell>
-                    <TableCell className="font-mono text-xs text-nexus-bright">
-                      {vnd?.identificador ?? "—"}
+                    <TableCell>
+                      {vnd?.id && vnd?.identificador ? (
+                        <VerVendaLink
+                          vendaId={vnd.id}
+                          identificador={vnd.identificador}
+                          mostraComissao={can(user, "financeiro", "editar")}
+                        />
+                      ) : (
+                        <span className="font-mono text-xs text-white/30">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-xs text-white/70">
                       {p.numero}/{p.total_parcelas}
@@ -322,6 +334,23 @@ export default async function ContasReceberPage({
                     <TableCell>
                       <ParcelaStatusBadge status={status} />
                     </TableCell>
+                    {podeEditar && (
+                      <TableCell className="text-right">
+                        {!ehPago &&
+                          status !== "cancelado" &&
+                          p.forma_pagamento !== "faturado" &&
+                          p.forma_pagamento !== "pix" && (
+                            <div className="flex items-center justify-end">
+                              <MarcarParcelaPagaButton
+                                parcelaId={p.id}
+                                dataVencimento={p.data_vencimento}
+                                valor={Number(p.valor ?? 0)}
+                                caixas={caixasList}
+                              />
+                            </div>
+                          )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 )
               })}

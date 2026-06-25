@@ -65,6 +65,44 @@ export async function marcarParcelaPaga(args: {
 }
 
 /**
+ * Registra o recebimento direto de uma parcela (sem fatura): atualiza
+ * status, caixa e data de pagamento. Status calculado por comparação
+ * entre dataPagamento e data_vencimento (pago vs pago_atraso).
+ *
+ * Restrito a usuários com `financeiro.editar`.
+ */
+export async function registrarPagamentoParcela(args: {
+  parcelaId: string
+  dataVencimento: string
+  caixaId: string
+  dataPagamento: string
+}): Promise<ActionResult> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "editar")) {
+    return { ok: false, error: "Sem permissão para registrar pagamentos." }
+  }
+
+  const novoStatus = args.dataPagamento > args.dataVencimento ? "pago_atraso" : "pago"
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (await createClient() as any)
+    .from("parcelas_receber")
+    .update({
+      status: novoStatus,
+      data_pagamento: args.dataPagamento,
+      caixa_id: args.caixaId,
+    })
+    .eq("id", args.parcelaId)
+
+  if (error) return { ok: false, error: error.message }
+
+  revalidatePath("/financeiro/receber")
+  revalidatePath("/fluxo-de-caixa")
+  revalidatePath("/dashboard")
+  return { ok: true, data: undefined }
+}
+
+/**
  * Hidrata os dados de uma parcela de recebimento pra geração do PDF
  * de fatura. Retorna `null` se a parcela não existe ou o usuário não tem
  * acesso (RLS já barra parcelas fora da empresa). Inclui a instrução de
