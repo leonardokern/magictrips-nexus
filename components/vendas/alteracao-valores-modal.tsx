@@ -794,6 +794,27 @@ function formatDateBr(iso: string): string {
   return d && m && y ? `${d}/${m}/${y}` : iso
 }
 
+/**
+ * Placeholder de Select enquanto `getDadosAlteracao` ainda não retornou.
+ * Tem a MESMA altura/bordas do `SelectTrigger` real pra não causar reflow
+ * quando os dados chegam, exibe o valor atual à esquerda e um spinner +
+ * "Carregando…" à direita — sinalizando que vai ficar editável.
+ */
+function SelectLoadingPlaceholder({ text }: { text: string }) {
+  return (
+    <div
+      aria-busy="true"
+      className="flex h-10 items-center justify-between rounded-md border border-white/10 bg-white/[0.02] px-3 text-sm text-white/55"
+    >
+      <span className="truncate">{text}</span>
+      <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-white/45">
+        <Spinner className="h-3 w-3" />
+        Carregando…
+      </span>
+    </div>
+  )
+}
+
 function FormView({
   venda,
   produtos,
@@ -896,7 +917,9 @@ function FormView({
       {/* Cliente + Origem — editáveis. Quando origem muda, a comissão é
           recalculada automaticamente pela mesma hierarquia do wizard
           (usuario.comissao → perfis_comissoes → comissoes_regras → default
-          da origem). */}
+          da origem). Enquanto `dadosAlteracao` não chegou, mostramos
+          placeholders desabilitados com spinner — assim fica claro que os
+          campos vão ficar editáveis em instantes. */}
       <div className="grid gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 sm:grid-cols-2">
         <div>
           <Label className="mb-1.5 block text-[10px] uppercase tracking-wider text-white/55">
@@ -919,7 +942,7 @@ function FormView({
               </SelectContent>
             </Select>
           ) : (
-            <p className="text-sm text-white/55">{venda.cliente.nome}</p>
+            <SelectLoadingPlaceholder text={venda.cliente.nome} />
           )}
           {clienteId && clienteId !== venda.cliente_id && (
             <div className="mt-2 flex items-center gap-2 rounded-md border border-amber-300/20 bg-amber-300/[0.04] px-2.5 py-1.5">
@@ -955,7 +978,7 @@ function FormView({
               </SelectContent>
             </Select>
           ) : (
-            <p className="text-sm text-white/55">{venda.origem ?? "—"}</p>
+            <SelectLoadingPlaceholder text={venda.origem ?? "—"} />
           )}
           {origem && origem !== venda.origem && (
             <div className="mt-2 flex flex-col gap-1 rounded-md border border-amber-300/20 bg-amber-300/[0.04] px-2.5 py-1.5">
