@@ -32,7 +32,7 @@ const STATUS_PENDENTES = ["pendente_validacao", "em_revisao"] as const
 
 const SELECT_LISTA = `
   id, identificador, data_venda, status, pax, created_at, usuario_id,
-  comissao_percentual, tipo_venda,
+  comissao_percentual, tipo_venda, venda_original_id,
   empresa:empresas(nome, slug),
   cliente:clientes(nome),
   agente:usuarios!vendas_usuario_id_fkey(nome),
@@ -261,7 +261,98 @@ export default async function VendasPage({
     return { total, ravTotal, comissao }
   }
 
-  const pendentesTodos = (pendentesRes.data ?? []).map((v) => ({ ...v, ...calcular(v) }))
+  // PENDENTES: quando uma linha é alteração (`tipo_venda='alteracao_valores'`),
+  // ela armazena DELTAS em venda_produtos — sozinha apareceria como
+  // R$ 0,00 / R$ 0,00 / R$ 0,00. Para a listagem fazer sentido pra quem
+  // vai aprovar, mostramos os valores EFETIVOS (original + delta). Pra
+  // isso buscamos os produtos da venda original e somamos. Também
+  // pegamos o identificador da original pra exibir "→ MT-XXXX" abaixo.
+  type LinhaPendenteRaw = {
+    id: string
+    tipo_venda?: string | null
+    venda_original_id?: string | null
+    cliente?: { nome: string } | { nome: string }[] | null
+    origem?: string | null
+    comissao_percentual?: number | null
+    produtos?: Array<{
+      valor_venda: number | string
+      rav: number | string | null
+      rav_extra_cliente: number | string | null
+      rav_extra_fornecedor: number | string | null
+    }>
+  } & Record<string, unknown>
+
+  const pendentesRaw = (pendentesRes.data ?? []) as unknown as LinhaPendenteRaw[]
+  const idsOriginaisPendentes = Array.from(
+    new Set(
+      pendentesRaw
+        .filter((v) => v.tipo_venda === "alteracao_valores" && v.venda_original_id)
+        .map((v) => v.venda_original_id as string),
+    ),
+  )
+
+  type OriginalInfoRow = {
+    id: string
+    identificador: string
+    cliente_id: string | null
+    origem: string | null
+    comissao_percentual: number | null
+    cliente: { nome: string } | { nome: string }[] | null
+    produtos: Array<{
+      valor_venda: number | string
+      rav: number | string | null
+      rav_extra_cliente: number | string | null
+      rav_extra_fornecedor: number | string | null
+    }> | null
+  }
+  const { data: originaisInfoData } =
+    idsOriginaisPendentes.length > 0
+      ? await supabase
+          .from("vendas")
+          .select(
+            `id, identificador, cliente_id, origem, comissao_percentual,
+             cliente:clientes(nome),
+             produtos:venda_produtos(valor_venda, rav, rav_extra_cliente, rav_extra_fornecedor)`,
+          )
+          .in("id", idsOriginaisPendentes)
+      : { data: null as OriginalInfoRow[] | null }
+  const originaisMap = new Map<string, OriginalInfoRow>()
+  for (const o of (originaisInfoData ?? []) as OriginalInfoRow[]) {
+    originaisMap.set(o.id, o)
+  }
+
+  // Aplica overrides + delta nos pendentes que são alteração:
+  // - cliente/origem/comissão: caem na alteração se ela definiu, senão herda da original
+  // - produtos: concatena os do original com os deltas da alteração (a função
+  //   calcular soma tudo, então os totais ficam = original + delta)
+  // - venda_original_identificador: preserva pra UI mostrar "→ MT-XXXX"
+  const pendentesMerged = pendentesRaw.map((v) => {
+    if (v.tipo_venda !== "alteracao_valores" || !v.venda_original_id) return v
+    const orig = originaisMap.get(v.venda_original_id)
+    if (!orig) return v
+    const altClienteObj = Array.isArray(v.cliente) ? v.cliente[0] : v.cliente
+    const origClienteObj = Array.isArray(orig.cliente)
+      ? orig.cliente[0]
+      : orig.cliente
+    return {
+      ...v,
+      // Cliente/origem/comissão: prioriza alteração só quando preenchidos.
+      cliente: altClienteObj ?? origClienteObj ?? null,
+      origem: v.origem ?? orig.origem ?? null,
+      comissao_percentual:
+        v.comissao_percentual != null
+          ? v.comissao_percentual
+          : orig.comissao_percentual,
+      // Concatena produtos: original + delta da alteração.
+      produtos: [...(orig.produtos ?? []), ...(v.produtos ?? [])],
+      venda_original_identificador: orig.identificador,
+    }
+  })
+
+  const pendentesTodos = (pendentesMerged as unknown as Array<
+    { produtos: unknown; comissao_percentual?: number | null; status: string } &
+      Record<string, unknown>
+  >).map((v) => ({ ...v, ...calcular(v) }))
   // Pro agente: separar `em_revisao` (precisa de ação) de `pendente_validacao` (esperando).
   // Pro Admin/Gerente: tudo junto na mesma seção (ação deles é a mesma — aprovar/revisar).
   const emRevisao = !podeAprovar
@@ -339,7 +430,7 @@ export default async function VendasPage({
           titulo="Precisa de revisão"
           descricao="O gerente devolveu estas vendas com observações. Corrija o que foi apontado e envie de novo para validação."
           emptyMsg=""
-          linhas={emRevisao}
+          linhas={emRevisao as unknown as Linha[]}
           userId={user.id}
           podeAprovar={podeAprovar}
           acento="orange"
@@ -367,7 +458,7 @@ export default async function VendasPage({
               ? "Nenhuma venda aguardando validação."
               : "Nenhuma venda na fila."
         }
-        linhas={pendentes}
+        linhas={pendentes as unknown as Linha[]}
         userId={user.id}
         podeAprovar={podeAprovar}
         acento="amber"
@@ -428,6 +519,9 @@ type Linha = {
   pax: number
   usuario_id: string
   tipo_venda?: string | null
+  /** Identificador da venda ORIGINAL quando esta linha é uma alteração —
+   *  exibido como "→ MT-XXXX" abaixo do identificador da alteração. */
+  venda_original_identificador?: string | null
   empresa: { nome: string; slug: string } | { nome: string; slug: string }[] | null
   cliente: { nome: string } | { nome: string }[] | null
   agente: { nome: string } | { nome: string }[] | null
@@ -582,14 +676,22 @@ function VendasSection({
                     }
                   >
                     <TableCell className="font-mono text-xs font-medium text-nexus-bright">
-                      <span className="inline-flex items-center gap-1.5">
-                        {v.identificador}
-                        {v.tipo_venda === "alteracao_valores" && (
-                          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300">
-                            Alteração
-                          </span>
-                        )}
-                      </span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="inline-flex items-center gap-1.5">
+                          {v.identificador}
+                          {v.tipo_venda === "alteracao_valores" && (
+                            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300">
+                              Alteração
+                            </span>
+                          )}
+                        </span>
+                        {v.tipo_venda === "alteracao_valores" &&
+                          v.venda_original_identificador && (
+                            <span className="text-[10px] text-white/45">
+                              → {v.venda_original_identificador}
+                            </span>
+                          )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-sm text-white/85">
                       {formatDateBR(v.data_venda)}

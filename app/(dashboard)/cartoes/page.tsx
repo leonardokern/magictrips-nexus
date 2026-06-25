@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { CreditCard, Wallet } from "lucide-react"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
@@ -44,10 +45,14 @@ export default async function CartoesPage() {
   const podeEditar = can(user, "cartoes", "editar")
   const podeExcluir = can(user, "cartoes", "excluir")
 
+  const qtdCartoes = cartoes?.length ?? 0
+  const qtdCaixas = caixas.length
+
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold tracking-tight text-white">
+        <h2 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-white">
+          <CreditCard className="h-6 w-6 text-nexus-bright" />
           Cartões e Caixas
         </h2>
         <p className="mt-1 max-w-2xl text-sm text-white/55">
@@ -56,9 +61,29 @@ export default async function CartoesPage() {
       </div>
 
       <Tabs defaultValue="cartoes">
-        <TabsList className="mb-4">
-          <TabsTrigger value="cartoes">Cartões</TabsTrigger>
-          <TabsTrigger value="caixas">Caixas</TabsTrigger>
+        {/* Tabs ricas: ícone + label + badge de contagem. O badge dá um atalho
+            visual pra ver o tamanho de cada lista sem precisar entrar na aba. */}
+        <TabsList className="mb-5 gap-1 p-1">
+          <TabsTrigger
+            value="cartoes"
+            className="group gap-2 px-3.5 data-[state=active]:bg-nexus-bright/15"
+          >
+            <CreditCard className="h-3.5 w-3.5" />
+            <span>Cartões</span>
+            <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white/70 group-data-[state=active]:bg-nexus-bright/25 group-data-[state=active]:text-nexus-bright">
+              {qtdCartoes}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="caixas"
+            className="group gap-2 px-3.5 data-[state=active]:bg-nexus-bright/15"
+          >
+            <Wallet className="h-3.5 w-3.5" />
+            <span>Caixas</span>
+            <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white/70 group-data-[state=active]:bg-nexus-bright/25 group-data-[state=active]:text-nexus-bright">
+              {qtdCaixas}
+            </span>
+          </TabsTrigger>
         </TabsList>
 
         {/* ── Aba Cartões ──────────────────────────────────────────── */}
