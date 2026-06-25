@@ -28,11 +28,16 @@ const LINE = "#E5E7EB"
 const BORDA = 28
 
 const styles = StyleSheet.create({
+  // `paddingTop` maior que BORDA (28 → 56): `Page.padding` reaplica em
+  // toda página, mas o `paddingTop` do `card` (View) não — quando a
+  // tabela quebra pra página 2, o conteúdo grudava na linha azul
+  // superior. Trade-off: faixa navy 28pt mais alta no topo (vs. lados/
+  // base = 28pt), mas a margem fica consistente em todas as páginas.
   page: {
     fontFamily: FONTE_NEXUS,
     fontSize: 9,
     color: NAVY,
-    paddingTop: BORDA,
+    paddingTop: BORDA + 28,
     paddingBottom: BORDA,
     paddingHorizontal: BORDA,
     backgroundColor: NAVY,
@@ -40,7 +45,18 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     backgroundColor: CORES.branco,
-    padding: 36,
+    // `paddingTop: 56` — feedback do cliente jun/2026: o logo+nome da
+    // empresa estavam muito próximos do traço navy superior. 56pt dá
+    // ~20pt a mais de respiro entre a moldura azul e a primeira linha.
+    //
+    // `paddingBottom: 110` reserva espaço para o `footerStack`
+    // (position: absolute) — sem isso, conteúdo de fluxo
+    // (PIX/transferência) sobrepunha o rodapé quando a tabela crescia.
+    // ~110pt = altura do footer (agradecimento ~30 + gap 10 + contatoRow
+    // ~30) + offset `bottom: 28` + folga visual.
+    paddingTop: 56,
+    paddingHorizontal: 36,
+    paddingBottom: 110,
     position: "relative",
   },
   faturaBadge: {
@@ -155,6 +171,48 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     marginTop: 8,
     marginBottom: 14,
+  },
+  // ── Linhas dos totais (Subtotal + ajustes + grand total) ────────
+  totalRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    paddingVertical: 3,
+    minWidth: 230,
+  },
+  totalLabel: { fontSize: 10, color: NAVY, width: 140, textAlign: "right" },
+  totalValor: { fontSize: 10, color: NAVY, width: 80, textAlign: "right" },
+  totalRowSmall: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    paddingVertical: 1,
+    minWidth: 230,
+  },
+  // Linhas de ajuste — mesma cor do Subtotal (NAVY). Decisão jun/2026:
+  // sem cores semânticas, leitura sóbria. Os sinais `+ / −` já comunicam.
+  totalLabelDesconto: {
+    fontSize: 8,
+    color: NAVY,
+    width: 140,
+    textAlign: "right",
+  },
+  totalValorDesconto: {
+    // Valor sem bold (decisão jun/2026) — leitura mais leve.
+    fontSize: 8,
+    color: NAVY,
+    width: 80,
+    textAlign: "right",
+  },
+  totalLabelAcrescimo: {
+    fontSize: 8,
+    color: NAVY,
+    width: 140,
+    textAlign: "right",
+  },
+  totalValorAcrescimo: {
+    fontSize: 8,
+    color: NAVY,
+    width: 80,
+    textAlign: "right",
   },
   grandTotalRow: {
     flexDirection: "row",
@@ -331,7 +389,11 @@ export function FaturaAgrupadaPDF({
               <Text style={{ ...styles.th, width: 80, textAlign: "right" }}>Valor</Text>
             </View>
             {data.parcelas.map((p, i) => (
-              <View key={i} style={styles.tableRow}>
+              // `wrap={false}` — uma linha da tabela (uma parcela com seus
+              // produtos+campos extras) nunca é quebrada no meio entre
+              // páginas. Se não couber no resto da página atual, a linha
+              // INTEIRA é empurrada pra próxima.
+              <View key={i} style={styles.tableRow} wrap={false}>
                 <View style={{ flex: 1 }}>
                   {p.produtos.map((prod, j) => (
                     <View key={j} style={j > 0 ? { marginTop: 7 } : {}}>
@@ -353,16 +415,53 @@ export function FaturaAgrupadaPDF({
           </View>
 
           <View style={styles.totaisBox}>
+            {/* Subtotal — soma das parcelas, antes dos ajustes */}
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Subtotal:</Text>
+              <Text style={styles.totalValor}>{formatBRL(data.valorTotal)}</Text>
+            </View>
+            {/* Juros/Multa COMBINADOS — uma linha só (decisão jun/2026).
+                Soma de juros + multa em % e R$. SEMPRE renderizada. */}
+            <View style={styles.totalRowSmall}>
+              <Text style={styles.totalLabelAcrescimo}>
+                Juros/Multa (
+                {(
+                  (data.juros?.percentual ?? 0) +
+                  (data.multa?.percentual ?? 0)
+                )
+                  .toFixed(2)
+                  .replace(".", ",")}
+                %):
+              </Text>
+              <Text style={styles.totalValorAcrescimo}>
+                +{" "}
+                {formatBRL(
+                  (data.juros?.valor ?? 0) + (data.multa?.valor ?? 0),
+                )}
+              </Text>
+            </View>
+            {/* Desconto SEMPRE renderizado abaixo. */}
+            <View style={styles.totalRowSmall}>
+              <Text style={styles.totalLabelDesconto}>
+                Desconto ({(data.desconto?.percentual ?? 0).toFixed(2).replace(".", ",")}%):
+              </Text>
+              <Text style={styles.totalValorDesconto}>
+                − {formatBRL(data.desconto?.valor ?? 0)}
+              </Text>
+            </View>
             <View style={styles.grandTotalRow}>
               <Text style={styles.grandTotalLabel}>Total:</Text>
-              <Text style={styles.grandTotalValor}>{formatBRL(data.valorTotal)}</Text>
+              <Text style={styles.grandTotalValor}>{formatBRL(data.valorFinal)}</Text>
             </View>
           </View>
 
           <Text style={styles.dotted}>{DOTTED_LINE}</Text>
 
           {(data.pix || data.dadosBancarios) && (
-            <View style={styles.pagamentoRow}>
+            // `wrap={false}` — bloco "Pagar com PIX / por transferência"
+            // não pode ser quebrado entre páginas. Se não couber, é
+            // empurrado inteiro pra próxima página.
+            <View style={styles.pagamentoRow} wrap={false}>
               {data.pix && (
                 <View style={styles.bloco}>
                   <Text style={styles.blocoTitulo}>Pagar com PIX</Text>

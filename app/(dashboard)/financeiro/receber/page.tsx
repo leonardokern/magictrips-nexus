@@ -19,10 +19,9 @@ import {
   ParcelaStatusBadge,
   type ParcelaStatus,
 } from "@/components/financeiro/parcela-status-badge"
-import { MarcarPagoButton } from "@/components/financeiro/marcar-pago-button"
-import { GerarFaturaButton } from "@/components/financeiro/gerar-fatura-button"
 import { GerarFaturaModalTrigger } from "@/components/financeiro/gerar-fatura-modal-trigger"
 import { getClientesComParcelasPendentes } from "@/app/(dashboard)/financeiro/actions"
+import { getCaixas } from "@/app/(dashboard)/cartoes/actions"
 
 export const metadata: Metadata = { title: "Contas a Receber" }
 
@@ -30,6 +29,7 @@ type SearchParams = Promise<{
   status?: string
   mes?: string
   q?: string
+  caixa?: string
 }>
 
 const FORMA_LABEL: Record<string, string> = {
@@ -50,6 +50,7 @@ function derivarStatus(
   hoje: string,
 ): ParcelaStatus {
   if (statusDb === "pago") return "pago"
+  if (statusDb === "pago_atraso") return "pago_atraso"
   if (statusDb === "cancelado") return "cancelado"
   if (vencimentoIso < hoje) return "atrasado"
   return "pendente"
@@ -94,27 +95,28 @@ export default async function ContasReceberPage({
       </div>
     )
   }
-  const podeEditar = can(user, "financeiro", "editar")
   const podeCriar = can(user, "financeiro", "criar")
 
   const sp = await searchParams
   const statusFiltro = sp.status ?? ""
   const mesFiltro = sp.mes ?? ""
+  const caixaFiltro = sp.caixa && sp.caixa !== "all" ? sp.caixa : ""
   const q = (sp.q ?? "").trim()
   const hoje = hojeIso()
 
   const supabase = await createClient()
 
-  let queryBase = supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any
+  // Inclui caixa_id (nova coluna) e join caixas (nova tabela) — tipos regenerados pendentes
+  let queryBase = sb
     .from("parcelas_receber")
     .select(
-      `
-      id, numero, total_parcelas, descricao, valor, forma_pagamento,
-      data_vencimento, data_pagamento, status,
+      `id, numero, total_parcelas, descricao, valor, forma_pagamento,
+      data_vencimento, data_pagamento, status, caixa_id,
       cliente:clientes(id, nome),
       venda:vendas(id, identificador),
-      fatura_parcelas(fatura_id)
-    `,
+      caixa:caixas(nome)`,
     )
     .order("data_vencimento", { ascending: true })
     .limit(200)
@@ -132,13 +134,18 @@ export default async function ContasReceberPage({
     queryBase = queryBase.gte("data_vencimento", from).lte("data_vencimento", to)
   }
 
-  const [{ data: parcelasRaw, error }, { data: kpiRows }, clientesFatura] =
+  if (caixaFiltro) {
+    queryBase = queryBase.eq("caixa_id", caixaFiltro)
+  }
+
+  const [{ data: parcelasRaw, error }, { data: kpiRows }, clientesFatura, caixasList] =
     await Promise.all([
       queryBase,
       supabase
         .from("parcelas_receber")
         .select("valor, data_vencimento, data_pagamento, status"),
       podeCriar ? getClientesComParcelasPendentes() : Promise.resolve([]),
+      getCaixas(),
     ])
 
   type KpiRow = {
@@ -160,7 +167,7 @@ export default async function ContasReceberPage({
         emAberto += v
         if (r.data_vencimento < hoje) atrasado += v
       }
-      if (r.status === "pago" && r.data_pagamento?.startsWith(mes)) {
+      if ((r.status === "pago" || r.status === "pago_atraso") && r.data_pagamento?.startsWith(mes)) {
         recebidoMes += v
       }
     }
@@ -177,15 +184,13 @@ export default async function ContasReceberPage({
     data_vencimento: string
     data_pagamento: string | null
     status: string
+    caixa_id: string | null
     cliente: { id: string; nome: string } | { id: string; nome: string }[] | null
     venda:
       | { id: string; identificador: string }
       | { id: string; identificador: string }[]
       | null
-    fatura_parcelas:
-      | { fatura_id: string }
-      | { fatura_id: string }[]
-      | null
+    caixa: { nome: string } | { nome: string }[] | null
   }
   let parcelas = (parcelasRaw ?? []) as unknown as ParcelaRow[]
 
@@ -236,15 +241,12 @@ export default async function ContasReceberPage({
         />
       </div>
 
-      {/* Filtros */}
+      {/* Filtros — cliente (busca) + status + caixa. Mês e presets ficam
+          fora desta tela por decisão jun/2026. */}
       <FinanceFilters
         placeholderBusca="Buscar por cliente…"
-        presets={[
-          { label: "Atrasados", status: "atrasado" },
-          { label: "Este mês", status: "", mes: mesAtualISO() },
-          { label: "Pendentes", status: "pendente" },
-          { label: "Recebidos", status: "pago" },
-        ]}
+        showMes={false}
+        caixas={caixasList.map((c) => ({ id: c.id, nome: c.nome }))}
       />
 
       {/* Tabela */}
@@ -269,43 +271,26 @@ export default async function ContasReceberPage({
                 <TableHead>Parcela</TableHead>
                 <TableHead>Forma</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="w-[150px]">Pago em</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-[100px]" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {parcelas.map((p) => {
                 const cli = Array.isArray(p.cliente) ? p.cliente[0] : p.cliente
                 const vnd = Array.isArray(p.venda) ? p.venda[0] : p.venda
-                const fps = Array.isArray(p.fatura_parcelas)
-                  ? p.fatura_parcelas
-                  : p.fatura_parcelas
-                    ? [p.fatura_parcelas]
-                    : []
-                const faturaId = (fps[0] as { fatura_id?: string } | undefined)?.fatura_id ?? null
+                const caixaObj = Array.isArray(p.caixa) ? p.caixa[0] : p.caixa
                 const status = derivarStatus(p.status, p.data_vencimento, hoje)
-                const ehPago = status === "pago"
+                const ehPago = status === "pago" || status === "pago_atraso"
                 const ehAtrasado = status === "atrasado"
                 return (
-                  <TableRow
-                    key={p.id}
-                    className="border-white/[0.04] hover:bg-white/[0.025]"
-                  >
+                  <TableRow key={p.id} className="border-white/[0.04] hover:bg-white/[0.025]">
                     <TableCell className="tabular-nums text-sm">
-                      <span
-                        className={ehAtrasado ? "font-medium text-rose-300" : ""}
-                      >
+                      <span className={ehAtrasado ? "font-medium text-rose-300" : ""}>
                         {formatDateBr(p.data_vencimento)}
                       </span>
-                      {ehPago && p.data_pagamento && (
-                        <span className="block text-[10px] text-emerald-300/70">
-                          pago {formatDateBr(p.data_pagamento)}
-                        </span>
-                      )}
                     </TableCell>
-                    <TableCell className="text-sm text-white">
-                      {cli?.nome ?? "—"}
-                    </TableCell>
+                    <TableCell className="text-sm text-white">{cli?.nome ?? "—"}</TableCell>
                     <TableCell className="font-mono text-xs text-nexus-bright">
                       {vnd?.identificador ?? "—"}
                     </TableCell>
@@ -313,32 +298,29 @@ export default async function ContasReceberPage({
                       {p.numero}/{p.total_parcelas}
                     </TableCell>
                     <TableCell className="text-xs text-white/70">
-                      {p.forma_pagamento
-                        ? FORMA_LABEL[p.forma_pagamento] ?? p.forma_pagamento
-                        : "—"}
+                      {p.forma_pagamento ? FORMA_LABEL[p.forma_pagamento] ?? p.forma_pagamento : "—"}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-sm font-medium text-white">
                       {formatBRL(Number(p.valor ?? 0))}
                     </TableCell>
-                    <TableCell>
-                      <ParcelaStatusBadge status={status} />
+                    <TableCell className="text-sm">
+                      {ehPago && p.data_pagamento ? (
+                        <div className="flex flex-col gap-0.5 tabular-nums">
+                          <span className="text-emerald-300">
+                            {formatDateBr(p.data_pagamento)}
+                          </span>
+                          {caixaObj?.nome && (
+                            <span className="text-[10px] text-white/55">
+                              {caixaObj.nome}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-white/25">—</span>
+                      )}
                     </TableCell>
                     <TableCell>
-                      <div className="flex justify-end gap-1.5">
-                        {faturaId &&
-                          p.forma_pagamento !== "link_externo" &&
-                          status !== "cancelado" && (
-                            <GerarFaturaButton faturaId={faturaId} />
-                          )}
-                        {podeEditar && status !== "cancelado" && (
-                          <MarcarPagoButton
-                            tipo="receber"
-                            parcelaId={p.id}
-                            acao={ehPago ? "pendente" : "pago"}
-                            resumo={`Parcela ${p.numero}/${p.total_parcelas} de ${cli?.nome ?? "—"} · ${formatBRL(Number(p.valor ?? 0))}`}
-                          />
-                        )}
-                      </div>
+                      <ParcelaStatusBadge status={status} />
                     </TableCell>
                   </TableRow>
                 )

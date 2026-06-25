@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Image from "next/image"
-import { CheckCircle, AlertTriangle, ChevronDown, ExternalLink, FileDown, Paperclip } from "lucide-react"
+import { CheckCircle, AlertTriangle, ChevronDown, ExternalLink, FileDown, Paperclip, Pencil } from "lucide-react"
 import { toast } from "sonner"
 import { formatBRL } from "@/lib/utils/sum-parser"
 import { COBRANCA_TIPO_LABEL, PGTO_FORMA_LABEL } from "@/lib/schemas/venda"
@@ -304,10 +304,15 @@ type Props = {
   vendaId?: string
   /** Exibe o botão de Relatório (restrito a Admin/Gerente). */
   mostraRelatorio?: boolean
+  /** Render prop que injeta os botões de alteração no banner — evita import
+   *  circular com VerVendaOriginalButton (que importa VendaResumoPanel). */
+  renderAlteracaoBotoes?: (alteracoes: VendaDetalhes["alteracoesAprovadas"]) => React.ReactNode
 }
 
-export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraRelatorio }: Props) {
+export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraRelatorio, renderAlteracaoBotoes }: Props) {
   const ehAlteracao = d.tipoVenda === "alteracao_valores"
+  const temAlteracaoAprovada =
+    !ehAlteracao && (d.alteracoesAprovadas?.length ?? 0) > 0
   const totalVenda = d.produtos.reduce((a, p) => a + p.valorVenda, 0)
   const totalCusto = d.produtos.reduce((a, p) => a + p.valorCusto, 0)
   // RAV total = RAV base (venda - custo) + RAV Extra Cliente + RAV Extra Fornecedor
@@ -370,6 +375,32 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
 
   return (
     <div className="space-y-4">
+      {/* Banner de alteração(ões) aprovada(s) — só aparece na venda ORIGINAL
+          que já teve mudança consolidada por cima. Link abre o modal da
+          alteração mais recente; relatório consolidado vive lá. */}
+      {temAlteracaoAprovada && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-4 py-2.5 text-sm text-amber-300">
+          <div className="flex items-center gap-2">
+            <Pencil className="h-4 w-4 shrink-0" />
+            <span>
+              Esta venda tem{" "}
+              <strong>
+                {d.alteracoesAprovadas.length}{" "}
+                {d.alteracoesAprovadas.length === 1
+                  ? "alteração aprovada"
+                  : "alterações aprovadas"}
+              </strong>
+              . O relatório consolidado é gerado a partir da alteração.
+            </span>
+          </div>
+          {renderAlteracaoBotoes && (
+            <div className="flex flex-wrap items-center gap-2">
+              {renderAlteracaoBotoes(d.alteracoesAprovadas)}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Banners de estado */}
       {d.status === "aprovado" && d.aprovadoPorNome && (
         <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-2.5 text-sm text-emerald-300">
@@ -702,19 +733,36 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
             </div>
           </div>
 
-          {/* Botões de PDF */}
+          {/* Botões de PDF.
+              - Comprovante: NÃO aparece em alterações (o documento da
+                alteração é a própria alteração; relatório fala por ela).
+              - Relatório: na ORIGINAL que tem alteração aprovada fica
+                disabled — o relatório consolidado vive na alteração
+                (onde os deltas já estão somados na visão final). */}
           {vendaId && (
             <div className="flex flex-col gap-2">
-              <a
-                href={`/api/vendas/${vendaId}/comprovante`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/70 transition-colors hover:border-white/25 hover:bg-white/[0.07] hover:text-white"
-              >
-                <FileDown className="mr-2 h-3.5 w-3.5" />
-                Comprovante
-              </a>
-              {mostraRelatorio && (
+              {!ehAlteracao && (
+                <a
+                  href={`/api/vendas/${vendaId}/comprovante`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/70 transition-colors hover:border-white/25 hover:bg-white/[0.07] hover:text-white"
+                >
+                  <FileDown className="mr-2 h-3.5 w-3.5" />
+                  Comprovante
+                </a>
+              )}
+              {mostraRelatorio && temAlteracaoAprovada ? (
+                <button
+                  type="button"
+                  disabled
+                  title="Esta venda tem alteração aprovada — abra o relatório a partir da alteração mais recente."
+                  className="inline-flex cursor-not-allowed items-center justify-center rounded-md border border-white/10 bg-white/[0.02] px-3 py-2 text-sm text-white/35"
+                >
+                  <FileDown className="mr-2 h-3.5 w-3.5" />
+                  Relatório
+                </button>
+              ) : mostraRelatorio ? (
                 <a
                   href={`/api/vendas/${vendaId}/relatorio`}
                   target="_blank"
@@ -724,7 +772,7 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
                   <FileDown className="mr-2 h-3.5 w-3.5" />
                   Relatório
                 </a>
-              )}
+              ) : null}
             </div>
           )}
 

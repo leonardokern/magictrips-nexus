@@ -112,10 +112,120 @@ export default async function VendasPage({
         .from("vendas")
         .select(SELECT_LISTA, { count: "exact" })
         .eq("status", "aprovado")
+        // Aprovadas exibe APENAS originais — alterações somem da listagem
+        // e ficam consolidadas na própria original (cliente/origem/comissão
+        // do estado mais recente, valores = original + soma dos deltas).
+        .or("tipo_venda.eq.original,tipo_venda.is.null")
         .order("data_aprovacao", { ascending: false, nullsFirst: false })
         .range(fromAprovadas, toAprovadas),
     ),
   ])
+
+  // Pra cada original APROVADA, busca alterações aprovadas (cliente/origem/
+  // comissão da mais recente + soma dos deltas dos produtos de todas).
+  // Tudo em UMA query, depois mergeamos in-process.
+  const idsOriginaisAprovadas = ((aprovadasRes.data ?? []) as { id: string }[])
+    .map((v) => v.id)
+  type AlteracaoMergeRow = {
+    venda_original_id: string
+    cliente_id: string | null
+    origem: string | null
+    comissao_percentual: number | null
+    data_aprovacao: string | null
+    cliente: { nome: string } | { nome: string }[] | null
+    produtos: {
+      valor_venda: number | string
+      rav: number | string | null
+      rav_extra_cliente: number | string | null
+      rav_extra_fornecedor: number | string | null
+    }[] | null
+  }
+  const { data: alteracoesRawData } =
+    idsOriginaisAprovadas.length > 0
+      ? await supabase
+          .from("vendas")
+          .select(
+            `venda_original_id, cliente_id, origem, comissao_percentual, data_aprovacao,
+             cliente:clientes(nome),
+             produtos:venda_produtos(valor_venda, rav, rav_extra_cliente, rav_extra_fornecedor)`,
+          )
+          .eq("status", "aprovado")
+          .eq("tipo_venda", "alteracao_valores")
+          .in("venda_original_id", idsOriginaisAprovadas)
+          .order("data_aprovacao", { ascending: false, nullsFirst: false })
+      : { data: null as AlteracaoMergeRow[] | null }
+  const alteracoesRaw = (alteracoesRawData ?? []) as AlteracaoMergeRow[]
+
+  type MergeInfo = {
+    clienteNome: string | null
+    origem: string | null
+    comissaoPercentual: number | null
+    deltaValorVenda: number
+    deltaRav: number
+    deltaRavCliente: number
+    deltaRavFornecedor: number
+  }
+  const mergeMap = new Map<string, MergeInfo>()
+  // Vem ordenado por data_aprovacao desc — a PRIMEIRA alteração lida pra
+  // cada original é a mais recente, então preserva o seu cliente/origem.
+  for (const alt of alteracoesRaw) {
+    let m = mergeMap.get(alt.venda_original_id)
+    if (!m) {
+      const cli = Array.isArray(alt.cliente) ? alt.cliente[0] : alt.cliente
+      m = {
+        clienteNome: alt.cliente_id ? cli?.nome ?? null : null,
+        origem: alt.origem,
+        comissaoPercentual:
+          alt.comissao_percentual != null
+            ? Number(alt.comissao_percentual)
+            : null,
+        deltaValorVenda: 0,
+        deltaRav: 0,
+        deltaRavCliente: 0,
+        deltaRavFornecedor: 0,
+      }
+      mergeMap.set(alt.venda_original_id, m)
+    }
+    for (const p of alt.produtos ?? []) {
+      m.deltaValorVenda += Number(p.valor_venda ?? 0)
+      m.deltaRav += Number(p.rav ?? 0)
+      m.deltaRavCliente += Number(p.rav_extra_cliente ?? 0)
+      m.deltaRavFornecedor += Number(p.rav_extra_fornecedor ?? 0)
+    }
+  }
+
+  // Aplica overrides em cada venda aprovada. Mantemos a forma original
+  // (cast genérico) — só sobrescrevemos os campos cliente/origem/comissão
+  // e estendemos `produtos` com um delta sintético pra que `calcular(v)`
+  // some os totais sem precisar mexer na função.
+  type VendaAny = Record<string, unknown> & { id: string }
+  const aprovadasMerged = ((aprovadasRes.data ?? []) as unknown as VendaAny[]).map(
+    (v) => {
+      const m = mergeMap.get(v.id)
+      if (!m) return v
+      const produtosAtual = Array.isArray(v.produtos)
+        ? (v.produtos as unknown[])
+        : []
+      return {
+        ...v,
+        cliente: m.clienteNome
+          ? { nome: m.clienteNome }
+          : (v.cliente ?? null),
+        origem: m.origem ?? (v.origem ?? null),
+        comissao_percentual:
+          m.comissaoPercentual ?? (v.comissao_percentual as number | null | undefined) ?? null,
+        produtos: [
+          ...produtosAtual,
+          {
+            valor_venda: m.deltaValorVenda,
+            rav: m.deltaRav,
+            rav_extra_cliente: m.deltaRavCliente,
+            rav_extra_fornecedor: m.deltaRavFornecedor,
+          },
+        ],
+      }
+    },
+  )
 
   const podeAprovar = can(user, "vendas", "aprovar")
   // "Editar global" = capacidade de editar QUALQUER venda da empresa (Admin/Gerente).
@@ -160,7 +270,10 @@ export default async function VendasPage({
   const pendentes = !podeAprovar
     ? pendentesTodos.filter((v) => v.status === "pendente_validacao")
     : pendentesTodos
-  const aprovadas = (aprovadasRes.data ?? []).map((v) => ({ ...v, ...calcular(v) }))
+  const aprovadas = (aprovadasMerged as unknown as Array<{
+    produtos: unknown
+    comissao_percentual?: number | null
+  } & Record<string, unknown>>).map((v) => ({ ...v, ...calcular(v) }))
   const totalAprovadas = aprovadasRes.count ?? 0
 
   // Lista completa de vendas validadas (sem paginação) — usada APENAS pelo
@@ -279,7 +392,7 @@ export default async function VendasPage({
             ? `Nenhum resultado para "${qRaw}".`
             : "Nenhuma venda validada ainda."
         }
-        linhas={aprovadas}
+        linhas={aprovadas as unknown as Linha[]}
         userId={user.id}
         podeAprovar={podeAprovar}
         podeEditarGlobal={podeEditarGlobal}

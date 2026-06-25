@@ -46,11 +46,16 @@ export async function GET(
     .replace(/\s+/g, "-")
     .slice(0, 30)
 
+  const prefix =
+    result.data.tipoVenda === "alteracao_valores"
+      ? "comprovante-alteracao"
+      : "comprovante"
+
   return new NextResponse(buffer as unknown as BodyInit, {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="comprovante-${nomeCliente}.pdf"`,
+      "Content-Disposition": `inline; filename="${prefix}-${nomeCliente}.pdf"`,
       "Cache-Control": "no-store",
     },
   })

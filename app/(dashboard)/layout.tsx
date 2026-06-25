@@ -112,7 +112,7 @@ export default async function DashboardLayout({
             ]
           : []),
         ...(perms.can("cartoes", "ler")
-          ? [{ href: "/cartoes", label: "Cartões da Agência", icon: "cartoes" } as NavItem]
+          ? [{ href: "/cartoes", label: "Cartões e Caixas", icon: "cartoes" } as NavItem]
           : []),
       ],
     },

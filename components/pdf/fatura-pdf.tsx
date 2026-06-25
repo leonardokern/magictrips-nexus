@@ -53,6 +53,21 @@ export type FaturaData = {
      *  vem inflado; o base é = valor / (1+taxa/100). */
     valorBase: number
     /**
+     * Ajustes opcionais exibidos entre Subtotal e Total. Cada um traz o
+     * percentual (sobre o valorBase) e o valor monetário pra renderizar
+     * no formato `Desconto (5,00%): R$ 50,00`.
+     *
+     * - `desconto` ABATE do total (linha em verde).
+     * - `juros` e `multa` ACRESCENTAM ao total (linhas em vermelho).
+     *
+     * Quando `valor === 0` (ou o campo é `undefined`), a linha não
+     * renderiza. O campo `valor` na parcela já vem com tudo aplicado
+     * (subtotal − desconto + juros + multa + taxa).
+     */
+    desconto?: { percentual: number; valor: number }
+    juros?: { percentual: number; valor: number }
+    multa?: { percentual: number; valor: number }
+    /**
      * Linhas estruturadas pra renderizar na descrição. Cada item é
      * um produto da venda, com 3 sub-linhas opcionais. A primeira
      * (`produto`) sempre aparece em negrito; `datasViagem` e
@@ -106,11 +121,18 @@ const styles = StyleSheet.create({
   // Página recebe fundo navy; o conteúdo branco fica num View interno
   // com margens iguais a `BORDA` em cada lado, criando o efeito de
   // moldura grossa.
+  //
+  // `paddingTop` é maior que BORDA (28 → 56) por uma razão chave: quando
+  // o conteúdo quebra pra uma 2ª página, o `paddingTop` do `card` (View)
+  // NÃO reaplica — só o `Page.padding` repete em toda página. Sem isso,
+  // a página 2 tinha o conteúdo grudado na linha azul superior. O efeito
+  // colateral é uma faixa navy mais alta no topo (28pt a mais), mas isso
+  // soluciona o problema de respiro consistente em todas as páginas.
   page: {
     fontFamily: FONTE_NEXUS,
     fontSize: 9,
     color: NAVY,
-    paddingTop: BORDA,
+    paddingTop: BORDA + 28,
     paddingBottom: BORDA,
     paddingHorizontal: BORDA,
     backgroundColor: NAVY,
@@ -120,7 +142,19 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     backgroundColor: CORES.branco,
-    padding: 36,
+    // `paddingTop: 56` — feedback do cliente jun/2026: o logo+nome da
+    // empresa estavam muito próximos do traço navy superior. 56pt dá
+    // ~20pt a mais de respiro entre a moldura azul e a primeira linha
+    // de conteúdo (topRow com logo + empresaNome).
+    //
+    // `paddingBottom: 110` reserva espaço para o `footerStack`
+    // (position: absolute) — sem isso, conteúdo de fluxo (PIX /
+    // transferência) sobrepunha o rodapé. ~110pt = altura do footer
+    // (agradecimento ~30 + gap 10 + contatos ~30) + offset bottom: 28
+    // + folga visual.
+    paddingTop: 56,
+    paddingHorizontal: 36,
+    paddingBottom: 110,
     position: "relative",
   },
 
@@ -288,6 +322,36 @@ const styles = StyleSheet.create({
     fontSize: 8,
     color: NAVY,
     opacity: 0.7,
+    width: 80,
+    textAlign: "right",
+  },
+  // Linhas de ajuste (desconto/juros/multa) — mesma estrutura compacta
+  // do `totalRowSmall`. Decisão jun/2026: sem cores semânticas (vermelho/
+  // verde) — tudo em navy igual o Subtotal pra leitura sóbria e firme.
+  // Os sinais `+ / −` ao lado do valor já comunicam o sentido.
+  totalLabelDesconto: {
+    fontSize: 8,
+    color: NAVY,
+    width: 130,
+    textAlign: "right",
+  },
+  totalValorDesconto: {
+    // Valor SEM bold (decisão jun/2026) — alinha com o estilo do label,
+    // dando uma leitura mais leve. Os sinais `+ / −` continuam.
+    fontSize: 8,
+    color: NAVY,
+    width: 80,
+    textAlign: "right",
+  },
+  totalLabelAcrescimo: {
+    fontSize: 8,
+    color: NAVY,
+    width: 130,
+    textAlign: "right",
+  },
+  totalValorAcrescimo: {
+    fontSize: 8,
+    color: NAVY,
     width: 80,
     textAlign: "right",
   },
@@ -521,29 +585,30 @@ export function FaturaPDF({
                 Valor
               </Text>
             </View>
-            <View style={styles.tableRow}>
-              <View style={{ flex: 1 }}>
-                {data.parcela.itens.map((item, i) => (
-                  <View
-                    key={i}
-                    style={{ marginTop: i === 0 ? 0 : 8 }}
-                  >
-                    <Text style={styles.tdBold}>{item.produto}</Text>
-                    {item.datasViagem && (
-                      <Text style={styles.tdSub}>
-                        Viagem: {item.datasViagem}
-                      </Text>
-                    )}
-                    {item.camposExtras && (
-                      <Text style={styles.tdSub}>{item.camposExtras}</Text>
-                    )}
-                  </View>
-                ))}
+            {/* Cada item da parcela vira sua própria linha-View com
+                `wrap={false}` — assim um produto (com suas datas + campos
+                extras) nunca quebra entre páginas. O valor da parcela
+                aparece na PRIMEIRA linha (rowspan visual). */}
+            {data.parcela.itens.map((item, i) => (
+              <View key={i} style={styles.tableRow} wrap={false}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.tdBold}>{item.produto}</Text>
+                  {item.datasViagem && (
+                    <Text style={styles.tdSub}>
+                      Viagem: {item.datasViagem}
+                    </Text>
+                  )}
+                  {item.camposExtras && (
+                    <Text style={styles.tdSub}>{item.camposExtras}</Text>
+                  )}
+                </View>
+                {i === 0 && (
+                  <Text style={{ ...styles.tdBold, width: 110, textAlign: "right" }}>
+                    {formatBRL(data.parcela.valor)}
+                  </Text>
+                )}
               </View>
-              <Text style={{ ...styles.tdBold, width: 110, textAlign: "right" }}>
-                {formatBRL(data.parcela.valor)}
-              </Text>
-            </View>
+            ))}
           </View>
 
           {/* Totais — Subtotal (valor BASE sem taxa) + linha de Taxa
@@ -561,10 +626,47 @@ export function FaturaPDF({
                   Taxa de cobrança ({data.parcela.taxaCobranca.toFixed(2).replace(".", ",")}%):
                 </Text>
                 <Text style={styles.totalValorSmall}>
-                  {formatBRL(data.parcela.valor - data.parcela.valorBase)}
+                  {formatBRL(
+                    data.parcela.valor -
+                      data.parcela.valorBase +
+                      (data.parcela.desconto?.valor ?? 0) -
+                      (data.parcela.juros?.valor ?? 0) -
+                      (data.parcela.multa?.valor ?? 0),
+                  )}
                 </Text>
               </View>
             )}
+            {/* Juros/Multa COMBINADOS — uma linha só (decisão jun/2026).
+                Soma de juros + multa em % e R$. SEMPRE renderizada, mesmo
+                com R$ 0,00 / 0% pra firmar transparência. */}
+            <View style={styles.totalRowSmall}>
+              <Text style={styles.totalLabelAcrescimo}>
+                Juros/Multa (
+                {(
+                  (data.parcela.juros?.percentual ?? 0) +
+                  (data.parcela.multa?.percentual ?? 0)
+                )
+                  .toFixed(2)
+                  .replace(".", ",")}
+                %):
+              </Text>
+              <Text style={styles.totalValorAcrescimo}>
+                +{" "}
+                {formatBRL(
+                  (data.parcela.juros?.valor ?? 0) +
+                    (data.parcela.multa?.valor ?? 0),
+                )}
+              </Text>
+            </View>
+            {/* Desconto SEMPRE renderizado abaixo. */}
+            <View style={styles.totalRowSmall}>
+              <Text style={styles.totalLabelDesconto}>
+                Desconto ({(data.parcela.desconto?.percentual ?? 0).toFixed(2).replace(".", ",")}%):
+              </Text>
+              <Text style={styles.totalValorDesconto}>
+                − {formatBRL(data.parcela.desconto?.valor ?? 0)}
+              </Text>
+            </View>
             <View style={styles.grandTotalRow}>
               <Text style={styles.grandTotalLabel}>Total:</Text>
               <Text style={styles.grandTotalValor}>
@@ -580,7 +682,10 @@ export function FaturaPDF({
               bancários à direita. Ambos os blocos são opcionais, mas
               quando exibidos ocupam o lugar do antigo "Forma de pagamento". */}
           {(data.pix || data.dadosBancarios) && (
-            <View style={styles.pagamentoRow}>
+            // `wrap={false}` — bloco "Pagar com PIX / por transferência"
+            // não pode ser quebrado entre páginas. Se não couber, é
+            // empurrado inteiro pra próxima página.
+            <View style={styles.pagamentoRow} wrap={false}>
               {data.pix && (
                 <View style={styles.bloco}>
                   <Text style={styles.blocoTitulo}>Pagar com PIX</Text>

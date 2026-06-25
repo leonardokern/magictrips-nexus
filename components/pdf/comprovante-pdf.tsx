@@ -414,12 +414,22 @@ export function ComprovantePDF({ venda: v, logoPath }: { venda: VendaParaPDF; lo
   const totalVenda = v.produtos.reduce((a, p) => a + p.valorVenda, 0)
   const totalCobranca = v.cobranca.reduce((a, c) => a + c.valor, 0)
   const hoje = new Date().toLocaleDateString("pt-BR")
+  // Quando a venda é uma alteração, todos os valores armazenados são DELTAS.
+  // O documento vira "Comprovante de Alteração" e o totalizador do header
+  // passa a se chamar "Diferença" (Δ Receita) em vez de "Total da venda".
+  const ehAlteracao = v.tipoVenda === "alteracao_valores"
+  const docNome = ehAlteracao ? "Comprovante de Alteração" : "Comprovante de Venda"
+  const totalLabel = ehAlteracao ? "Diferença" : "Total da venda"
+  const formatDelta = (n: number) =>
+    ehAlteracao && n !== 0
+      ? `${n > 0 ? "+" : "−"}${formatBRL(Math.abs(n))}`
+      : formatBRL(n)
 
   return (
     <Document
-      title={`Comprovante de Venda — ${v.clienteNome}`}
+      title={`${docNome} — ${v.clienteNome}`}
       author={v.empresaNome}
-      subject="Comprovante de Venda"
+      subject={docNome}
     >
       <Page size="A4" style={styles.page}>
         {/* ── Header colorido ──────────────────────────────────────── */}
@@ -437,13 +447,13 @@ export function ComprovantePDF({ venda: v, logoPath }: { venda: VendaParaPDF; lo
                 {v.empresaNome}
               </Text>
               <Text style={{ fontSize: 8, color: "#ffffff", opacity: 0.85, textTransform: "uppercase", letterSpacing: 1.3, marginTop: 4 }}>
-                Comprovante de Venda {v.identificador}
+                {docNome} {v.identificador}
               </Text>
             </View>
           </View>
           <View style={styles.headerRight}>
-            <Text style={styles.headerRightLabel}>Total da venda</Text>
-            <Text style={styles.headerRightValue}>{formatBRL(totalVenda)}</Text>
+            <Text style={styles.headerRightLabel}>{totalLabel}</Text>
+            <Text style={styles.headerRightValue}>{formatDelta(totalVenda)}</Text>
           </View>
         </View>
 
@@ -585,9 +595,11 @@ export function ComprovantePDF({ venda: v, logoPath }: { venda: VendaParaPDF; lo
                   </View>
                 ))}
                 <View style={styles.cobrancaTotal}>
-                  <Text style={styles.cobrancaTotalLabel}>Total cobrado</Text>
+                  <Text style={styles.cobrancaTotalLabel}>
+                    {ehAlteracao ? "Diferença cobrada" : "Total cobrado"}
+                  </Text>
                   <Text style={[styles.cobrancaTotalValue, { color: cor }]}>
-                    {formatBRL(totalCobranca)}
+                    {formatDelta(totalCobranca)}
                   </Text>
                 </View>
               </View>

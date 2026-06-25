@@ -411,7 +411,13 @@ export type ParcelaParaFatura = {
 
 export type CriarFaturaResult =
   | { ok: true; fatura: { id: string; numero_display: string } }
-  | { ok: false; error: string; fatura_existente_id?: string }
+  | {
+      ok: false
+      error: string
+      /** Setado quando há fatura com EXATAMENTE essas parcelas — o modal exibe aviso. */
+      fatura_existente_id?: string
+      fatura_existente_numero?: string | null
+    }
 
 /**
  * Todos os clientes que possuem ao menos uma parcela de recebimento pendente,
@@ -510,6 +516,19 @@ export async function getParcelasPendentesDoCliente(
 export async function criarFatura(args: {
   clienteId: string
   parcelaIds: string[]
+  /**
+   * Ajustes opcionais sobre o subtotal (soma das parcelas). Default 0
+   * pra cada. UI manda os 6 valores SEMPRE (mesmo zerados) — o operador
+   * pode digitar % ou R$, a UI mantém os dois sincronizados.
+   */
+  ajustes?: {
+    descontoPercentual: number
+    descontoValor: number
+    jurosPercentual: number
+    jurosValor: number
+    multaPercentual: number
+    multaValor: number
+  }
 }): Promise<CriarFaturaResult> {
   const user = await requireCurrentUser()
   if (!can(user, "financeiro", "criar")) {
@@ -544,10 +563,20 @@ export async function criarFatura(args: {
         .select("*", { count: "exact", head: true })
         .eq("fatura_id", faturaId)
       if (count === args.parcelaIds.length) {
+        // Dedupe: já existe fatura com EXATAMENTE essas parcelas. NÃO criamos
+        // outra, NÃO sobrescrevemos a existente — o operador precisa decidir
+        // (abrir a fatura antiga ou trocar a seleção). Devolvemos número
+        // de exibição para o aviso no modal.
+        const { data: existente } = await supabase
+          .from("faturas")
+          .select("numero_display")
+          .eq("id", faturaId)
+          .maybeSingle()
         return {
           ok: false,
           error: "Já existe uma fatura com exatamente essas parcelas.",
           fatura_existente_id: faturaId,
+          fatura_existente_numero: existente?.numero_display ?? null,
         }
       }
     }
@@ -597,10 +626,25 @@ export async function criarFatura(args: {
   const numero = `INV-${ano}-${codEmpresa}${seqStr}`
   const numero_display = `#${numero}`
 
-  // Insere fatura
+  // Insere fatura — ajustes vão direto (default 0 quando ausentes)
+  const a = args.ajustes
   const { data: fatura, error: fatErr } = await supabase
     .from("faturas")
-    .insert({ empresa_id: emp.id, cliente_id: args.clienteId, numero, numero_display, numero_sequencial: seq, ano, valor_total: valorTotal })
+    .insert({
+      empresa_id: emp.id,
+      cliente_id: args.clienteId,
+      numero,
+      numero_display,
+      numero_sequencial: seq,
+      ano,
+      valor_total: valorTotal,
+      desconto_percentual: a?.descontoPercentual ?? 0,
+      desconto_valor: a?.descontoValor ?? 0,
+      juros_percentual: a?.jurosPercentual ?? 0,
+      juros_valor: a?.jurosValor ?? 0,
+      multa_percentual: a?.multaPercentual ?? 0,
+      multa_valor: a?.multaValor ?? 0,
+    })
     .select("id, numero_display")
     .single()
 
@@ -650,7 +694,20 @@ export type FaturaAgrupadaData = {
       camposExtras: string | null
     }>
   }>
+  /** Soma dos `parcelas[].valor` (sem ajustes). Usado como Subtotal. */
   valorTotal: number
+  /**
+   * Ajustes opcionais exibidos entre Subtotal e Total da fatura. Mesma
+   * semântica do `parcela.desconto/juros/multa` do `FaturaParaPDF`:
+   * desconto abate (verde), juros e multa acrescentam (vermelho).
+   * Quando `valor` é 0, a linha não renderiza.
+   */
+  desconto?: { percentual: number; valor: number }
+  juros?: { percentual: number; valor: number }
+  multa?: { percentual: number; valor: number }
+  /** Total final = valorTotal − desconto + juros + multa. Quando todos
+   *  os ajustes forem 0, é igual a `valorTotal`. */
+  valorFinal: number
   instrucaoPagamento: string | null
   pix: {
     chave: string
@@ -685,6 +742,9 @@ export async function getFaturaParaPDF(
       .select(
         `
         id, numero_display, data_emissao, valor_total,
+        desconto_percentual, desconto_valor,
+        juros_percentual, juros_valor,
+        multa_percentual, multa_valor,
         empresa:empresas(nome, slug, cor_primaria, logo_path, cnpj, cidade, razao_social, banco_nome, banco_agencia, banco_conta),
         cliente:clientes(nome, cpf, cnpj, email, telefone),
         fatura_parcelas(
@@ -823,6 +883,28 @@ export async function getFaturaParaPDF(
     },
     parcelas,
     valorTotal,
+    // Ajustes vêm SEMPRE preenchidos (default 0). O PDF renderiza as 3
+    // linhas sempre — mesmo quando zerado — pra firmar transparência.
+    desconto: {
+      percentual: Number(fatura.desconto_percentual ?? 0),
+      valor: Number(fatura.desconto_valor ?? 0),
+    },
+    juros: {
+      percentual: Number(fatura.juros_percentual ?? 0),
+      valor: Number(fatura.juros_valor ?? 0),
+    },
+    multa: {
+      percentual: Number(fatura.multa_percentual ?? 0),
+      valor: Number(fatura.multa_valor ?? 0),
+    },
+    valorFinal: Number(
+      (
+        valorTotal -
+        Number(fatura.desconto_valor ?? 0) +
+        Number(fatura.juros_valor ?? 0) +
+        Number(fatura.multa_valor ?? 0)
+      ).toFixed(2),
+    ),
     instrucaoPagamento: instrucaoPagamento(primeiraForma, empresaNome),
     pix: null,
     dadosBancarios: null,
@@ -839,7 +921,10 @@ export async function getFaturaParaPDF(
         chave: cnpjDigits,
         nome: eRaw?.razao_social ?? empresaNome,
         cidade: cidadeEmpresa,
-        valor: valorTotal,
+        // QR Code traz o VALOR FINAL (subtotal − desconto + juros + multa)
+        // pra que o pagador transfira o valor correto sem precisar fazer
+        // a conta de cabeça olhando o PDF.
+        valor: data.valorFinal,
         txid: data.faturaNumero.replace(/[^A-Za-z0-9]/g, "").slice(0, 25),
       })
       const qrDataUrl = await QRCode.default.toDataURL(brCode, {

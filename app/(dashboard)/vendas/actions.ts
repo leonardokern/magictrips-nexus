@@ -215,6 +215,15 @@ export type VendaDetalhes = {
   /** "original" (default) ou "alteracao_valores". Em alteração, os valores
    *  dos produtos são DELTAS — não totais absolutos. */
   tipoVenda: string
+  /** Quando esta venda É a original e existe(m) alteração(ões) aprovada(s)
+   *  sobre ela, listamos cada uma — usado pra mostrar banner com link no
+   *  modal e pra desabilitar o botão "Relatório" (o relatório consolidado
+   *  vive na alteração mais recente, não na original). */
+  alteracoesAprovadas: {
+    id: string
+    identificador: string
+    dataAprovacao: string | null
+  }[]
   /** Quando `tipoVenda === "alteracao_valores"`, traz os produtos da venda
    *  original pra montar o card comparativo Original → Δ → Efetivo. */
   vendaOriginal: {
@@ -509,6 +518,26 @@ export async function getVendaDetalhes(
     }
   }
 
+  // Quando a venda é uma ORIGINAL, busca alterações aprovadas sobre ela.
+  // No modal de visualização mostramos um banner com link e desabilitamos
+  // o botão de Relatório — o relatório consolidado vive na alteração.
+  type AlteracaoLink = VendaDetalhes["alteracoesAprovadas"][number]
+  let alteracoesAprovadas: AlteracaoLink[] = []
+  if (tipoVenda === "original") {
+    const { data: alts } = await supabase
+      .from("vendas")
+      .select("id, identificador, data_aprovacao")
+      .eq("venda_original_id", v.id)
+      .eq("tipo_venda", "alteracao_valores")
+      .eq("status", "aprovado")
+      .order("data_aprovacao", { ascending: true })
+    alteracoesAprovadas = (alts ?? []).map((a) => ({
+      id: a.id,
+      identificador: a.identificador,
+      dataAprovacao: a.data_aprovacao ? a.data_aprovacao.slice(0, 10) : null,
+    }))
+  }
+
   return {
     ok: true,
     data: {
@@ -531,6 +560,7 @@ export async function getVendaDetalhes(
       dataAprovacao: v.data_aprovacao ? v.data_aprovacao.slice(0, 10) : null,
       comissaoPercentual,
       tipoVenda,
+      alteracoesAprovadas,
       vendaOriginal,
       produtos: (produtos ?? []).map((p) => {
         const rav = Number(p.rav ?? 0)
@@ -655,6 +685,11 @@ export async function getVendaDetalhes(
 export type VendaParaPDF = {
   id: string
   identificador: string
+  /** "original" ou "alteracao_valores" — usado pelos PDFs pra ajustar título/labels. */
+  tipoVenda: string
+  /** Id da venda original quando esta é uma alteração — usado pelo route do
+   *  relatório pra carregar o ORIGINAL e fazer o merge produto a produto. */
+  vendaOriginalId: string | null
   status: string
   dataVenda: string
   dataInicioViagem: string | null
@@ -762,7 +797,7 @@ export async function getVendaParaPDF(
     .select(
       `
       id, identificador, status, data_venda, pax, origem, observacoes, motivo_revisao,
-      data_aprovacao, comissao_percentual, empresa_id,
+      data_aprovacao, comissao_percentual, empresa_id, tipo_venda, venda_original_id,
       empresa:empresas(nome, slug, cor_primaria, logo_path),
       cliente:clientes(nome, cpf, email, telefone),
       agente:usuarios!vendas_usuario_id_fkey(nome, comissao_percentual, perfil_id),
@@ -891,6 +926,11 @@ export async function getVendaParaPDF(
     data: {
       id: v.id,
       identificador: v.identificador,
+      tipoVenda:
+        (v as unknown as { tipo_venda: string | null }).tipo_venda ?? "original",
+      vendaOriginalId:
+        (v as unknown as { venda_original_id: string | null }).venda_original_id ??
+        null,
       status: v.status,
       dataVenda: v.data_venda,
       dataInicioViagem:

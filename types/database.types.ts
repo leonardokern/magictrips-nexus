@@ -691,8 +691,14 @@ export type Database = {
           cliente_id: string
           created_at: string
           data_emissao: string
+          desconto_percentual: number
+          desconto_valor: number
           empresa_id: string
           id: string
+          juros_percentual: number
+          juros_valor: number
+          multa_percentual: number
+          multa_valor: number
           numero: string
           numero_display: string
           numero_sequencial: number
@@ -706,8 +712,14 @@ export type Database = {
           cliente_id: string
           created_at?: string
           data_emissao?: string
+          desconto_percentual?: number
+          desconto_valor?: number
           empresa_id: string
           id?: string
+          juros_percentual?: number
+          juros_valor?: number
+          multa_percentual?: number
+          multa_valor?: number
           numero: string
           numero_display: string
           numero_sequencial: number
@@ -721,8 +733,14 @@ export type Database = {
           cliente_id?: string
           created_at?: string
           data_emissao?: string
+          desconto_percentual?: number
+          desconto_valor?: number
           empresa_id?: string
           id?: string
+          juros_percentual?: number
+          juros_valor?: number
+          multa_percentual?: number
+          multa_valor?: number
           numero?: string
           numero_display?: string
           numero_sequencial?: number

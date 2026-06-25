@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog"
 import { ModalLoader } from "@/components/ui/modal-loader"
 import { VendaResumoPanel } from "./venda-resumo-panel"
+import { VerVendaOriginalButton } from "./ver-venda-original-button"
 import { EditarVendaModal } from "./editar-venda-modal"
 import {
   aprovarVenda,
@@ -363,11 +364,16 @@ export function VendaRowActions({
                 detalhes={detalhes}
                 mostraComissao={true}
                 vendaId={venda.id}
-                // Relatório liberado pra qualquer um que enxergue a venda.
-                // Agentes só veem as próprias por RLS — os dados do relatório
-                // (comissão, RAV, custos) são os mesmos que ele já tem acesso
-                // na revisão e no dashboard.
                 mostraRelatorio={true}
+                renderAlteracaoBotoes={(alts) =>
+                  alts.map((a) => (
+                    <VerVendaOriginalButton
+                      key={a.id}
+                      vendaId={a.id}
+                      identificador={a.identificador}
+                    />
+                  ))
+                }
               />
             )}
           </div>

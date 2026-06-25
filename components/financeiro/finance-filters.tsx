@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 type Preset = { label: string; status: string; mes?: string }
+type CaixaOption = { id: string; nome: string }
 
 /**
  * Barra de filtros das telas financeiras. Mantém estado na URL pra que
@@ -24,13 +25,20 @@ type Preset = { label: string; status: string; mes?: string }
  * Props:
  * - `placeholderBusca`: placeholder do input de busca (cliente/fornecedor).
  * - `presets`: pílulas de filtro rápido. Cada uma seta {status, mes} na URL.
+ *   Omitir = sem pílulas (default []).
+ * - `showMes`: exibe o input de mês (default true).
+ * - `caixas`: quando passado, exibe um Select de caixa (param `caixa` na URL).
  */
 export function FinanceFilters({
   placeholderBusca,
-  presets,
+  presets = [],
+  showMes = true,
+  caixas,
 }: {
   placeholderBusca: string
-  presets: Preset[]
+  presets?: Preset[]
+  showMes?: boolean
+  caixas?: CaixaOption[]
 }) {
   const router = useRouter()
   const sp = useSearchParams()
@@ -65,8 +73,9 @@ export function FinanceFilters({
 
   const status = sp.get("status") ?? ""
   const mes = sp.get("mes") ?? ""
+  const caixaSel = sp.get("caixa") ?? ""
   const algumFiltro =
-    sp.get("q") || sp.get("status") || sp.get("mes")
+    sp.get("q") || sp.get("status") || sp.get("mes") || sp.get("caixa")
 
   return (
     <div className="space-y-3">
@@ -103,12 +112,34 @@ export function FinanceFilters({
             </SelectContent>
           </Select>
 
-          <Input
-            type="month"
-            value={mes}
-            onChange={(e) => navigate({ mes: e.target.value || null })}
-            className="h-9 w-[160px] border-white/10 bg-white/[0.04] text-sm tabular-nums"
-          />
+          {showMes && (
+            <Input
+              type="month"
+              value={mes}
+              onChange={(e) => navigate({ mes: e.target.value || null })}
+              className="h-9 w-[160px] border-white/10 bg-white/[0.04] text-sm tabular-nums"
+            />
+          )}
+
+          {/* Filtro de caixa — só aparece se a tela passar a lista. */}
+          {caixas && caixas.length > 0 && (
+            <Select
+              value={caixaSel || "all"}
+              onValueChange={(v) => navigate({ caixa: v })}
+            >
+              <SelectTrigger className="h-9 w-[180px] border-white/10 bg-white/[0.04] text-sm">
+                <SelectValue placeholder="Caixa" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os caixas</SelectItem>
+                {caixas.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
 
         {algumFiltro && (
@@ -126,7 +157,8 @@ export function FinanceFilters({
         )}
       </div>
 
-      {/* Linha 2: presets rápidos */}
+      {/* Linha 2: presets rápidos — só renderiza quando há pelo menos um. */}
+      {presets.length > 0 && (
       <div className="flex flex-wrap gap-1.5">
         {presets.map((p) => (
           <button
@@ -144,6 +176,7 @@ export function FinanceFilters({
           </button>
         ))}
       </div>
+      )}
     </div>
   )
 }

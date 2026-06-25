@@ -162,6 +162,60 @@ export async function toggleCartaoAtivo(
   return { ok: true }
 }
 
+// ── Caixas ────────────────────────────────────────────────────────────────────
+
+export type CaixaItem = { id: string; nome: string; ativo: boolean }
+
+export async function getCaixas(): Promise<CaixaItem[]> {
+  const user = await requireCurrentUser()
+  if (!can(user, "cartoes", "ler")) return []
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (supabase as any)
+    .from("caixas").select("id, nome, ativo")
+    .order("ativo", { ascending: false }).order("nome")
+  return (data ?? []) as CaixaItem[]
+}
+
+export async function criarCaixa(nome: string): Promise<ActionResult> {
+  const user = await requireCurrentUser()
+  if (!can(user, "cartoes", "editar")) return { ok: false, error: "Sem permissão." }
+  if (!nome.trim()) return { ok: false, error: "Nome obrigatório." }
+  const supabase = await createClient()
+  const { data: ue } = await supabase
+    .from("usuarios_empresas").select("empresa_id").eq("usuario_id", user.id).limit(1).maybeSingle()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).from("caixas").insert({ nome: nome.trim(), empresa_id: ue?.empresa_id ?? null })
+  if (error) return { ok: false, error: (error as { message: string }).message }
+  revalidatePath("/cartoes")
+  return { ok: true }
+}
+
+export async function editarCaixa(id: string, nome: string): Promise<ActionResult> {
+  const user = await requireCurrentUser()
+  if (!can(user, "cartoes", "editar")) return { ok: false, error: "Sem permissão." }
+  if (!nome.trim()) return { ok: false, error: "Nome obrigatório." }
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).from("caixas").update({ nome: nome.trim() }).eq("id", id)
+  if (error) return { ok: false, error: (error as { message: string }).message }
+  revalidatePath("/cartoes")
+  return { ok: true }
+}
+
+export async function toggleCaixaAtivo(id: string, ativo: boolean): Promise<ActionResult> {
+  const user = await requireCurrentUser()
+  if (!can(user, "cartoes", "editar")) return { ok: false, error: "Sem permissão." }
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).from("caixas").update({ ativo }).eq("id", id)
+  if (error) return { ok: false, error: (error as { message: string }).message }
+  revalidatePath("/cartoes")
+  return { ok: true }
+}
+
+// ── Cartões ───────────────────────────────────────────────────────────────────
+
 export async function deleteCartao(id: string): Promise<ActionResult> {
   const user = await requireCurrentUser()
   if (!can(user, "cartoes", "excluir")) {
