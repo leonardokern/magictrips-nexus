@@ -504,16 +504,24 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
       }
     }
 
-    if (produtosPayload.length === 0 && !cobrancaPayload) {
-      toast.error("Nenhuma alteração detectada.")
-      return
-    }
-
     // Overrides de cliente / origem / comissão: só enviamos quando MUDOU
     // em relação à venda original — assim o RPC herda o resto.
     const clienteMudou = clienteId != null && clienteId !== venda.cliente_id
     const origemMudou = origem != null && origem !== venda.origem
     const novaComissao = origemMudou ? calcularComissao(origem) : null
+
+    // Mudança vale também quando o operador trocou cliente OU origem,
+    // mesmo sem mexer em produto/cobrança — caso clássico: lead Magic
+    // virou indicação própria do agente (origem muda, comissão muda).
+    if (
+      produtosPayload.length === 0 &&
+      !cobrancaPayload &&
+      !clienteMudou &&
+      !origemMudou
+    ) {
+      toast.error("Nenhuma alteração detectada.")
+      return
+    }
 
     const payload = {
       venda_original_id: venda.id,
