@@ -22,6 +22,8 @@ import {
   type PeriodoValue,
 } from "@/components/dashboard/dashboard-periodo-filter"
 import { AgenteDashboard } from "@/components/dashboard/agente-dashboard"
+import { AgendaProximosDias } from "@/components/dashboard/agenda-proximos-dias"
+import { isFeatureEnabled } from "@/lib/feature-flags"
 
 export const metadata: Metadata = { title: "Início" }
 
@@ -99,6 +101,7 @@ export default async function DashboardPage({
   }
 
   const supabase = await createClient()
+  const agendaFlag = await isFeatureEnabled("agenda")
 
   // ── Query principal: produtos das vendas aprovadas no período ──────────────
   // Cada linha = 1 produto de 1 venda. Agregamos em memória (volume é pequeno
@@ -318,7 +321,7 @@ export default async function DashboardPage({
   )
 
   return (
-    <div>
+    <div className="space-y-6">
 
       {/* ════════════════════════════════════════════════════
           MOBILE — layout nativo de app
@@ -361,6 +364,9 @@ export default async function DashboardPage({
               <p className="mt-1 text-[10px] text-white/35">{margemPct.toFixed(1).replace(".", ",")}% da receita</p>
             </div>
           </div>
+
+          {/* Agenda — próximos 7 dias */}
+          <AgendaProximosDias agendaFlag={agendaFlag} />
 
           {/* RAV */}
           <div className="flex items-center justify-between rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.04] px-5 py-4">
@@ -539,6 +545,9 @@ export default async function DashboardPage({
           hint={`${margemPct.toFixed(1).replace(".", ",")}% da receita`}
         />
       </div>
+
+      {/* Agenda — próximos 7 dias com navegação semanal e clique pra detalhe */}
+      <AgendaProximosDias agendaFlag={agendaFlag} />
 
       {/* Linha 2 — Foco do cliente: Venda por agente + RAV por agente */}
       <div className="grid gap-4 lg:grid-cols-2">

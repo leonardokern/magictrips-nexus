@@ -40,6 +40,16 @@ import { cn } from "@/lib/utils"
 import { IconTooltip } from "@/components/ui/tooltip"
 import { getStatusLabel, getStatusChip } from "@/lib/utils/venda-status"
 
+/**
+ * Lock global por venda.id — coordena auto-abertura via `?venda=<id>`
+ * entre as duas instâncias deste componente (desktop + mobile) que
+ * compartilham o mesmo URL/searchParams. A primeira a rodar o efeito
+ * ganha a corrida e abre o modal; a outra desiste. Liberado quando a URL
+ * deixa de apontar pra venda. Sem isso, abriam dois Dialogs Radix
+ * stackados em `document.body` (o portal ignora `md:hidden` do parent).
+ */
+const autoAbertasIdsGlobal = new Set<string>()
+
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
 export type VendaListItem = {
@@ -137,16 +147,40 @@ export function VendaRowActions({
   }, [viewOpen, venda.id, detalhes])
 
   // Auto-abre o modal de visualização quando vem via ?venda=<id>
-  // (notificação clicada no header). Usa flag local pra não disparar
-  // múltiplas vezes — desktop + mobile compartilham o mesmo URL e cada
-  // instância dispararia o efeito. A flag local garante uma única abertura
-  // por instância e impede que re-renders consequentes reabram um modal
-  // que o usuário fechou.
+  // (notificação clicada no header).
+  //
+  // Bug histórico: cada venda renderiza DUAS instâncias deste componente
+  // (uma no bloco desktop `hidden md:block`, outra no mobile `md:hidden`).
+  // As classes responsivas escondem o trigger, mas o Radix Dialog vive
+  // em portal no `document.body` — ambas instâncias disparavam
+  // `setViewOpen(true)` e dois modais empilhavam (um com dados, outro
+  // ainda carregando). O `useRef` local não impede isso, só a re-execução
+  // na MESMA instância.
+  //
+  // Fix: lock global por venda.id no nível do módulo. A primeira instância
+  // a rodar o efeito ganha a corrida; a outra vê o set e desiste. Quando a
+  // URL deixa de apontar pra esta venda, o lock é liberado pra que uma
+  // próxima navegação `?venda=<mesmo id>` possa abrir o modal de novo.
   const jaAutoAbriuRef = useRef(false)
   useEffect(() => {
-    if (jaAutoAbriuRef.current) return
     const alvo = searchParams.get("venda")
-    if (alvo !== venda.id) return
+
+    if (alvo !== venda.id) {
+      // URL não aponta mais pra esta venda — libera o lock pra próxima.
+      autoAbertasIdsGlobal.delete(venda.id)
+      jaAutoAbriuRef.current = false
+      return
+    }
+
+    if (jaAutoAbriuRef.current) return
+    if (autoAbertasIdsGlobal.has(venda.id)) {
+      // Outra instância (desktop ou mobile) já abriu — só marca pra não
+      // tentar de novo nesta mesma instância.
+      jaAutoAbriuRef.current = true
+      return
+    }
+
+    autoAbertasIdsGlobal.add(venda.id)
     jaAutoAbriuRef.current = true
     setViewOpen(true)
     // Limpa o param na próxima tick — evita conflitar com a abertura

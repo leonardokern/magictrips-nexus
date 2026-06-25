@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useEffect, useState, useTransition } from "react"
 import { FileText, Loader2, Receipt, CheckSquare, Square } from "lucide-react"
 import {
   Dialog,
@@ -41,15 +41,35 @@ type Props = {
   open: boolean
   onClose: () => void
   clientes: ClienteComParcelas[]
+  /** Cliente pré-selecionado ao abrir — usado quando o modal é disparado
+   *  a partir de uma conta a receber específica (ex: modal de detalhe da
+   *  agenda). Quando definido, carrega as parcelas desse cliente já no
+   *  primeiro render. */
+  initialClienteId?: string
 }
 
-export function GerarFaturaModal({ open, onClose, clientes }: Props) {
+export function GerarFaturaModal({
+  open,
+  onClose,
+  clientes,
+  initialClienteId,
+}: Props) {
   const [clienteId, setClienteId] = useState("")
   const [parcelas, setParcelas] = useState<ParcelaParaFatura[]>([])
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set())
   const [loadingParcelas, setLoadingParcelas] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+
+  // Pré-seleciona quando `initialClienteId` é passado e o modal está aberto.
+  // Reaplica também se o id mudar enquanto o modal continua aberto.
+  useEffect(() => {
+    if (!open) return
+    if (!initialClienteId) return
+    if (clienteId === initialClienteId) return
+    handleClienteChange(initialClienteId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialClienteId])
 
   function handleClose() {
     setClienteId("")

@@ -334,6 +334,66 @@ export async function getParcelaParaFatura(
 
 export type ClienteComParcelas = { id: string; nome: string }
 
+/**
+ * Detalhe enxuto de uma parcela_receber — usado pelo modal de detalhe da
+ * agenda quando o evento é do tipo `conta_receber`. Devolve o cliente
+ * (pra pré-selecionar no Gerar Fatura) e a lista de faturas já vinculadas
+ * àquela parcela (pra exibir links pros PDFs existentes).
+ */
+export type DetalheParcelaAgenda = {
+  cliente_id: string | null
+  cliente_nome: string
+  faturas: { id: string; numero_display: string }[]
+}
+
+export async function getDetalheParcelaParaAgenda(
+  parcelaId: string,
+): Promise<DetalheParcelaAgenda | null> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "ler")) return null
+
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from("parcelas_receber")
+    .select(
+      `
+      cliente_id,
+      cliente:clientes(nome),
+      fatura_parcelas(fatura:faturas(id, numero_display))
+    `,
+    )
+    .eq("id", parcelaId)
+    .maybeSingle()
+
+  if (!data) return null
+
+  const cli = Array.isArray(data.cliente) ? data.cliente[0] : data.cliente
+
+  type FPRow = {
+    fatura?: { id: string; numero_display: string } | { id: string; numero_display: string }[] | null
+  }
+  const fps = (Array.isArray(data.fatura_parcelas)
+    ? data.fatura_parcelas
+    : data.fatura_parcelas ? [data.fatura_parcelas] : []) as FPRow[]
+
+  const faturas = fps
+    .map((fp) => {
+      const fat = fp.fatura
+        ? Array.isArray(fp.fatura) ? fp.fatura[0] : fp.fatura
+        : null
+      return fat ? { id: fat.id, numero_display: fat.numero_display } : null
+    })
+    .filter((f): f is { id: string; numero_display: string } => f !== null)
+    // Dedupe por id (caso a junction tenha múltiplas linhas pro mesmo par)
+    .filter((f, i, arr) => arr.findIndex((x) => x.id === f.id) === i)
+
+  return {
+    cliente_id: data.cliente_id ?? null,
+    cliente_nome: cli?.nome ?? "—",
+    faturas,
+  }
+}
+
 export type ParcelaParaFatura = {
   id: string
   descricao: string | null
