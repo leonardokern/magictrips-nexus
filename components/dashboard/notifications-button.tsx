@@ -1,10 +1,12 @@
 "use client"
 
 import { useEffect, useState, useTransition } from "react"
-import { useRouter } from "next/navigation"
-import { AlertTriangle, Bell, CalendarDays, CheckCircle2, ShoppingCart, Trash2 } from "lucide-react"
+import { AlertTriangle, Bell, CalendarDays, CheckCheck, CheckCircle2, ShoppingCart, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { dispensarLembrete } from "@/app/(dashboard)/notificacoes/actions"
+import {
+  dispensarLembrete,
+  dispensarTodosLembretes,
+} from "@/app/(dashboard)/notificacoes/actions"
 import { createClient } from "@/lib/supabase/client"
 
 export type LembreteItem = {
@@ -50,7 +52,6 @@ const TIPO_ACCENT: Record<string, string> = {
 }
 
 export function NotificationsButton({ lembretes: initialLembretes, userId }: Props) {
-  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [lembretes, setLembretes] = useState<LembreteItem[]>(initialLembretes)
@@ -130,34 +131,19 @@ export function NotificationsButton({ lembretes: initialLembretes, userId }: Pro
 
   const hasUnread = lembretes.length > 0
 
-  function abrirReferencia(l: LembreteItem) {
-    if (l.referencia_tipo === "venda" && l.referencia_id) {
-      // Remove otimisticamente, dispensa no servidor e navega.
-      setLembretes((prev) => prev.filter((x) => x.id !== l.id))
-      setOpen(false)
-      startTransition(async () => {
-        await dispensarLembrete(l.id)
-        router.push(`/vendas?venda=${l.referencia_id}`)
-      })
-      return
-    }
-    if (l.referencia_tipo === "agenda" && l.referencia_id) {
-      setLembretes((prev) => prev.filter((x) => x.id !== l.id))
-      setOpen(false)
-      startTransition(async () => {
-        await dispensarLembrete(l.id)
-        router.push(`/agenda?evento=${l.referencia_id}`)
-      })
-      return
-    }
-  }
-
-  function dispensar(l: LembreteItem, e: React.MouseEvent) {
-    e.stopPropagation()
+  function dispensar(l: LembreteItem) {
     // Otimista: remove na hora, sem esperar o servidor.
     setLembretes((prev) => prev.filter((x) => x.id !== l.id))
     startTransition(async () => {
       await dispensarLembrete(l.id)
+    })
+  }
+
+  function dispensarTodos() {
+    // Otimista: zera a lista imediatamente.
+    setLembretes([])
+    startTransition(async () => {
+      await dispensarTodosLembretes()
     })
   }
 
@@ -228,15 +214,30 @@ export function NotificationsButton({ lembretes: initialLembretes, userId }: Pro
                 <p className="text-sm font-semibold text-white">Notificações</p>
               </div>
               {lembretes.length > 0 && (
-                <span className="rounded-full bg-nexus-bright/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-nexus-bright">
-                  {lembretes.length} {lembretes.length === 1 ? "pendente" : "pendentes"}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-nexus-bright/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-nexus-bright">
+                    {lembretes.length} {lembretes.length === 1 ? "pendente" : "pendentes"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={dispensarTodos}
+                    disabled={isPending}
+                    title="Marcar tudo como lido"
+                    aria-label="Marcar tudo como lido"
+                    className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-1 text-[10px] font-medium text-white/65 transition-colors hover:bg-white/[0.07] hover:text-white disabled:opacity-50"
+                  >
+                    <CheckCheck className="h-3 w-3" />
+                    Tudo lido
+                  </button>
+                </div>
               )}
             </div>
 
             <div className="border-t border-white/[0.06]" />
 
-            {/* Lista */}
+            {/* Lista — itens são read-only por ora (sem clique pra abrir
+                referência); só o "X" individual + "Marcar tudo como lido"
+                no header permitem dispensar. */}
             <div className="max-h-[400px] overflow-y-auto">
               {lembretes.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
@@ -249,38 +250,35 @@ export function NotificationsButton({ lembretes: initialLembretes, userId }: Pro
               ) : (
                 <ul className="divide-y divide-white/[0.04]">
                   {lembretes.map((l) => (
-                    <li key={l.id}>
+                    <li
+                      key={l.id}
+                      className="group flex items-start gap-3 px-4 py-3.5"
+                    >
+                      <span
+                        className={cn(
+                          "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border",
+                          TIPO_ACCENT[l.tipo] ??
+                            "border-nexus-bright/30 bg-nexus-bright/10 text-nexus-bright",
+                        )}
+                      >
+                        {TIPO_ICONE[l.tipo] ?? <Bell className="h-3.5 w-3.5" />}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-white leading-snug">
+                          {TIPO_LABEL[l.tipo] ?? l.tipo}
+                        </p>
+                        <p className="mt-0.5 text-xs text-white/50 leading-snug line-clamp-2">
+                          {l.mensagem}
+                        </p>
+                      </div>
                       <button
                         type="button"
-                        onClick={() => abrirReferencia(l)}
+                        onClick={() => dispensar(l)}
                         disabled={isPending}
-                        className="group flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-white/[0.04]"
+                        className="shrink-0 flex h-6 w-6 items-center justify-center rounded-md text-white/30 opacity-0 transition-all hover:bg-white/[0.06] hover:text-white/70 group-hover:opacity-100 disabled:opacity-30"
+                        aria-label="Dispensar"
                       >
-                        <span
-                          className={cn(
-                            "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border",
-                            TIPO_ACCENT[l.tipo] ??
-                              "border-nexus-bright/30 bg-nexus-bright/10 text-nexus-bright",
-                          )}
-                        >
-                          {TIPO_ICONE[l.tipo] ?? <Bell className="h-3.5 w-3.5" />}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-white leading-snug">
-                            {TIPO_LABEL[l.tipo] ?? l.tipo}
-                          </p>
-                          <p className="mt-0.5 text-xs text-white/50 leading-snug line-clamp-2">
-                            {l.mensagem}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(e) => dispensar(l, e)}
-                          className="shrink-0 flex h-6 w-6 items-center justify-center rounded-md text-white/30 opacity-0 transition-all hover:bg-white/[0.06] hover:text-white/70 group-hover:opacity-100"
-                          aria-label="Dispensar"
-                        >
-                          <span className="text-xs">✕</span>
-                        </button>
+                        <span className="text-xs">✕</span>
                       </button>
                     </li>
                   ))}

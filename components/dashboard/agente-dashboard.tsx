@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { CalendarDays, Coins, ShoppingCart, TrendingUp, Users } from "lucide-react"
+import { Coins, ShoppingCart, TrendingUp, Users } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Table,
@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase/server"
 import { isFeatureEnabled } from "@/lib/feature-flags"
 import { formatBRL } from "@/lib/utils/sum-parser"
 import { NovaVendaButton } from "@/components/vendas/nova-venda-button"
+import { AgendaProximosDias } from "./agenda-proximos-dias"
 import {
   DashboardPeriodoFilter,
   type PeriodoValue,
@@ -139,31 +140,9 @@ export async function AgenteDashboard({
   const ultimas = vendas.slice(0, 10)
 
   const agendaFlag = await isFeatureEnabled("agenda")
-  type AgendaRow = {
-    id: string
-    tipo: string
-    titulo: string
-    descricao: string
-    dia: string
-    cor: string
-    hora_inicio: string | null
-    hora_fim: string | null
-  }
-  const agendaPorDia = new Map<string, AgendaRow[]>()
-  const proximosDias = Array.from({ length: 4 }, (_, i) => addDias(new Date(), i))
-  if (agendaFlag) {
-    const hojeISO = toISODate(new Date())
-    const fimRangeISO = toISODate(addDias(new Date(), 3))
-    const { data: agendaRows } = await supabase.rpc("get_agenda_eventos", {
-      p_inicio: hojeISO,
-      p_fim: fimRangeISO,
-    })
-    for (const ev of (agendaRows ?? []) as AgendaRow[]) {
-      const arr = agendaPorDia.get(ev.dia) ?? []
-      arr.push(ev)
-      agendaPorDia.set(ev.dia, arr)
-    }
-  }
+  // Agenda dos próximos 7 dias com navegação semanal vive no client
+  // component AgendaProximosDias — fetch, clique pra abrir modal de detalhe
+  // e botões prev/next semana ficam todos lá. Aqui só resolvemos a flag.
 
   return (
     <div>
@@ -250,76 +229,8 @@ export async function AgenteDashboard({
             </div>
           )}
 
-          {/* 4 ─ Agenda (mobile: scroll horizontal) */}
-          {agendaFlag && (
-            <div>
-              <div className="mb-2.5 flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">Próximos 4 dias</p>
-                <Link
-                  href="/agenda"
-                  className="text-xs text-nexus-bright hover:text-nexus-bright-soft"
-                >
-                  Ver agenda →
-                </Link>
-              </div>
-              <div className="flex gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {proximosDias.map((dia, idx) => {
-                  const iso = toISODate(dia)
-                  const eventos = agendaPorDia.get(iso) ?? []
-                  const label =
-                    idx === 0
-                      ? "Hoje"
-                      : idx === 1
-                        ? "Amanhã"
-                        : DIAS_SEMANA_CURTO[dia.getDay()]
-                  return (
-                    <div
-                      key={iso}
-                      className="flex w-36 shrink-0 flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3"
-                    >
-                      <div className="mb-2 flex items-center justify-between">
-                        <span className="text-xs font-semibold text-white/70">{label}</span>
-                        <span className="text-[10px] tabular-nums text-white/30">
-                          {formatDiaCurto(dia)}
-                        </span>
-                      </div>
-                      {eventos.length === 0 ? (
-                        <div className="flex flex-1 items-center justify-center py-3">
-                          <span className="text-[10px] text-white/25">Livre</span>
-                        </div>
-                      ) : (
-                        <ul className="space-y-1">
-                          {eventos.slice(0, 3).map((ev) => (
-                            <li
-                              key={ev.id}
-                              className="flex items-start gap-1.5 rounded-md px-1.5 py-1"
-                              style={{ backgroundColor: ev.cor + "1a" }}
-                            >
-                              <span
-                                className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full"
-                                style={{ backgroundColor: ev.cor }}
-                              />
-                              <span
-                                className="line-clamp-2 text-[10px] leading-snug"
-                                style={{ color: ev.cor }}
-                              >
-                                {ev.titulo}
-                              </span>
-                            </li>
-                          ))}
-                          {eventos.length > 3 && (
-                            <li className="px-1.5 text-[9px] text-white/30">
-                              +{eventos.length - 3} mais
-                            </li>
-                          )}
-                        </ul>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+          {/* 4 ─ Agenda — próximos 7 dias com navegação semanal */}
+          <AgendaProximosDias agendaFlag={agendaFlag} />
 
           {/* 5 ─ Últimas vendas (feed, não tabela)
                 — pt-3 dá uma respirada extra depois do card "Registrar venda"
@@ -458,99 +369,8 @@ export async function AgenteDashboard({
             {podeCriarVenda && <AtalhoNovaVenda />}
           </div>
 
-          {/* Agenda */}
-          {agendaFlag && (
-            <Card className="border-white/[0.06] bg-white/[0.02]">
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="text-base font-semibold text-white">
-                      Próximos 4 dias
-                    </CardTitle>
-                    <p className="mt-0.5 text-xs text-white/45">
-                      Seus lembretes e notas pessoais
-                    </p>
-                  </div>
-                  <Link
-                    href="/agenda"
-                    className="text-xs text-nexus-bright hover:text-nexus-bright-soft"
-                  >
-                    Ver agenda completa →
-                  </Link>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {proximosDias.map((dia, idx) => {
-                    const iso = toISODate(dia)
-                    const eventos = agendaPorDia.get(iso) ?? []
-                    const label =
-                      idx === 0
-                        ? "Hoje"
-                        : idx === 1
-                          ? "Amanhã"
-                          : DIAS_SEMANA_CURTO[dia.getDay()]
-                    return (
-                      <div
-                        key={iso}
-                        className="flex min-h-[140px] flex-col rounded-lg border border-white/[0.06] bg-white/[0.02] p-3"
-                      >
-                        <div className="mb-2 flex items-baseline justify-between">
-                          <span className="text-xs font-medium uppercase tracking-wider text-white/75">
-                            {label}
-                          </span>
-                          <span className="text-[10px] tabular-nums text-white/35">
-                            {formatDiaCurto(dia)}
-                          </span>
-                        </div>
-                        {eventos.length === 0 ? (
-                          <div className="flex flex-1 items-center justify-center">
-                            <span className="flex items-center gap-1.5 text-[11px] text-white/30">
-                              <CalendarDays className="h-3 w-3" />
-                              Nenhum evento
-                            </span>
-                          </div>
-                        ) : (
-                          <ul className="space-y-1.5">
-                            {eventos.slice(0, 4).map((ev) => (
-                              <li
-                                key={ev.id}
-                                className="flex items-start gap-1.5 rounded px-1.5 py-1"
-                                style={{ backgroundColor: ev.cor + "1a" }}
-                              >
-                                <span
-                                  className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full"
-                                  style={{ backgroundColor: ev.cor }}
-                                />
-                                <div
-                                  className="min-w-0 flex-1 text-[11px] leading-snug"
-                                  style={{ color: ev.cor }}
-                                >
-                                  {ev.hora_inicio && (
-                                    <span className="mr-1 tabular-nums opacity-80">
-                                      {ev.hora_inicio}
-                                    </span>
-                                  )}
-                                  <span className="line-clamp-2 font-medium">
-                                    {ev.titulo}
-                                  </span>
-                                </div>
-                              </li>
-                            ))}
-                            {eventos.length > 4 && (
-                              <li className="px-1.5 text-[10px] text-white/40">
-                                +{eventos.length - 4} mais
-                              </li>
-                            )}
-                          </ul>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          {/* Agenda — próximos 7 dias com navegação semanal e clique pra detalhe */}
+          <AgendaProximosDias agendaFlag={agendaFlag} />
 
           {/* Últimas vendas + top clientes */}
           <div className="grid gap-4 lg:grid-cols-3">
@@ -680,26 +500,10 @@ export async function AgenteDashboard({
   )
 }
 
-const DIAS_SEMANA_CURTO = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
-
-function toISODate(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
-}
-
-function addDias(base: Date, n: number): Date {
-  const d = new Date(base)
-  d.setDate(d.getDate() + n)
-  return d
-}
-
-function formatDiaCurto(d: Date): string {
-  const dia = String(d.getDate()).padStart(2, "0")
-  const mes = String(d.getMonth() + 1).padStart(2, "0")
-  return `${dia}/${mes}`
-}
+// Helpers de data (toISODate / addDias / formatDiaCurto / DIAS_SEMANA_CURTO)
+// foram movidos pro client component `AgendaProximosDias`, que agora cuida
+// da renderização da agenda inteira (mobile + desktop, com navegação semanal
+// e clique pra abrir modal de detalhe).
 
 // ─── Subcomponentes desktop ───────────────────────────────────────────────────
 

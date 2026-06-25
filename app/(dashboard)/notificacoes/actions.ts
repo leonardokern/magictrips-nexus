@@ -18,3 +18,20 @@ export async function dispensarLembrete(id: string): Promise<ActionResult> {
   revalidatePath("/dashboard")
   return { ok: true }
 }
+
+/**
+ * Marca TODOS os lembretes pendentes do usuário corrente como dispensados.
+ * Disparado pelo "Marcar tudo como lido" no dropdown de notificações.
+ */
+export async function dispensarTodosLembretes(): Promise<ActionResult> {
+  const user = await requireCurrentUser()
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from("lembretes")
+    .update({ status: "dispensado" })
+    .eq("destinatario_id", user.id)
+    .eq("status", "pendente")
+  if (error) return { ok: false, error: error.message }
+  revalidatePath("/dashboard")
+  return { ok: true }
+}
