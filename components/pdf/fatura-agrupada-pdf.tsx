@@ -184,7 +184,7 @@ const styles = StyleSheet.create({
   totalRowSmall: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    paddingVertical: 1,
+    paddingVertical: 3,
     minWidth: 230,
   },
   // Linhas de ajuste — mesma cor do Subtotal (NAVY). Decisão jun/2026:
@@ -420,19 +420,9 @@ export function FaturaAgrupadaPDF({
               <Text style={styles.totalLabel}>Subtotal:</Text>
               <Text style={styles.totalValor}>{formatBRL(data.valorTotal)}</Text>
             </View>
-            {/* Juros/Multa COMBINADOS — uma linha só (decisão jun/2026).
-                Soma de juros + multa em % e R$. SEMPRE renderizada. */}
+            {/* Juros/Multa COMBINADOS — uma linha só (decisão jun/2026). */}
             <View style={styles.totalRowSmall}>
-              <Text style={styles.totalLabelAcrescimo}>
-                Juros/Multa (
-                {(
-                  (data.juros?.percentual ?? 0) +
-                  (data.multa?.percentual ?? 0)
-                )
-                  .toFixed(2)
-                  .replace(".", ",")}
-                %):
-              </Text>
+              <Text style={styles.totalLabelAcrescimo}>Juros/Multa:</Text>
               <Text style={styles.totalValorAcrescimo}>
                 +{" "}
                 {formatBRL(
@@ -440,11 +430,9 @@ export function FaturaAgrupadaPDF({
                 )}
               </Text>
             </View>
-            {/* Desconto SEMPRE renderizado abaixo. */}
+            {/* Desconto */}
             <View style={styles.totalRowSmall}>
-              <Text style={styles.totalLabelDesconto}>
-                Desconto ({(data.desconto?.percentual ?? 0).toFixed(2).replace(".", ",")}%):
-              </Text>
+              <Text style={styles.totalLabelDesconto}>Desconto:</Text>
               <Text style={styles.totalValorDesconto}>
                 − {formatBRL(data.desconto?.valor ?? 0)}
               </Text>

@@ -308,7 +308,7 @@ const styles = StyleSheet.create({
   totalRowSmall: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    paddingVertical: 1,
+    paddingVertical: 3,
     minWidth: 200,
   },
   totalLabelSmall: {
@@ -636,20 +636,9 @@ export function FaturaPDF({
                 </Text>
               </View>
             )}
-            {/* Juros/Multa COMBINADOS — uma linha só (decisão jun/2026).
-                Soma de juros + multa em % e R$. SEMPRE renderizada, mesmo
-                com R$ 0,00 / 0% pra firmar transparência. */}
+            {/* Juros/Multa COMBINADOS — uma linha só (decisão jun/2026). */}
             <View style={styles.totalRowSmall}>
-              <Text style={styles.totalLabelAcrescimo}>
-                Juros/Multa (
-                {(
-                  (data.parcela.juros?.percentual ?? 0) +
-                  (data.parcela.multa?.percentual ?? 0)
-                )
-                  .toFixed(2)
-                  .replace(".", ",")}
-                %):
-              </Text>
+              <Text style={styles.totalLabelAcrescimo}>Juros/Multa:</Text>
               <Text style={styles.totalValorAcrescimo}>
                 +{" "}
                 {formatBRL(
@@ -658,11 +647,9 @@ export function FaturaPDF({
                 )}
               </Text>
             </View>
-            {/* Desconto SEMPRE renderizado abaixo. */}
+            {/* Desconto */}
             <View style={styles.totalRowSmall}>
-              <Text style={styles.totalLabelDesconto}>
-                Desconto ({(data.parcela.desconto?.percentual ?? 0).toFixed(2).replace(".", ",")}%):
-              </Text>
+              <Text style={styles.totalLabelDesconto}>Desconto:</Text>
               <Text style={styles.totalValorDesconto}>
                 − {formatBRL(data.parcela.desconto?.valor ?? 0)}
               </Text>

@@ -545,6 +545,110 @@ export async function getParcelasPendentesDoCliente(
   })
 }
 
+export type ParcelaAtrasada = {
+  id: string
+  descricao: string | null
+  numero: number
+  total_parcelas: number
+  valor: number
+  data_vencimento: string
+  data_pagamento: string
+  venda_identificador: string | null
+}
+
+export type UltimaFaturaAtrasos = {
+  id: string
+  numero_display: string
+  data_pagamento: string
+  parcelas_atraso: ParcelaAtrasada[]
+}
+
+/**
+ * Retorna a última fatura paga do cliente com as parcelas que foram pagas
+ * com atraso (`status = 'pago_atraso'`). Retorna `null` quando não há
+ * fatura paga ou quando nenhuma parcela foi paga com atraso.
+ */
+export async function getUltimaFaturaComAtrasos(
+  clienteId: string,
+): Promise<UltimaFaturaAtrasos | null> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "ler")) return null
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = (await createClient()) as any
+
+  const { data: fatura } = await supabase
+    .from("faturas")
+    .select(
+      `
+      id, numero_display, data_pagamento,
+      fatura_parcelas(
+        parcela:parcelas_receber(
+          id, descricao, numero, total_parcelas, valor,
+          data_vencimento, data_pagamento, status,
+          venda:vendas(identificador)
+        )
+      )
+    `,
+    )
+    .eq("cliente_id", clienteId)
+    .eq("status", "paga")
+    .not("data_pagamento", "is", null)
+    .order("data_pagamento", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!fatura) return null
+
+  type FPRaw = {
+    parcela:
+      | {
+          id: string
+          descricao: string | null
+          numero: number
+          total_parcelas: number
+          valor: number | string
+          data_vencimento: string
+          data_pagamento: string | null
+          status: string
+          venda: { identificador: string } | { identificador: string }[] | null
+        }
+      | null
+  }
+
+  const fps = (
+    Array.isArray(fatura.fatura_parcelas)
+      ? fatura.fatura_parcelas
+      : fatura.fatura_parcelas
+        ? [fatura.fatura_parcelas]
+        : []
+  ) as FPRaw[]
+
+  const parcelas_atraso: ParcelaAtrasada[] = []
+  for (const fp of fps) {
+    const p = fp.parcela
+    if (!p || p.status !== "pago_atraso") continue
+    const vnd = Array.isArray(p.venda) ? p.venda[0] : p.venda
+    parcelas_atraso.push({
+      id: p.id,
+      descricao: p.descricao ?? null,
+      numero: p.numero,
+      total_parcelas: p.total_parcelas,
+      valor: Number(p.valor ?? 0),
+      data_vencimento: p.data_vencimento,
+      data_pagamento: p.data_pagamento ?? "",
+      venda_identificador: vnd?.identificador ?? null,
+    })
+  }
+
+  return {
+    id: fatura.id,
+    numero_display: fatura.numero_display,
+    data_pagamento: fatura.data_pagamento,
+    parcelas_atraso,
+  }
+}
+
 /**
  * Cria uma fatura agrupando N parcelas de recebimento de um mesmo cliente.
  * Deduplicação por conjunto exato: se as mesmas parcelas (mesmo conjunto, mesma fatura)
