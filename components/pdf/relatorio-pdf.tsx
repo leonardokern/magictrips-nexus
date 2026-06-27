@@ -282,13 +282,18 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
   const hoje = new Date().toLocaleDateString("pt-BR")
 
   const totalVenda    = v.produtos.reduce((a, p) => a + p.valorVenda, 0)
-  const totalCusto    = v.produtos.reduce((a, p) => a + p.valorCusto, 0)
-  // RAV total = base + extra cliente + extra fornecedor (mesma fórmula
-  // usada no wizard, lista, dashboards e resumo panel).
-  const totalRav      = v.produtos.reduce(
+  const totalCustoBase = v.produtos.reduce((a, p) => a + p.valorCusto, 0)
+  // Desfluxo: % adicional sobre o custo refletindo o custo de capital de
+  // giro adiantado. Aplicado quando v.desfluxoAplicado=true e %>0.
+  const desfluxoPctAtivo = v.desfluxoAplicado ? v.desfluxoPercentual : 0
+  const desfluxoCustoExtra = (totalCustoBase * desfluxoPctAtivo) / 100
+  const totalCusto = totalCustoBase + desfluxoCustoExtra
+  const totalRavBruto = v.produtos.reduce(
     (a, p) => a + p.rav + p.ravExtraCliente + p.ravExtraFornecedor,
     0,
   )
+  // RAV efetivo subtrai o desfluxo extra (custo "real contábil" subiu).
+  const totalRav = totalRavBruto - desfluxoCustoExtra
   // Comissão recomputada com a regra atual (% × RAV total) — não somar
   // `p.comissao` armazenado, que pode estar com a base antiga.
   const totalComissao =
@@ -428,6 +433,33 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
               <Text style={[s.kpiValue, { color: "#92400e" }]}>{formatBRL(totalComissao)}</Text>
             </View>
           </View>
+
+          {/* Aviso de desfluxo quando aplicado — só no relatório (interno). */}
+          {desfluxoPctAtivo > 0 && (
+            <View
+              style={{
+                marginTop: 8,
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 4,
+                borderWidth: 0.5,
+                borderColor: "#fde68a",
+                backgroundColor: "#fffbeb",
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ fontSize: 8, color: "#92400e" }}>
+                Desfluxo de caixa aplicado · {v.desfluxoMeses} meses · +
+                {v.desfluxoPercentual.toFixed(2).replace(".", ",")}% sobre custo
+                base ({formatBRL(totalCustoBase)})
+              </Text>
+              <Text style={{ fontSize: 9, fontFamily: "Helvetica-Bold", color: "#92400e" }}>
+                +{formatBRL(desfluxoCustoExtra)}
+              </Text>
+            </View>
+          )}
 
           {/* ── Resumo financeiro (tabela) ────────────────────────────── */}
           <View style={s.section}>

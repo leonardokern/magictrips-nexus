@@ -167,6 +167,38 @@ export type Database = {
           },
         ]
       }
+      caixas: {
+        Row: {
+          ativo: boolean
+          created_at: string | null
+          empresa_id: string | null
+          id: string
+          nome: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string | null
+          empresa_id?: string | null
+          id?: string
+          nome: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string | null
+          empresa_id?: string | null
+          id?: string
+          nome?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "caixas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campos_extra: {
         Row: {
           ativo: boolean
@@ -465,6 +497,13 @@ export type Database = {
             referencedRelation: "vendas"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "cobranca_cliente_venda_id_fkey"
+            columns: ["venda_id"]
+            isOneToOne: true
+            referencedRelation: "vendas_efetivas"
+            referencedColumns: ["id"]
+          },
         ]
       }
       cobranca_cliente_itens: {
@@ -679,7 +718,7 @@ export type Database = {
           {
             foreignKeyName: "fatura_parcelas_parcela_id_fkey"
             columns: ["parcela_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "parcelas_receber"
             referencedColumns: ["id"]
           },
@@ -688,9 +727,11 @@ export type Database = {
       faturas: {
         Row: {
           ano: number
+          caixa_id: string | null
           cliente_id: string
           created_at: string
           data_emissao: string
+          data_pagamento: string | null
           desconto_percentual: number
           desconto_valor: number
           empresa_id: string
@@ -705,13 +746,16 @@ export type Database = {
           observacoes: string | null
           status: string
           updated_at: string
+          valor_recebido: number | null
           valor_total: number
         }
         Insert: {
           ano: number
+          caixa_id?: string | null
           cliente_id: string
           created_at?: string
           data_emissao?: string
+          data_pagamento?: string | null
           desconto_percentual?: number
           desconto_valor?: number
           empresa_id: string
@@ -726,13 +770,16 @@ export type Database = {
           observacoes?: string | null
           status?: string
           updated_at?: string
+          valor_recebido?: number | null
           valor_total: number
         }
         Update: {
           ano?: number
+          caixa_id?: string | null
           cliente_id?: string
           created_at?: string
           data_emissao?: string
+          data_pagamento?: string | null
           desconto_percentual?: number
           desconto_valor?: number
           empresa_id?: string
@@ -747,9 +794,17 @@ export type Database = {
           observacoes?: string | null
           status?: string
           updated_at?: string
+          valor_recebido?: number | null
           valor_total?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "faturas_caixa_id_fkey"
+            columns: ["caixa_id"]
+            isOneToOne: false
+            referencedRelation: "caixas"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "faturas_cliente_id_fkey"
             columns: ["cliente_id"]
@@ -1089,10 +1144,18 @@ export type Database = {
             referencedRelation: "venda_produtos"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "parcelas_pagar_venda_produto_id_fkey"
+            columns: ["venda_produto_id"]
+            isOneToOne: false
+            referencedRelation: "venda_produtos_efetivos"
+            referencedColumns: ["id"]
+          },
         ]
       }
       parcelas_receber: {
         Row: {
+          caixa_id: string | null
           cliente_id: string | null
           cobranca_item_id: string | null
           created_at: string
@@ -1112,6 +1175,7 @@ export type Database = {
           venda_id: string | null
         }
         Insert: {
+          caixa_id?: string | null
           cliente_id?: string | null
           cobranca_item_id?: string | null
           created_at?: string
@@ -1131,6 +1195,7 @@ export type Database = {
           venda_id?: string | null
         }
         Update: {
+          caixa_id?: string | null
           cliente_id?: string | null
           cobranca_item_id?: string | null
           created_at?: string
@@ -1150,6 +1215,13 @@ export type Database = {
           venda_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "parcelas_receber_caixa_id_fkey"
+            columns: ["caixa_id"]
+            isOneToOne: false
+            referencedRelation: "caixas"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "parcelas_receber_cliente_id_fkey"
             columns: ["cliente_id"]
@@ -1176,6 +1248,13 @@ export type Database = {
             columns: ["venda_id"]
             isOneToOne: false
             referencedRelation: "vendas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parcelas_receber_venda_id_fkey"
+            columns: ["venda_id"]
+            isOneToOne: false
+            referencedRelation: "vendas_efetivas"
             referencedColumns: ["id"]
           },
         ]
@@ -1698,6 +1777,13 @@ export type Database = {
             referencedRelation: "vendas"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "venda_anexos_venda_id_fkey"
+            columns: ["venda_id"]
+            isOneToOne: false
+            referencedRelation: "vendas_efetivas"
+            referencedColumns: ["id"]
+          },
         ]
       }
       venda_passageiros: {
@@ -1739,6 +1825,13 @@ export type Database = {
             referencedRelation: "vendas"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "venda_passageiros_venda_id_fkey"
+            columns: ["venda_id"]
+            isOneToOne: false
+            referencedRelation: "vendas_efetivas"
+            referencedColumns: ["id"]
+          },
         ]
       }
       venda_produto_passageiros: {
@@ -1770,6 +1863,13 @@ export type Database = {
             columns: ["venda_produto_id"]
             isOneToOne: false
             referencedRelation: "venda_produtos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venda_produto_passageiros_venda_produto_id_fkey"
+            columns: ["venda_produto_id"]
+            isOneToOne: false
+            referencedRelation: "venda_produtos_efetivos"
             referencedColumns: ["id"]
           },
         ]
@@ -1909,6 +2009,13 @@ export type Database = {
             referencedRelation: "vendas"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "venda_produtos_venda_id_fkey"
+            columns: ["venda_id"]
+            isOneToOne: false
+            referencedRelation: "vendas_efetivas"
+            referencedColumns: ["id"]
+          },
         ]
       }
       vendas: {
@@ -1922,6 +2029,9 @@ export type Database = {
           data_aprovacao: string | null
           data_cancelamento: string | null
           data_venda: string
+          desfluxo_aplicado: boolean
+          desfluxo_meses: number
+          desfluxo_percentual: number
           empresa_id: string
           flag_marketing: boolean
           id: string
@@ -1948,6 +2058,9 @@ export type Database = {
           data_aprovacao?: string | null
           data_cancelamento?: string | null
           data_venda: string
+          desfluxo_aplicado?: boolean
+          desfluxo_meses?: number
+          desfluxo_percentual?: number
           empresa_id: string
           flag_marketing?: boolean
           id?: string
@@ -1974,6 +2087,9 @@ export type Database = {
           data_aprovacao?: string | null
           data_cancelamento?: string | null
           data_venda?: string
+          desfluxo_aplicado?: boolean
+          desfluxo_meses?: number
+          desfluxo_percentual?: number
           empresa_id?: string
           flag_marketing?: boolean
           id?: string
@@ -2040,6 +2156,13 @@ export type Database = {
             referencedRelation: "vendas"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "vendas_venda_original_id_fkey"
+            columns: ["venda_original_id"]
+            isOneToOne: false
+            referencedRelation: "vendas_efetivas"
+            referencedColumns: ["id"]
+          },
         ]
       }
       vendas_rascunho: {
@@ -2092,7 +2215,112 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      venda_produtos_efetivos: {
+        Row: {
+          comissao_vendedor: number | null
+          created_at: string | null
+          data_emissao: string | null
+          data_fim_viagem: string | null
+          data_inicio_viagem: string | null
+          destino: string | null
+          fornecedor_id: string | null
+          fornecedor_nome: string | null
+          id: string | null
+          localizador: string | null
+          localizador_fornecedor: string | null
+          ordem: number | null
+          pgto_cartao_id: string | null
+          pgto_data_debito: string | null
+          pgto_entrada: number | null
+          pgto_forma: string | null
+          pgto_modo: string | null
+          pgto_num_parcelas: number | null
+          pgto_parcelas_detalhe: Json | null
+          pgto_primeira_parcela_extra: number | null
+          pgto_valor_parcela: number | null
+          pgto_valor_total: number | null
+          rav: number | null
+          rav_extra_cliente: number | null
+          rav_extra_fornecedor: number | null
+          tipo_comissao: string | null
+          tipo_produto_id: string | null
+          tipo_produto_nome: string | null
+          valor_custo: number | null
+          valor_venda: number | null
+          valores_extras: Json | null
+          venda_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_venda_produtos_cartao"
+            columns: ["pgto_cartao_id"]
+            isOneToOne: false
+            referencedRelation: "cartoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venda_produtos_fornecedor_id_fkey"
+            columns: ["fornecedor_id"]
+            isOneToOne: false
+            referencedRelation: "fornecedores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venda_produtos_tipo_produto_id_fkey"
+            columns: ["tipo_produto_id"]
+            isOneToOne: false
+            referencedRelation: "tipos_produto"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendas_efetivas: {
+        Row: {
+          aprovado_por: string | null
+          cliente_id: string | null
+          comissao_percentual: number | null
+          created_at: string | null
+          data_aprovacao: string | null
+          data_venda: string | null
+          desfluxo_aplicado: boolean | null
+          desfluxo_meses: number | null
+          desfluxo_percentual: number | null
+          empresa_id: string | null
+          id: string | null
+          identificador: string | null
+          indicacao_percentual: number | null
+          motivo_revisao: string | null
+          observacoes: string | null
+          origem: string | null
+          pax: number | null
+          status: string | null
+          tem_alteracao: boolean | null
+          usuario_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendas_aprovado_por_fkey"
+            columns: ["aprovado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendas_usuario_id_fkey"
+            columns: ["usuario_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       agenda_eh_compartilhado: {
@@ -2109,7 +2337,11 @@ export type Database = {
       aprovar_venda:
         | { Args: { p_venda_id: string }; Returns: undefined }
         | {
-            Args: { p_aprovador_id: string; p_venda_id: string }
+            Args: {
+              p_aprovador_id: string
+              p_ignorar_desfluxo?: boolean
+              p_venda_id: string
+            }
             Returns: undefined
           }
       atualizar_empresas_usuario: {
@@ -2133,6 +2365,7 @@ export type Database = {
         Args: { p_foto_url?: string; p_user_id: string }
         Returns: undefined
       }
+      calc_desfluxo_venda: { Args: { p_venda_id: string }; Returns: undefined }
       comissao_efetiva_perfil: {
         Args: { p_origem_id: string; p_perfil_id: string }
         Returns: number
@@ -2203,6 +2436,13 @@ export type Database = {
         }[]
       }
       get_usuario_completo: { Args: { p_user_id: string }; Returns: Json }
+      get_usuarios_ultima_interacao: {
+        Args: { p_user_ids: string[] }
+        Returns: {
+          ultima_interacao: string
+          usuario_id: string
+        }[]
+      }
       get_usuarios_ultimo_login: {
         Args: { p_user_ids: string[] }
         Returns: {

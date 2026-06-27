@@ -53,6 +53,7 @@ import {
 } from "./comprovante-cobranca-upload"
 import { IconTooltip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { calcularDesfluxo } from "@/lib/utils/desfluxo"
 import {
   criarVenda,
   editarEAprovarVenda,
@@ -1630,6 +1631,13 @@ export function VendaWizard(props: Props) {
                 pgtoValorTotal: parseValorComSoma(p.pgto_valor_total_str) || 0,
                 pgtoEntrada: parseValorComSoma(p.pgto_entrada_str) || 0,
                 pgtoNumParcelas: p.pgto_num_parcelas || 1,
+                // Pra faturado, o nº real de parcelas vem do array (cada
+                // entrada = 1 parcela). Pra outras formas (cartão agência),
+                // o valor canônico continua em pgtoNumParcelas.
+                pgtoNumParcelasReal:
+                  p.pgto_forma === "faturado"
+                    ? p.pgto_parcelas_faturado.length || p.pgto_num_parcelas || 1
+                    : p.pgto_num_parcelas || 1,
                 pgtoDataEntrada: p.pgto_data_entrada_str || null,
                 pgtoPrimeiraParcelaExtra:
                   parseValorComSoma(p.pgto_primeira_parcela_extra_str) || 0,
@@ -4426,6 +4434,9 @@ function ProdutosRevisao(props: {
     pgtoValorTotal: number
     pgtoEntrada: number
     pgtoNumParcelas: number
+    /** Nº real de parcelas que a agência fronta: pra faturado = length do
+     *  array de parcelas; pra cartao_agencia = pgtoNumParcelas. */
+    pgtoNumParcelasReal: number
     pgtoDataEntrada: string | null
     pgtoPrimeiraParcelaExtra: number
   }[]
@@ -4583,7 +4594,15 @@ function ProdutosRevisao(props: {
                             <span className="text-white/85">
                               {p.pgtoForma === "cartao_agencia" && p.pgtoCartaoNome
                                 ? `Cartão Agência — ${p.pgtoCartaoNome}`
-                                : PGTO_FORMA_LABEL[p.pgtoForma as PgtoForma] ?? p.pgtoForma}
+                                : PGTO_FORMA_LABEL[p.pgtoForma as PgtoForma] ??
+                                  p.pgtoForma}
+                              {(p.pgtoForma === "cartao_agencia" ||
+                                p.pgtoForma === "faturado") &&
+                                p.pgtoNumParcelasReal > 1 && (
+                                  <span className="ml-1 text-white/55">
+                                    · {p.pgtoNumParcelasReal}x
+                                  </span>
+                                )}
                             </span>
                           </div>
                           {p.pgtoForma === "cartao_agencia" && p.pgtoDataEntrada && (
@@ -4698,6 +4717,9 @@ function Step6Revisao(props: {
     pgtoValorTotal: number
     pgtoEntrada: number
     pgtoNumParcelas: number
+    /** Nº real de parcelas que a agência fronta: pra faturado = length do
+     *  array de parcelas; pra cartao_agencia = pgtoNumParcelas. */
+    pgtoNumParcelasReal: number
     pgtoDataEntrada: string | null
     pgtoPrimeiraParcelaExtra: number
   }[]
@@ -4751,11 +4773,25 @@ function Step6Revisao(props: {
     0,
   )
   const totalRav = totalRavBase + totalRavExtraCliente + totalRavExtraFornecedor
+  // Desfluxo: calculado em runtime no wizard a partir dos dados em mão.
+  // O backend recalcula no commit e armazena em vendas.desfluxo_*. Aqui
+  // só usamos pra mostrar o impacto ao agente antes de submeter.
+  const desfluxoCalc = calcularDesfluxo({
+    produtos: props.produtos.map((p) => ({
+      pgto_forma: p.pgtoForma,
+      // pgtoNumParcelasReal já resolve o caso faturado (length do array).
+      pgto_num_parcelas: p.pgtoNumParcelasReal,
+    })),
+    cobrancas: props.cobranca.map((c) => ({ num_parcelas: c.parcelas })),
+  })
+  const desfluxoCustoExtra = (totalCusto * desfluxoCalc.percentual) / 100
+  const custoEfetivo = totalCusto + desfluxoCustoExtra
+  const ravEfetivo = totalRav - desfluxoCustoExtra
   const totalComissao =
     props.comissaoPercentual != null
-      ? (totalRav * props.comissaoPercentual) / 100
+      ? (ravEfetivo * props.comissaoPercentual) / 100
       : 0
-  const lucroBruto = totalVenda - totalCusto - totalComissao
+  const lucroBruto = totalVenda - custoEfetivo - totalComissao
   const totalCobranca = props.cobranca.reduce((a, c) => a + c.valor, 0)
 
   const margemRav =
@@ -4990,6 +5026,34 @@ function Step6Revisao(props: {
             </div>
           </div>
 
+          {/* Desfluxo — 3 linhas simples laranja, sem card. Aparece só
+              quando ≥ 2 meses de diferença. */}
+          {desfluxoCalc.percentual > 0 && (
+            <div className="space-y-1 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-amber-300/85">
+                  Desfluxo ({desfluxoCalc.meses}{" "}
+                  {desfluxoCalc.meses === 1 ? "mês" : "meses"}):
+                </span>
+                <span className="tabular-nums text-amber-300/85">
+                  {desfluxoCalc.percentual.toFixed(2).replace(".", ",")}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-amber-300/85">Custo efetivo:</span>
+                <span className="tabular-nums text-amber-300/85">
+                  {formatBRL(custoEfetivo)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-amber-300/85">RAV Efetivo:</span>
+                <span className="tabular-nums text-amber-300/85">
+                  {formatBRL(ravEfetivo)}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Comissão + lucro — só Admin/Gerente */}
           {props.mostraComissao && (
             <div className="space-y-2.5 border-t border-white/[0.06] pt-3.5">
@@ -5097,24 +5161,40 @@ function Step6Revisao(props: {
           </div>
         )}
 
-        {/* ── Comissão do responsável ─────────────────────────── */}
+        {/* ── Comissão do agente ────────────────────────────── */}
         {props.comissaoPercentual != null && (
           <div className="space-y-4 rounded-xl border border-white/[0.08] bg-white/[0.03] p-5">
             <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
-              Comissão do responsável
+              Comissão do Agente
             </p>
 
             <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.07] px-4 py-3">
-              <p className="mb-0.5 text-[11px] text-white/45">Valor calculado</p>
+              <p className="mb-0.5 text-[11px] text-white/45">
+                Valor calculado
+                {ravEfetivo > 0 && (
+                  <span className="ml-1 text-white/35">
+                    ({formatBRL(ravEfetivo)} ×{" "}
+                    {(props.comissaoPercentual / 100)
+                      .toFixed(2)
+                      .replace(".", ",")}
+                    )
+                  </span>
+                )}
+              </p>
               <p className="text-2xl font-bold tabular-nums text-amber-300">
-                {totalRav > 0
-                  ? formatBRL((totalRav * props.comissaoPercentual) / 100)
+                {ravEfetivo > 0
+                  ? formatBRL((ravEfetivo * props.comissaoPercentual) / 100)
                   : "—"}
               </p>
             </div>
 
             <div className="flex items-center justify-between text-sm">
-              <span className="text-white/55">Percentual aplicado</span>
+              <span className="text-white/55">
+                Percentual
+                {props.origem && (
+                  <span className="ml-1 text-white/35">({props.origem})</span>
+                )}
+              </span>
               <span className="tabular-nums font-medium text-nexus-bright">
                 {props.comissaoPercentual}%
               </span>

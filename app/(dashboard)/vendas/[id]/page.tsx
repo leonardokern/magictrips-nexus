@@ -55,6 +55,7 @@ export default async function VendaDetailPage({
       id, data_venda, status, pax, indicacao_percentual, origem, observacoes,
       empresa_id, created_at, aprovado_por, data_aprovacao,
       tipo_venda, venda_original_id, identificador,
+      comissao_percentual, desfluxo_meses, desfluxo_percentual, desfluxo_aplicado,
       empresa:empresas(nome, slug),
       cliente:clientes(id, nome, cpf, email, telefone, tipo),
       agente:usuarios!vendas_usuario_id_fkey(nome, email),
@@ -180,6 +181,15 @@ export default async function VendaDetailPage({
             vendaId={v.id}
             clienteNome={v.cliente?.nome ?? "—"}
             totalVenda={formatBRL(totalVenda)}
+            desfluxoPercentual={Number(v.desfluxo_percentual ?? 0)}
+            desfluxoMeses={Number(v.desfluxo_meses ?? 0)}
+            totalCusto={totalCusto}
+            totalRav={totalRav}
+            comissaoPercentual={
+              v.comissao_percentual != null
+                ? Number(v.comissao_percentual)
+                : null
+            }
           />
         )}
       </div>

@@ -111,7 +111,10 @@ export type DadosNovaVenda = {
  * Aprova uma venda pendente, registrando o aprovador e o timestamp.
  * Requer permissão `vendas.aprovar`.
  */
-export async function aprovarVenda(id: string): Promise<ActionResult> {
+export async function aprovarVenda(
+  id: string,
+  opts?: { ignorarDesfluxo?: boolean },
+): Promise<ActionResult> {
   const user = await requireCurrentUser()
   if (!can(user, "vendas", "aprovar")) {
     return { ok: false, error: "Sem permissão para aprovar vendas." }
@@ -121,6 +124,7 @@ export async function aprovarVenda(id: string): Promise<ActionResult> {
   const { error } = await supabase.rpc("aprovar_venda", {
     p_venda_id: id,
     p_aprovador_id: user.id,
+    p_ignorar_desfluxo: opts?.ignorarDesfluxo ?? false,
   })
 
   if (error) return { ok: false, error: error.message }
@@ -212,6 +216,13 @@ export type VendaDetalhes = {
   dataAprovacao: string | null
   /** Percentual de comissão do agente congelado no momento da venda. */
   comissaoPercentual: number | null
+  /** Diferença em meses entre maior cobrança e maior pgto. 0 = sem desfluxo. */
+  desfluxoMeses: number
+  /** % aplicada sobre o valor_custo pra compensar antecipação de caixa.
+   *  Calculado por trigger no banco — read-only no client. */
+  desfluxoPercentual: number
+  /** Se false, o gerente desativou o desfluxo nesta venda na aprovação. */
+  desfluxoAplicado: boolean
   /** "original" (default) ou "alteracao_valores". Em alteração, os valores
    *  dos produtos são DELTAS — não totais absolutos. */
   tipoVenda: string
@@ -268,6 +279,10 @@ export type VendaDetalhes = {
     pgtoValorTotal: number | null
     pgtoEntrada: number
     pgtoNumParcelas: number
+    /** Nº efetivo de parcelas que a agência fronta. Pra faturado vem do
+     *  length de pgto_parcelas_detalhe (cada entrada = 1 parcela);
+     *  pra demais formas, igual a pgtoNumParcelas. */
+    pgtoNumParcelasReal: number
     pgtoValorParcela: number | null
     pgtoDataDebito: string | null
     /** Taxa adicional na 1ª parcela (pgto_primeira_parcela_extra). */
@@ -328,6 +343,7 @@ export async function getVendaDetalhes(
       id, identificador, status, data_venda, pax, origem, observacoes, motivo_revisao,
       empresa_id, usuario_id, aprovado_por, data_aprovacao,
       comissao_percentual, tipo_venda, venda_original_id,
+      desfluxo_meses, desfluxo_percentual, desfluxo_aplicado,
       empresa:empresas(nome),
       cliente:clientes(nome),
       agente:usuarios!vendas_usuario_id_fkey(id, nome, comissao_percentual, perfil_id, perfil:perfis_acesso(nome)),
@@ -419,6 +435,7 @@ export async function getVendaDetalhes(
          data_emissao, data_inicio_viagem, data_fim_viagem, valores_extras,
          pgto_forma, pgto_valor_total, pgto_entrada, pgto_num_parcelas,
          pgto_valor_parcela, pgto_data_debito, pgto_primeira_parcela_extra,
+         pgto_parcelas_detalhe,
          cartao:cartoes!fk_venda_produtos_cartao(nome),
          tipo_produto:tipos_produto!venda_produtos_tipo_produto_id_fkey(icone)`,
       )
@@ -559,6 +576,16 @@ export async function getVendaDetalhes(
       aprovadoPorNome: (v.aprovador as Simples)?.nome ?? null,
       dataAprovacao: v.data_aprovacao ? v.data_aprovacao.slice(0, 10) : null,
       comissaoPercentual,
+      desfluxoMeses: Number(
+        (v as unknown as { desfluxo_meses: number | null }).desfluxo_meses ?? 0,
+      ),
+      desfluxoPercentual: Number(
+        (v as unknown as { desfluxo_percentual: number | null }).desfluxo_percentual ??
+          0,
+      ),
+      desfluxoAplicado:
+        (v as unknown as { desfluxo_aplicado: boolean | null }).desfluxo_aplicado ??
+        true,
       tipoVenda,
       alteracoesAprovadas,
       vendaOriginal,
@@ -607,6 +634,22 @@ export async function getVendaDetalhes(
           pgtoValorTotal: p.pgto_valor_total != null ? Number(p.pgto_valor_total) : null,
           pgtoEntrada: Number(p.pgto_entrada ?? 0),
           pgtoNumParcelas: Number(p.pgto_num_parcelas ?? 1),
+          pgtoNumParcelasReal: (() => {
+            // Pra faturado, o nº de parcelas vem do array de detalhes
+            // (cada entrada é uma parcela com valor+data). Outras formas
+            // usam pgto_num_parcelas mesmo.
+            const det = p.pgto_parcelas_detalhe as unknown as
+              | { length?: number }[]
+              | null
+            if (
+              p.pgto_forma === "faturado" &&
+              Array.isArray(det) &&
+              det.length > 0
+            ) {
+              return det.length
+            }
+            return Number(p.pgto_num_parcelas ?? 1)
+          })(),
           pgtoValorParcela: p.pgto_valor_parcela != null ? Number(p.pgto_valor_parcela) : null,
           pgtoDataDebito: p.pgto_data_debito ?? null,
           pgtoPrimeiraParcelaExtra: Number(p.pgto_primeira_parcela_extra ?? 0),
@@ -716,6 +759,11 @@ export type VendaParaPDF = {
   observacoes: string | null
   /** Percentual de comissão do agente congelado na venda. */
   comissaoPercentual: number | null
+  /** Desfluxo: meses de diferença, % aplicado e flag se foi aplicado.
+   *  Usado pelo relatório PDF (interno) — comprovante (cliente) não exibe. */
+  desfluxoMeses: number
+  desfluxoPercentual: number
+  desfluxoAplicado: boolean
   // Produtos com todos os campos
   produtos: {
     ordem: number
@@ -798,6 +846,7 @@ export async function getVendaParaPDF(
       `
       id, identificador, status, data_venda, pax, origem, observacoes, motivo_revisao,
       data_aprovacao, comissao_percentual, empresa_id, tipo_venda, venda_original_id,
+      desfluxo_meses, desfluxo_percentual, desfluxo_aplicado,
       empresa:empresas(nome, slug, cor_primaria, logo_path),
       cliente:clientes(nome, cpf, email, telefone),
       agente:usuarios!vendas_usuario_id_fkey(nome, comissao_percentual, perfil_id),
@@ -953,6 +1002,16 @@ export async function getVendaParaPDF(
       origem: v.origem,
       observacoes: v.observacoes,
       comissaoPercentual,
+      desfluxoMeses: Number(
+        (v as unknown as { desfluxo_meses: number | null }).desfluxo_meses ?? 0,
+      ),
+      desfluxoPercentual: Number(
+        (v as unknown as { desfluxo_percentual: number | null })
+          .desfluxo_percentual ?? 0,
+      ),
+      desfluxoAplicado:
+        (v as unknown as { desfluxo_aplicado: boolean | null })
+          .desfluxo_aplicado ?? true,
       produtos: (produtos ?? []).map((p) => {
         const rav = Number(p.rav ?? 0)
         const stored = Number(p.comissao_vendedor ?? 0)

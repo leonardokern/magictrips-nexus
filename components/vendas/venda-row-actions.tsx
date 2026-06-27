@@ -17,6 +17,9 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { LoaderButton } from "@/components/ui/loader-button"
 import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
+import { formatBRL } from "@/lib/utils/sum-parser"
 import {
   Dialog,
   DialogClose,
@@ -104,6 +107,12 @@ export function VendaRowActions({
 
   // ── Pendências de mutation ──────────────────────────────────────
   const [isPendingAprovar, startAprovar] = useTransition()
+  // Toggle do modal de aprovação — quando a venda tem desfluxo, default ON.
+  // Resetado pra true sempre que abre o modal de validação (handler abaixo).
+  // Switch "Desconsiderar desfluxo" no modal de visualização — default
+  // OFF (desfluxo considerado). Quando ON, o painel re-renderiza sem o
+  // desfluxo, e a aprovação grava com desfluxo_aplicado=false.
+  const [desconsiderarDesfluxo, setDesconsiderarDesfluxo] = useState(false)
   const [isPendingRevisao, startRevisao] = useTransition()
   const [isPendingExcluir, startExcluir] = useTransition()
   const [motivoRevisao, setMotivoRevisao] = useState("")
@@ -202,6 +211,11 @@ export function VendaRowActions({
     setValidarOpen(true)
   }
 
+  // Quando o modal de visualização abre, reseta o switch pro estado padrão.
+  useEffect(() => {
+    if (viewOpen) setDesconsiderarDesfluxo(false)
+  }, [viewOpen])
+
   function abrirRevisao() {
     setViewOpen(false)
     setMotivoRevisao("")
@@ -210,7 +224,13 @@ export function VendaRowActions({
 
   function handleAprovar() {
     startAprovar(async () => {
-      const r = await aprovarVenda(venda.id)
+      const r = await aprovarVenda(venda.id, {
+        // Toggle "Considerar desfluxo" só fica disponível quando a venda
+        // TEM desfluxo > 0; default é true (considerar). Se gerente desligou,
+        // passa ignorarDesfluxo=true pro RPC.
+        ignorarDesfluxo:
+          (detalhes?.desfluxoPercentual ?? 0) > 0 && desconsiderarDesfluxo,
+      })
       if (!r.ok) {
         toast.error(r.error ?? "Erro ao aprovar venda.")
         return
@@ -365,6 +385,37 @@ export function VendaRowActions({
                 mostraComissao={true}
                 vendaId={venda.id}
                 mostraRelatorio={true}
+                desconsiderarDesfluxo={desconsiderarDesfluxo}
+                acimaDosBotoes={
+                  // Só mostra o switch quando o usuário PODE aprovar e a
+                  // venda está pendente — desfluxo é decisão de aprovação.
+                  podeAcionarModal && (detalhes.desfluxoPercentual ?? 0) > 0 ? (
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.05] px-3 py-2.5">
+                      <Label
+                        htmlFor="desconsiderar-desfluxo"
+                        className="flex flex-col gap-0.5"
+                      >
+                        <span className="text-sm font-medium text-amber-200">
+                          Desconsiderar desfluxo
+                        </span>
+                        <span className="text-[11px] text-amber-300/65">
+                          {detalhes.desfluxoMeses}{" "}
+                          {detalhes.desfluxoMeses === 1 ? "mês" : "meses"}
+                          {" · +"}
+                          {detalhes.desfluxoPercentual
+                            .toFixed(1)
+                            .replace(".", ",")}
+                          %
+                        </span>
+                      </Label>
+                      <Switch
+                        id="desconsiderar-desfluxo"
+                        checked={desconsiderarDesfluxo}
+                        onCheckedChange={setDesconsiderarDesfluxo}
+                      />
+                    </div>
+                  ) : null
+                }
                 renderAlteracaoBotoes={(alts) =>
                   alts.map((a) => (
                     <VerVendaOriginalButton
@@ -446,6 +497,22 @@ export function VendaRowActions({
               ação ficará registrada com seu nome e não poderá ser desfeita.
             </DialogDescription>
           </DialogHeader>
+
+          {/* Nota quando o gerente escolheu desconsiderar o desfluxo no
+              modal anterior — só pra reforçar a escolha antes do commit. */}
+          {detalhes &&
+            (detalhes.desfluxoPercentual ?? 0) > 0 &&
+            desconsiderarDesfluxo && (
+              <div className="rounded-md border border-amber-500/20 bg-amber-500/[0.05] px-3 py-2 text-[11px] text-amber-300/85">
+                Desfluxo de{" "}
+                <strong>
+                  +
+                  {detalhes.desfluxoPercentual.toFixed(1).replace(".", ",")}%
+                </strong>{" "}
+                será desconsiderado nesta aprovação.
+              </div>
+            )}
+
           <DialogFooter className="gap-2">
             <DialogClose asChild>
               <Button variant="ghost" disabled={isPendingAprovar}>

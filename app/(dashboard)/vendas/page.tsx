@@ -33,10 +33,11 @@ const STATUS_PENDENTES = ["pendente_validacao", "em_revisao"] as const
 const SELECT_LISTA = `
   id, identificador, data_venda, status, pax, created_at, usuario_id,
   comissao_percentual, tipo_venda, venda_original_id,
+  desfluxo_meses, desfluxo_percentual, desfluxo_aplicado,
   empresa:empresas(nome, slug),
   cliente:clientes(nome),
   agente:usuarios!vendas_usuario_id_fkey(nome),
-  produtos:venda_produtos(valor_venda, rav, rav_extra_cliente, rav_extra_fornecedor)
+  produtos:venda_produtos(valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor)
 ` as const
 
 type SearchParams = { page?: string; q?: string }
@@ -237,18 +238,28 @@ export default async function VendasPage({
   const podeExcluir = can(user, "vendas", "excluir")
   const mostraComissao = podeAprovar
 
-  function calcular<T extends { produtos: unknown; comissao_percentual?: number | null }>(v: T) {
+  function calcular<
+    T extends {
+      produtos: unknown
+      comissao_percentual?: number | null
+      desfluxo_percentual?: number | null
+      desfluxo_aplicado?: boolean | null
+    },
+  >(v: T) {
     // RAV total = base + extra cliente + extra fornecedor.
-    // Comissão = RAV total × % do agente (regra unificada com wizard/PDF).
+    // Comissão = RAV efetivo × % do agente (regra unificada com wizard/PDF).
+    // Desfluxo: quando aplicado, custo sobe e RAV/comissão caem (sobreposição
+    // contábil — valor_custo no banco não muda).
     type ProdRow = {
       valor_venda: number
+      valor_custo: number | null
       rav: number | null
       rav_extra_cliente: number | null
       rav_extra_fornecedor: number | null
     }
     const prods = (v.produtos as ProdRow[] | null) ?? []
     const total = prods.reduce((a, p) => a + Number(p.valor_venda ?? 0), 0)
-    const ravTotal = prods.reduce(
+    const ravBruto = prods.reduce(
       (a, p) =>
         a +
         Number(p.rav ?? 0) +
@@ -256,6 +267,14 @@ export default async function VendasPage({
         Number(p.rav_extra_fornecedor ?? 0),
       0,
     )
+    const custoBase = prods.reduce(
+      (a, p) => a + Number(p.valor_custo ?? 0),
+      0,
+    )
+    const desfluxoPctAtivo =
+      (v.desfluxo_aplicado ?? true) ? Number(v.desfluxo_percentual ?? 0) : 0
+    const desfluxoCustoExtra = (custoBase * desfluxoPctAtivo) / 100
+    const ravTotal = ravBruto - desfluxoCustoExtra
     const pctComissao = Number(v.comissao_percentual ?? 0)
     const comissao = (ravTotal * pctComissao) / 100
     return { total, ravTotal, comissao }

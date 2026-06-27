@@ -236,13 +236,13 @@ function ProdutoRow({ p }: { p: Produto }) {
                         value={formatBRL(p.pgtoEntrada)}
                       />
                     )}
-                    {p.pgtoNumParcelas > 1 && (
+                    {p.pgtoNumParcelasReal > 1 && (
                       <MiniStat
                         label="Parcelas"
                         value={
                           p.pgtoValorParcela
-                            ? `${p.pgtoNumParcelas}× ${formatBRL(p.pgtoValorParcela)}`
-                            : `${p.pgtoNumParcelas}×`
+                            ? `${p.pgtoNumParcelasReal}× ${formatBRL(p.pgtoValorParcela)}`
+                            : `${p.pgtoNumParcelasReal}×`
                         }
                       />
                     )}
@@ -309,9 +309,25 @@ type Props = {
   /** Render prop que injeta os botões de alteração no banner — evita import
    *  circular com VerVendaOriginalButton (que importa VendaResumoPanel). */
   renderAlteracaoBotoes?: (alteracoes: VendaDetalhes["alteracoesAprovadas"]) => React.ReactNode
+  /** Override de preview: quando true, ignora o desfluxo nos cálculos
+   *  exibidos (usado pelo switch "Desconsiderar desfluxo" no modal de
+   *  validação). NÃO altera o banco — só a visão. Default: usa
+   *  `detalhes.desfluxoAplicado` direto. */
+  desconsiderarDesfluxo?: boolean
+  /** Conteúdo customizado pra renderizar acima dos botões de PDF na
+   *  coluna sticky. Ex: switch de desconsiderar desfluxo no validar. */
+  acimaDosBotoes?: React.ReactNode
 }
 
-export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraRelatorio, renderAlteracaoBotoes }: Props) {
+export function VendaResumoPanel({
+  detalhes: d,
+  mostraComissao,
+  vendaId,
+  mostraRelatorio,
+  renderAlteracaoBotoes,
+  desconsiderarDesfluxo,
+  acimaDosBotoes,
+}: Props) {
   const ehAlteracao = d.tipoVenda === "alteracao_valores"
   const temAlteracaoAprovada =
     !ehAlteracao && (d.alteracoesAprovadas?.length ?? 0) > 0
@@ -328,6 +344,20 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
     0,
   )
   const totalRav = totalRavBase + totalRavExtraCliente + totalRavExtraFornecedor
+  // Desfluxo: quando aplicado, sobrepõe valor_custo com custo_efetivo =
+  // custo_base × (1 + %/100), reduzindo RAV e comissão. valor_custo real
+  // continua no banco (parcelas_pagar usam o real).
+  // Override de preview pelo switch "Desconsiderar desfluxo" no validar.
+  const desfluxoAtivoEfetivo = desconsiderarDesfluxo
+    ? false
+    : d.desfluxoAplicado
+  const desfluxoPercentualEfetivo = desfluxoAtivoEfetivo
+    ? d.desfluxoPercentual
+    : 0
+  const desfluxoCustoExtra =
+    (d.produtos.reduce((a, p) => a + p.valorCusto, 0) *
+      desfluxoPercentualEfetivo) /
+    100
   // Comissão = RAV total × % do agente. Recalculada AQUI em vez de somar
   // `p.comissao` armazenado em DB — garante que vendas antigas (gravadas com
   // base que excluía rav_extra_fornecedor) também exibam o valor correto
@@ -341,7 +371,9 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
   // e subtraímos. Em venda original (não-alteração), basta `% × RAV total`.
   const totalComissao = (() => {
     if (!ehAlteracao || !d.vendaOriginal) {
-      return ((d.comissaoPercentual ?? 0) * totalRav) / 100
+      // Custo efetivo (com desfluxo) reduz o RAV antes da comissão.
+      const ravComDesfluxo = totalRav - desfluxoCustoExtra
+      return ((d.comissaoPercentual ?? 0) * ravComDesfluxo) / 100
     }
     const ravOriginal = d.vendaOriginal.produtos.reduce(
       (a, p) => a + p.rav + p.ravExtraCliente + p.ravExtraFornecedor,
@@ -613,40 +645,102 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
             </div>
 
             <div className="mt-4 space-y-2.5">
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-white/55">
-                    {ehAlteracao ? "Δ Custo" : "Custo total"}
-                  </span>
-                  <span className="tabular-nums text-white/75">
-                    {formatDelta(totalCusto, ehAlteracao)}
-                  </span>
-                </div>
-                {ehAlteracao && (
-                  <OrigEfet
-                    original={origCusto}
-                    efetivo={efetCusto}
-                    align="right"
-                  />
-                )}
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-white/55">
-                    {ehAlteracao ? "Δ RAV" : "RAV total"}
-                  </span>
-                  <span className="tabular-nums text-white/85">
-                    {formatDelta(totalRav, ehAlteracao)}
-                  </span>
-                </div>
-                {ehAlteracao && (
-                  <OrigEfet
-                    original={origRav}
-                    efetivo={efetRav}
-                    align="right"
-                  />
-                )}
-              </div>
+              {(() => {
+                // temDesfluxo = desfluxo está VIGENTE pra esta venda
+                // (calculado + não desativado). Quando true, custo/RAV/comissão
+                // exibidos ficam em laranja pra sinalizar que estão sob efeito
+                // do desfluxo. desfluxoCustoExtra já considera o switch.
+                const temDesfluxo =
+                  !ehAlteracao &&
+                  desfluxoAtivoEfetivo &&
+                  d.desfluxoPercentual > 0
+                const custoEfetivo = totalCusto + desfluxoCustoExtra
+                const ravEfetivoLocal = totalRav - desfluxoCustoExtra
+                return (
+                  <>
+                    {/* Desfluxo SEMPRE aparece (exceto em alterações), pra dar
+                        visibilidade do indicador. Quando 0% fica apagado.
+                        Ordem: vem ANTES do Custo total pra deixar claro o
+                        contexto antes do valor que ele afeta. */}
+                    {!ehAlteracao && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span
+                          className={
+                            temDesfluxo ? "text-amber-300/85" : "text-white/30"
+                          }
+                        >
+                          Desfluxo
+                          {temDesfluxo && (
+                            <span className="ml-1 text-white/35">
+                              · {d.desfluxoMeses}{" "}
+                              {d.desfluxoMeses === 1 ? "mês" : "meses"}
+                            </span>
+                          )}
+                        </span>
+                        <span
+                          className={cn(
+                            "tabular-nums",
+                            temDesfluxo
+                              ? "text-amber-300/85"
+                              : "text-white/30",
+                          )}
+                        >
+                          {(temDesfluxo ? d.desfluxoPercentual : 0)
+                            .toFixed(1)
+                            .replace(".", ",")}
+                          %
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-white/55">
+                          {ehAlteracao ? "Δ Custo" : "Custo total"}
+                        </span>
+                        <span
+                          className={cn(
+                            "tabular-nums",
+                            temDesfluxo ? "text-amber-300/85" : "text-white/75",
+                          )}
+                        >
+                          {formatDelta(custoEfetivo, ehAlteracao)}
+                        </span>
+                      </div>
+                      {ehAlteracao && (
+                        <OrigEfet
+                          original={origCusto}
+                          efetivo={efetCusto}
+                          align="right"
+                        />
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-white/55">
+                          {ehAlteracao ? "Δ RAV" : "RAV total"}
+                        </span>
+                        <span
+                          className={cn(
+                            "tabular-nums",
+                            temDesfluxo ? "text-amber-300/85" : "text-white/85",
+                          )}
+                        >
+                          {formatDelta(ravEfetivoLocal, ehAlteracao)}
+                        </span>
+                      </div>
+                      {ehAlteracao && (
+                        <OrigEfet
+                          original={origRav}
+                          efetivo={efetRav}
+                          align="right"
+                        />
+                      )}
+                    </div>
+                  </>
+                )
+              })()}
               {/* Breakdown do RAV — só mostra se algum extra (cliente ou
                   fornecedor) > 0. Inclui as 3 linhas existentes (só as > 0). */}
               {(totalRavExtraCliente > 0 || totalRavExtraFornecedor > 0) && (
@@ -678,15 +772,30 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
                 </div>
               )}
               {/* Margem RAV não faz sentido em delta (numerador e denominador
-                  são ambos deltas) — só mostra em vendas normais. */}
-              {!ehAlteracao && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-white/55">Margem RAV</span>
-                  <span className="tabular-nums text-white/70">
-                    {margemRav !== null ? `${margemRav}%` : "—"}
-                  </span>
-                </div>
-              )}
+                  são ambos deltas) — só mostra em vendas normais. Quando
+                  desfluxo está vigente, a margem reflete o RAV efetivo. */}
+              {!ehAlteracao && (() => {
+                const temDesfluxo =
+                  desfluxoAtivoEfetivo && d.desfluxoPercentual > 0
+                const ravParaMargem = totalRav - desfluxoCustoExtra
+                const margemEfetiva =
+                  totalVenda > 0
+                    ? ((ravParaMargem / totalVenda) * 100).toFixed(1)
+                    : null
+                return (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-white/55">Margem RAV</span>
+                    <span
+                      className={cn(
+                        "tabular-nums",
+                        temDesfluxo ? "text-amber-300/85" : "text-white/70",
+                      )}
+                    >
+                      {margemEfetiva !== null ? `${margemEfetiva}%` : "—"}
+                    </span>
+                  </div>
+                )
+              })()}
             </div>
 
             {mostraComissao && (
@@ -700,7 +809,16 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
                       </span>
                     )}
                   </span>
-                  <span className="tabular-nums text-amber-300">
+                  <span
+                    className={cn(
+                      "tabular-nums",
+                      !ehAlteracao &&
+                        desfluxoAtivoEfetivo &&
+                        d.desfluxoPercentual > 0
+                        ? "text-amber-300"
+                        : "text-white/85",
+                    )}
+                  >
                     {formatDelta(totalComissao, ehAlteracao)}
                   </span>
                 </div>
@@ -734,6 +852,10 @@ export function VendaResumoPanel({ detalhes: d, mostraComissao, vendaId, mostraR
                 )}
             </div>
           </div>
+
+          {/* Slot pra conteúdo extra acima dos botões de PDF (ex: switch
+              "Desconsiderar desfluxo" no modal de validação). */}
+          {acimaDosBotoes}
 
           {/* Botões de PDF.
               - Comprovante: NÃO aparece em alterações (o documento da
@@ -908,13 +1030,13 @@ function PgtoFornecedorCard({ produto: p }: { produto: ProdutoDetalhes }) {
         {p.pgtoEntrada > 0 && (
           <MiniStat label="Entrada" value={formatBRL(p.pgtoEntrada)} />
         )}
-        {p.pgtoNumParcelas > 1 ? (
+        {p.pgtoNumParcelasReal > 1 ? (
           <MiniStat
             label="Parcelas"
             value={
               p.pgtoValorParcela
-                ? `${p.pgtoNumParcelas}× ${formatBRL(p.pgtoValorParcela)}`
-                : `${p.pgtoNumParcelas}×`
+                ? `${p.pgtoNumParcelasReal}× ${formatBRL(p.pgtoValorParcela)}`
+                : `${p.pgtoNumParcelasReal}×`
             }
           />
         ) : (
