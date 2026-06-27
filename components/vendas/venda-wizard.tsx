@@ -848,19 +848,21 @@ export function VendaWizard(props: Props) {
 
   function validarStep4(): Record<string, string> {
     const e: Record<string, string> = {}
-    const cpfsVistos = new Set<string>()
+    const docsVistos = new Set<string>()
+    // Passageiro pode ser estrangeiro (documento livre) — não validamos
+    // formato de CPF aqui, só obrigatoriedade e duplicidade do texto.
     passageiros.forEach((p, i) => {
       if (!p.nome.trim()) e[`passageiro_${i}_nome`] = "Nome obrigatório."
-      if (!p.cpf.trim()) {
-        e[`passageiro_${i}_cpf`] = "CPF obrigatório."
-      } else if (!cpfValido(p.cpf)) {
-        e[`passageiro_${i}_cpf`] = "CPF inválido."
+      const docTrim = p.cpf.trim()
+      if (!docTrim) {
+        e[`passageiro_${i}_cpf`] = "Documento obrigatório."
       } else {
-        const digits = onlyDigits(p.cpf)
-        if (cpfsVistos.has(digits)) {
-          e[`passageiro_${i}_cpf`] = "CPF já informado em outro passageiro."
+        const chave = onlyDigits(docTrim) || docTrim.toLowerCase()
+        if (docsVistos.has(chave)) {
+          e[`passageiro_${i}_cpf`] =
+            "Documento já informado em outro passageiro."
         } else {
-          cpfsVistos.add(digits)
+          docsVistos.add(chave)
         }
       }
     })
@@ -4360,15 +4362,17 @@ function Step4Passageiros(props: {
                 />
               </Field>
               <Field
-                label="CPF"
+                label="CPF / Documento"
                 error={props.errors[`passageiro_${i}_cpf`]}
                 className="sm:col-span-2"
               >
                 <Input
+                  // formatCpf devolve sem alteração quando não tem 11 dígitos
+                  // (texto livre passa direto), então funciona pra passaporte.
                   value={formatCpf(p.cpf)}
                   onChange={(ev) => patch(p.id, { cpf: ev.target.value })}
-                  maxLength={14}
-                  placeholder="000.000.000-00"
+                  maxLength={30}
+                  placeholder="CPF ou passaporte"
                   disabled={camposTravados}
                 />
               </Field>
