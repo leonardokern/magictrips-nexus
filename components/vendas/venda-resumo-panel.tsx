@@ -968,7 +968,11 @@ function PassageiroCard({
       {temExtra && (
         <div className="mt-2.5 flex flex-wrap gap-x-5 gap-y-1.5">
           {pax.cpf && (
-            <MiniStat label="CPF" value={formatCPF(pax.cpf)} compact />
+            <MiniStat
+              label="Identificação"
+              value={formatCPF(pax.cpf)}
+              compact
+            />
           )}
           {pax.dataNascimento && (
             <MiniStat

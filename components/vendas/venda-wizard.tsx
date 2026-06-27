@@ -4937,7 +4937,7 @@ function Step6Revisao(props: {
                 </div>
                 <div className="mt-1.5 grid grid-cols-3 gap-x-4 gap-y-0.5 pl-8 text-[12px] text-white/55">
                   <span>
-                    <span className="text-white/35">CPF:</span>{" "}
+                    <span className="text-white/35">Identificação:</span>{" "}
                     {p.cpf || "—"}
                   </span>
                   <span>
