@@ -28,16 +28,12 @@ const LINE = "#E5E7EB"
 const BORDA = 28
 
 const styles = StyleSheet.create({
-  // `paddingTop` maior que BORDA (28 → 56): `Page.padding` reaplica em
-  // toda página, mas o `paddingTop` do `card` (View) não — quando a
-  // tabela quebra pra página 2, o conteúdo grudava na linha azul
-  // superior. Trade-off: faixa navy 28pt mais alta no topo (vs. lados/
-  // base = 28pt), mas a margem fica consistente em todas as páginas.
+  // Moldura navy simétrica: BORDA em todos os lados.
   page: {
     fontFamily: FONTE_NEXUS,
     fontSize: 9,
     color: NAVY,
-    paddingTop: BORDA + 28,
+    paddingTop: BORDA,
     paddingBottom: BORDA,
     paddingHorizontal: BORDA,
     backgroundColor: NAVY,
@@ -45,16 +41,16 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     backgroundColor: CORES.branco,
-    // `paddingTop: 56` — feedback do cliente jun/2026: o logo+nome da
-    // empresa estavam muito próximos do traço navy superior. 56pt dá
-    // ~20pt a mais de respiro entre a moldura azul e a primeira linha.
+    // Sem paddingTop: feedback jun/2026 — o respiro entre a moldura azul
+    // e o conteúdo já vem do `page.paddingTop` (faixa navy + folga),
+    // o paddingTop extra no card duplicava a margem visual no topo.
     //
     // `paddingBottom: 110` reserva espaço para o `footerStack`
     // (position: absolute) — sem isso, conteúdo de fluxo
     // (PIX/transferência) sobrepunha o rodapé quando a tabela crescia.
     // ~110pt = altura do footer (agradecimento ~30 + gap 10 + contatoRow
     // ~30) + offset `bottom: 28` + folga visual.
-    paddingTop: 56,
+    paddingTop: 0,
     paddingHorizontal: 36,
     paddingBottom: 110,
     position: "relative",
