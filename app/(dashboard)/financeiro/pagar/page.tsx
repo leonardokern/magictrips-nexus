@@ -33,7 +33,7 @@ type SearchParams = Promise<{
 const FORMA_LABEL: Record<string, string> = {
   faturado: "Faturado",
   cartao_agencia: "Cartão agência",
-  cartao_cliente: "Cartão cliente",
+  cliente_fornecedor: "Cliente e Fornecedor",
 }
 
 function derivarStatus(

@@ -668,6 +668,19 @@ export function VendaWizard(props: Props) {
     )
   }, [produtos])
 
+  // Total da venda que entra na cobrança do cliente (Step 3) — exclui
+  // produtos com pgto_forma='cliente_fornecedor' porque nesse caso o cliente
+  // já pagou direto ao fornecedor; a Magic não cobra nada por eles.
+  const totalVendaCobravel = useMemo(() => {
+    return produtos.reduce(
+      (acc, p) =>
+        p.pgto_forma === "cliente_fornecedor"
+          ? acc
+          : acc + (parseValorComSoma(p.valor_venda_str) || 0),
+      0,
+    )
+  }, [produtos])
+
   // ── Validação por step ────────────────────────────────────────────────────
 
   function validarStep1(): Record<string, string> {
@@ -773,11 +786,11 @@ export function VendaWizard(props: Props) {
     return e
   }
 
-  /** Se todos os produtos são `cartao_cliente`, o Step 3 fica restrito a
+  /** Se todos os produtos são `cliente_fornecedor`, o Step 3 fica restrito a
    *  Faturado ou Link Externo — o cliente paga via cartão e a Magic só
    *  registra o canal de cobrança usado. */
   const todosCartaoCliente =
-    produtos.length > 0 && produtos.every((p) => p.pgto_forma === "cartao_cliente")
+    produtos.length > 0 && produtos.every((p) => p.pgto_forma === "cliente_fornecedor")
 
   // Quando o usuário entra no modo restrito (todos cartão cliente), itens
   // já preenchidos com tipos não-permitidos (pix, boleto, cartao_credito,
@@ -799,7 +812,7 @@ export function VendaWizard(props: Props) {
 
   function validarStep3(): Record<string, string> {
     const e: Record<string, string> = {}
-    // Quando todos os produtos foram pagos com `cartao_cliente`, o cliente
+    // Quando todos os produtos foram pagos com `cliente_fornecedor`, o cliente
     // paga direto no link do fornecedor e a Magic não emite cobrança nenhuma.
     // Step 3 vira informativo apenas — nada a validar.
     if (todosCartaoCliente) return e
@@ -920,14 +933,16 @@ export function VendaWizard(props: Props) {
     }
     setErrors({})
     // Passo 3 → 4: avisa se houver valor em aberto entre cobrança e venda.
-    // Pula esse aviso quando a venda é totalmente cartao_cliente (cobrança
+    // Pula esse aviso quando a venda é totalmente cliente_fornecedor (cobrança
     // dispensada — cliente paga direto ao fornecedor).
     if (step === 3) {
       if (!todosCartaoCliente) {
         const totalCobrado = cobrancaItens.reduce(
           (acc, it) => acc + (parseValorComSoma(it.valor_total_str) || 0), 0,
         )
-        if (Math.abs(totalCobrado - totalVenda) >= 0.01) {
+        // Compara contra totalVendaCobravel (exclui cliente_fornecedor) —
+        // produtos pagos direto cliente↔fornecedor não entram na cobrança.
+        if (Math.abs(totalCobrado - totalVendaCobravel) >= 0.01) {
           setConfirmValorAberto(true)
           return
         }
@@ -970,7 +985,9 @@ export function VendaWizard(props: Props) {
       const totalCobrado = cobrancaItens.reduce(
         (acc, it) => acc + (parseValorComSoma(it.valor_total_str) || 0), 0,
       )
-      if (Math.abs(totalCobrado - totalVenda) >= 0.01) {
+      // Mesma regra: compara contra o total da venda cobrável (exclui
+      // produtos com pagamento cliente↔fornecedor direto).
+      if (Math.abs(totalCobrado - totalVendaCobravel) >= 0.01) {
         setConfirmValorAberto(true)
         return
       }
@@ -1193,7 +1210,19 @@ export function VendaWizard(props: Props) {
     startTransition(async () => {
       const r = await criarVenda(payload)
       if (!r.ok) {
-        toast.error(r.error)
+        // Quando o schema Zod rejeita, retornamos `fieldErrors` por campo.
+        // Mostra o primeiro motivo concreto pra o operador saber onde voltar
+        // em vez do genérico "Verifique os campos".
+        const primeiroErro = r.fieldErrors
+          ? Object.entries(r.fieldErrors)[0]
+          : null
+        if (primeiroErro) {
+          const [campo, msg] = primeiroErro
+          toast.error(`${msg} (${campo})`)
+          if (r.fieldErrors) setErrors(r.fieldErrors)
+        } else {
+          toast.error(r.error)
+        }
         return
       }
       // Associa anexos uploadados durante o wizard (vinculados a
@@ -1499,13 +1528,14 @@ export function VendaWizard(props: Props) {
                 <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-nexus-bright" />
                 <div className="space-y-1.5 text-sm leading-relaxed text-white/75">
                   <p className="font-medium text-white">
-                    Cobrança dispensada — cartão do cliente
+                    Cobrança dispensada — pagamento direto
                   </p>
                   <p>
-                    Todos os produtos desta venda foram registrados com forma de
-                    pagamento <strong className="text-white">Cartão Cliente</strong>.
-                    O fornecedor enviará o link de pagamento diretamente ao
-                    cliente e a Magic recebe apenas a comissão.
+                    Todos os produtos desta venda foram registrados com forma
+                    de pagamento{" "}
+                    <strong className="text-white">Cliente e Fornecedor</strong>.
+                    O cliente paga direto ao fornecedor (qualquer meio) e a
+                    Magic recebe apenas a comissão.
                   </p>
                   <p className="text-white/55">
                     Nada precisa ser preenchido neste passo. Clique em{" "}
@@ -1521,7 +1551,9 @@ export function VendaWizard(props: Props) {
               setItens={setCobrancaItens}
               obs={cobrancaObs}
               setObs={setCobrancaObs}
-              totalVenda={totalVenda}
+              // Step 3 trabalha só com produtos cobrávels — exclui os pagos
+              // direto entre cliente e fornecedor (cliente_fornecedor).
+              totalVenda={totalVendaCobravel}
               errors={errors}
               restritoCartaoCliente={false}
             />
@@ -1688,7 +1720,7 @@ export function VendaWizard(props: Props) {
       </div>
 
       {/* Aviso de valor em aberto — só no passo 3 quando há itens de cobrança
-          a fechar. Quando todos os produtos são `cartao_cliente` o passo é
+          a fechar. Quando todos os produtos são `cliente_fornecedor` o passo é
           dispensado e a "diferença" não faz sentido (o fornecedor cobra direto). */}
       {step === 3 && !todosCartaoCliente && (() => {
         const totalCobrado = cobrancaItens.reduce(
@@ -3222,8 +3254,8 @@ function Step2Produtos(props: {
                       patch(p.id, (prev) => {
                         const nova = v as PgtoForma
                         // Limpa campos que não fazem sentido nas formas onde
-                        // a Magic não controla o fluxo (faturado, cartao_cliente)
-                        if (nova === "cartao_cliente") {
+                        // a Magic não controla o fluxo (faturado, cliente_fornecedor)
+                        if (nova === "cliente_fornecedor") {
                           return {
                             pgto_forma: nova,
                             pgto_cartao_id: "",
@@ -3276,7 +3308,7 @@ function Step2Produtos(props: {
                     <SelectContent>
                       <SelectItem value="faturado">{PGTO_FORMA_LABEL["faturado"]}</SelectItem>
                       <SelectItem value="cartao_agencia">{PGTO_FORMA_LABEL["cartao_agencia"]}</SelectItem>
-                      <SelectItem value="cartao_cliente">{PGTO_FORMA_LABEL["cartao_cliente"]}</SelectItem>
+                      <SelectItem value="cliente_fornecedor">{PGTO_FORMA_LABEL["cliente_fornecedor"]}</SelectItem>
                     </SelectContent>
                   </Select>
                 </Field>
@@ -3362,13 +3394,13 @@ function Step2Produtos(props: {
                   </>
                 )}
 
-                {/* ── CARTÃO CLIENTE ─ Cliente paga direto ao fornecedor ── */}
-                {p.pgto_forma === "cartao_cliente" && (
+                {/* ── CLIENTE E FORNECEDOR ─ pagamento direto cliente↔fornecedor ── */}
+                {p.pgto_forma === "cliente_fornecedor" && (
                   <div className="col-span-12 sm:col-span-8 flex items-center">
                     <div className="w-full rounded-md border border-nexus-bright/20 bg-nexus-bright/[0.05] px-3 py-2.5 text-xs leading-relaxed text-white/70">
-                      O fornecedor enviará um link de pagamento direto ao cliente.
-                      A Magic recebe apenas a comissão — nada precisa ser
-                      registrado em Cobrança no passo 3.
+                      O pagamento deste produto é feito diretamente entre
+                      cliente e fornecedor — a Magic recebe apenas a comissão
+                      e não fará cobrança ao cliente no passo 3.
                     </div>
                   </div>
                 )}
@@ -3570,7 +3602,7 @@ function Step3Cobranca(props: {
   setObs: (v: string) => void
   totalVenda: number
   errors: Record<string, string>
-  /** Quando true (todos os produtos têm pgto_forma = cartao_cliente),
+  /** Quando true (todos os produtos têm pgto_forma = cliente_fornecedor),
    *  o Select de Forma de pagamento fica restrito a "Faturado" e
    *  "Link externo". No link externo, o campo de URL fica expandido. */
   restritoCartaoCliente?: boolean
@@ -4762,6 +4794,13 @@ function Step6Revisao(props: {
   anexos: AnexoVenda[]
 }) {
   const totalVenda = props.produtos.reduce((a, p) => a + p.valorVenda, 0)
+  // Soma só produtos cobráveis pela Magic (exclui cliente_fornecedor) —
+  // usado pra comparar com totalCobranca no aviso de divergência.
+  const totalVendaCobravel = props.produtos.reduce(
+    (a, p) =>
+      p.pgtoForma === "cliente_fornecedor" ? a : a + p.valorVenda,
+    0,
+  )
   const totalCusto = props.produtos.reduce((a, p) => a + p.valorCusto, 0)
   // Comissão recalculada AQUI = RAV total × % do agente. Vendas antigas
   // gravadas com base diferente (sem rav_extra_fornecedor) também exibem
@@ -5091,13 +5130,13 @@ function Step6Revisao(props: {
                 {formatBRL(totalCobranca) || "—"}
               </span>
             </div>
-            {totalVenda > 0 &&
+            {totalVendaCobravel > 0 &&
               totalCobranca > 0 &&
-              Math.abs(totalCobranca - totalVenda) > 0.01 && (
+              Math.abs(totalCobranca - totalVendaCobravel) > 0.01 && (
                 <p className="mt-2 rounded-md border border-amber-500/20 bg-amber-500/[0.08] px-2.5 py-1.5 text-[11px] leading-snug text-amber-300/90">
                   Cobrança (
-                  {formatBRL(totalCobranca)}) difere do total da venda (
-                  {formatBRL(totalVenda)}).
+                  {formatBRL(totalCobranca)}) difere do total cobrável (
+                  {formatBRL(totalVendaCobravel)}).
                 </p>
               )}
           </div>

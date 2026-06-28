@@ -17,7 +17,7 @@ export const DESFLUXO_PERCENTUAL_POR_MES = 1.5
 
 /**
  * pgto_forma que a agência efetivamente fronta (paga ao fornecedor).
- * `cartao_cliente` não conta — cliente paga direto, sem antecipação.
+ * `cliente_fornecedor` não conta — cliente paga direto ao fornecedor, sem antecipação.
  */
 const PGTO_FORMAS_QUE_FRONTAM = new Set(["cartao_agencia", "faturado"])
 
@@ -44,7 +44,7 @@ export function calcularDesfluxo(input: {
       return p.pgto_num_parcelas ?? 1
     })
 
-  // Se a agência NÃO fronta nada (ex: venda 100% cartao_cliente), não há
+  // Se a agência NÃO fronta nada (ex: venda 100% cliente_fornecedor), não há
   // capital de giro adiantado pra precificar — desfluxo é 0 por definição.
   if (parcelasCusto.length === 0) return { meses: 0, percentual: 0 }
 
