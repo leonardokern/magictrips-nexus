@@ -84,7 +84,7 @@ import {
 import { formatBRL, parseValorComSoma } from "@/lib/utils/sum-parser"
 import { DateInput } from "@/components/ui/date-input"
 import { CurrencyInput } from "@/components/ui/currency-input"
-import { formatCnpj, formatCpf, formatTelefone, onlyDigits, toTitleCase } from "@/lib/utils/formatters"
+import { formatCnpj, formatCnpjPartial, formatCpf, formatTelefone, onlyDigits, toTitleCase } from "@/lib/utils/formatters"
 import { PhoneInput } from "@/components/shared/phone-input"
 import { cnpjValido, cpfValido, emailValido } from "@/lib/utils/validators"
 import {
@@ -704,9 +704,10 @@ export function VendaWizard(props: Props) {
       } else {
         if (clienteNovo.razao_social.trim().length < 2)
           e.novo_razao_social = "Razão social obrigatória."
-        if (!cnpjValido(clienteNovo.cnpj)) e.novo_cnpj = "CNPJ inválido."
+        if (!clienteNovo.cnpj.trim()) e.novo_cnpj = "CNPJ obrigatório."
+        else if (!cnpjValido(clienteNovo.cnpj)) e.novo_cnpj = "CNPJ inválido."
       }
-      if (!clienteNovo.email) e.novo_email = "E-mail obrigatório."
+      if (!clienteNovo.email.trim()) e.novo_email = "E-mail obrigatório."
       else if (!emailValido(clienteNovo.email)) e.novo_email = "E-mail inválido."
       if (!clienteNovo.telefone) e.novo_telefone = "Telefone obrigatório."
     }
@@ -2242,6 +2243,12 @@ function Step1(props: {
                         razao_social: ev.target.value,
                       }))
                     }
+                    onBlur={(ev) =>
+                      props.setClienteNovo((s) => ({
+                        ...s,
+                        razao_social: toTitleCase(ev.target.value),
+                      }))
+                    }
                     required
                   />
                 </Field>
@@ -2254,20 +2261,33 @@ function Step1(props: {
                         nome_fantasia: ev.target.value,
                       }))
                     }
+                    onBlur={(ev) =>
+                      props.setClienteNovo((s) => ({
+                        ...s,
+                        nome_fantasia: toTitleCase(ev.target.value),
+                      }))
+                    }
                   />
                 </Field>
                 <Field label="CNPJ" error={e.novo_cnpj} className="sm:col-span-2">
                   <div className="relative">
                     <Input
-                      value={formatCnpj(props.clienteNovo.cnpj)}
+                      // Máscara progressiva: formata enquanto o usuário
+                      // digita (ex: 12 → "12", 12345 → "12.345", …).
+                      value={formatCnpjPartial(props.clienteNovo.cnpj)}
                       onChange={(ev) => {
-                        props.setClienteNovo((s) => ({ ...s, cnpj: ev.target.value }))
+                        props.setClienteNovo((s) => ({
+                          ...s,
+                          cnpj: formatCnpjPartial(ev.target.value),
+                        }))
                         setDocDuplicate((prev) => ({ ...prev, cnpj: null }))
                         props.setAsyncError("novo_cnpj", null)
                       }}
                       onBlur={onCnpjBlur}
                       placeholder="00.000.000/0000-00"
                       maxLength={18}
+                      inputMode="numeric"
+                      required
                     />
                     {checkingDoc === "cnpj" && (
                       <Spinner
@@ -2293,6 +2313,12 @@ function Step1(props: {
                         responsavel: ev.target.value,
                       }))
                     }
+                    onBlur={(ev) =>
+                      props.setClienteNovo((s) => ({
+                        ...s,
+                        responsavel: toTitleCase(ev.target.value),
+                      }))
+                    }
                   />
                 </Field>
               </>
@@ -2309,6 +2335,9 @@ function Step1(props: {
                   }))
                 }
                 className="lowercase"
+                inputMode="email"
+                autoComplete="email"
+                required
               />
             </Field>
             <Field label="Telefone" error={e.novo_telefone} className="sm:col-span-2">

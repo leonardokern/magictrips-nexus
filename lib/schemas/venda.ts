@@ -5,20 +5,44 @@ import { emailValido } from "@/lib/utils/validators"
 // Cliente novo (quando admin escolhe "Outro" no combobox)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const clienteNovoBasicoSchema = z.object({
+// Cliente novo cadastrado inline no wizard — suporta PF e PJ via
+// discriminated union em `tipo_pessoa`. A construção do payload no wizard
+// já envia o discriminador correto e os campos próprios de cada tipo.
+
+const clienteNovoPFSchema = z.object({
+  tipo_pessoa: z.literal("fisica"),
   nome: z.string().trim().min(2, "Nome muito curto").max(120),
   email: z.string().trim().toLowerCase().refine(emailValido, "E-mail inválido"),
   telefone_ddi: z.string().default("+55"),
   telefone: z.string().min(4, "Telefone inválido"),
-  // Cliente brasileiro: 11 dígitos (CPF). Estrangeiro: identificação livre
-  // (qualquer string não-vazia, alfanumérica). O flag `estrangeiro` define o
-  // tipo — a validação fica permissiva pra cobrir os dois.
+  // Brasileiro: 11 dígitos (CPF). Estrangeiro: alfanumérico livre.
   cpf: z.string().trim().min(1, "Identificação obrigatória").max(30),
   estrangeiro: z.boolean().default(false),
   data_nascimento: z.string().optional().nullable(),
+  passaporte: z.string().trim().max(60).optional().nullable(),
   tipo: z.enum(["regular", "faturado"]).default("regular"),
   dia_faturamento: z.number().int().min(1).max(31).optional().nullable(),
 })
+
+const clienteNovoPJSchema = z.object({
+  tipo_pessoa: z.literal("juridica"),
+  // Display unificado: `nome` recebe fantasia (fallback razão social).
+  nome: z.string().trim().min(2, "Nome muito curto").max(120),
+  razao_social: z.string().trim().min(2, "Razão social obrigatória").max(160),
+  nome_fantasia: z.string().trim().max(120).nullable().optional(),
+  cnpj: z.string().trim().min(1, "CNPJ obrigatório").max(20),
+  responsavel: z.string().trim().max(120).nullable().optional(),
+  email: z.string().trim().toLowerCase().refine(emailValido, "E-mail inválido"),
+  telefone_ddi: z.string().default("+55"),
+  telefone: z.string().min(4, "Telefone inválido"),
+  tipo: z.enum(["regular", "faturado"]).default("regular"),
+  dia_faturamento: z.number().int().min(1).max(31).optional().nullable(),
+})
+
+export const clienteNovoBasicoSchema = z.discriminatedUnion("tipo_pessoa", [
+  clienteNovoPFSchema,
+  clienteNovoPJSchema,
+])
 
 export type ClienteNovoBasicoInput = z.infer<typeof clienteNovoBasicoSchema>
 
