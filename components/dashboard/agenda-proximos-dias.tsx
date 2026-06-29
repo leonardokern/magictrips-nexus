@@ -6,42 +6,94 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  List,
+  Plus,
   RotateCcw,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
 import {
+  getAgendaPageData,
   listarEventosAgenda,
   type AgendaEvento,
 } from "@/app/(dashboard)/agenda/actions"
 import { EventoDetalhePopover } from "@/components/agenda/evento-detalhe-popover"
+import { EventoFormModal } from "@/components/agenda/evento-form-modal"
 
 type Props = {
   /** Resolvido no server pra evitar fetch desnecessário quando a flag está off. */
   agendaFlag: boolean
+  /** ID da empresa padrão do usuário — usado pra criar eventos inline. */
+  empresaPadrao?: string | null
+  /** Quando true, mostra os botões "Adicionar"/"Ver todos" em cada dia. */
+  podeCriar?: boolean
 }
 
 /**
- * Card "Próximos 7 dias" — janela de 7 dias com navegação por semana.
+ * Card "Esta semana" — janela de 7 dias com navegação por semana.
  * Cliente component: gerencia offset semanal, fetch via server action e
  * abre o modal de detalhe do evento ao clicar em qualquer item.
  *
  * Mostra ambos layouts (mobile/desktop) via classes responsivas.
  */
-export function AgendaProximosDias({ agendaFlag }: Props) {
-  // Offset em "semanas" relativo ao dia inicial padrão (hoje). 0 = janela
-  // começa hoje; +1 = começa daqui a 7 dias; -1 = começou 7 dias atrás.
+export function AgendaProximosDias({
+  agendaFlag,
+  empresaPadrao: empresaPadraoProp,
+  podeCriar = true,
+}: Props) {
+  // Quando o parent não passa empresaPadrao explícito, busca via server
+  // action — assim o widget funciona em qualquer dashboard sem precisar
+  // plumbar a prop em vários níveis.
+  const [empresaPadraoFetched, setEmpresaPadraoFetched] = useState<
+    string | null
+  >(null)
+  useEffect(() => {
+    if (empresaPadraoProp !== undefined) return
+    let cancelado = false
+    getAgendaPageData().then((r) => {
+      if (cancelado) return
+      if (r.ok && r.data) setEmpresaPadraoFetched(r.data.empresaPadrao)
+    })
+    return () => {
+      cancelado = true
+    }
+  }, [empresaPadraoProp])
+  const empresaPadrao = empresaPadraoProp ?? empresaPadraoFetched
+  // Offset em "semanas" calendário (domingo→sábado). 0 = semana atual,
+  // +1 = próxima, -1 = anterior. A janela SEMPRE começa no domingo daquela
+  // semana — não em "hoje" — pra acompanhar o calendário convencional.
   const [weekOffset, setWeekOffset] = useState(0)
   const [eventos, setEventos] = useState<AgendaEvento[]>([])
   const [eventoSelecionado, setEventoSelecionado] =
     useState<AgendaEvento | null>(null)
+  // Modal "Adicionar" — abre o EventoFormModal com data pré-preenchida
+  const [novoEventoData, setNovoEventoData] = useState<string | null>(null)
+  // Modal "Ver todos" — abre listagem dos eventos do dia clicável
+  const [verTodosData, setVerTodosData] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
   const dias = useMemo(() => {
-    const base = addDias(new Date(), weekOffset * 7)
+    const hoje = new Date()
+    const inicioSemana = addDias(hoje, -hoje.getDay()) // domingo desta semana
+    const base = addDias(inicioSemana, weekOffset * 7)
     return Array.from({ length: 7 }, (_, i) => addDias(base, i))
   }, [weekOffset])
+
+  const hojeIso = useMemo(() => toISODate(new Date()), [])
+  const amanhaIso = useMemo(() => toISODate(addDias(new Date(), 1)), [])
 
   const rangeInicio = useMemo(() => toISODate(dias[0]!), [dias])
   const rangeFim = useMemo(() => toISODate(dias[6]!), [dias])
@@ -73,17 +125,20 @@ export function AgendaProximosDias({ agendaFlag }: Props) {
   const semanaCorrente = weekOffset === 0
   const labelRange = `${formatDiaCurto(dias[0]!)} – ${formatDiaCurto(dias[6]!)}`
 
-  function renderDayCol(dia: Date, idx: number, variant: "desktop" | "mobile") {
+  function renderDayCol(dia: Date, _idx: number, variant: "desktop" | "mobile") {
     const iso = toISODate(dia)
     const eventosDoDia = eventosPorDia.get(iso) ?? []
-    const isHoje = iso === toISODate(new Date())
-    const label =
-      weekOffset === 0 && idx === 0
-        ? "Hoje"
-        : weekOffset === 0 && idx === 1
-          ? "Amanhã"
-          : DIAS_SEMANA_CURTO[dia.getDay()]
-    const maxItens = variant === "desktop" ? 6 : 3
+    const isHoje = iso === hojeIso
+    const isAmanha = iso === amanhaIso
+    // Labels relativos quando aplicável; senão usa dia da semana (sempre na
+    // mesma coluna porque a semana é alinhada por calendário).
+    const label = isHoje
+      ? "Hoje"
+      : isAmanha
+        ? "Amanhã"
+        : DIAS_SEMANA_CURTO[dia.getDay()]
+    const maxItens = variant === "desktop" ? 4 : 3
+    const temMais = eventosDoDia.length > maxItens
     return (
       <div
         key={iso}
@@ -157,12 +212,37 @@ export function AgendaProximosDias({ agendaFlag }: Props) {
                 </button>
               </li>
             ))}
-            {eventosDoDia.length > maxItens && (
-              <li className="px-1.5 text-[10px] text-white/40">
-                +{eventosDoDia.length - maxItens} mais
-              </li>
-            )}
           </ul>
+        )}
+
+        {/* Rodapé do dia: Ver todos (quando há mais que o limite) + Adicionar */}
+        {(podeCriar || temMais) && (
+          <div className="mt-auto flex items-center justify-between gap-1 border-t border-white/[0.04] pt-1.5">
+            {temMais ? (
+              <button
+                type="button"
+                onClick={() => setVerTodosData(iso)}
+                className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-white/55 hover:text-white"
+                title={`Ver todos (${eventosDoDia.length})`}
+              >
+                <List className="h-3 w-3" />
+                Ver todos ({eventosDoDia.length})
+              </button>
+            ) : (
+              <span />
+            )}
+            {podeCriar && (
+              <button
+                type="button"
+                onClick={() => setNovoEventoData(iso)}
+                className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-nexus-bright hover:text-nexus-bright-soft"
+                title="Adicionar evento"
+              >
+                <Plus className="h-3 w-3" />
+                Adicionar
+              </button>
+            )}
+          </div>
         )}
       </div>
     )
@@ -217,7 +297,7 @@ export function AgendaProximosDias({ agendaFlag }: Props) {
       {/* ── Mobile (scroll horizontal de cards estreitos) ────────────────── */}
       <div className="md:hidden">
         <div className="mb-2.5 flex items-center justify-between gap-2">
-          <p className="text-sm font-semibold text-white">Próximos 7 dias</p>
+          <p className="text-sm font-semibold text-white">Esta semana</p>
           {headerControls}
         </div>
         <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -231,7 +311,7 @@ export function AgendaProximosDias({ agendaFlag }: Props) {
           <div className="flex items-start justify-between gap-2">
             <div>
               <CardTitle className="text-base font-semibold text-white">
-                Próximos 7 dias
+                Esta semana
               </CardTitle>
               <p className="mt-0.5 text-xs text-white/45">
                 {isPending ? "Carregando…" : `Eventos da agenda · ${labelRange}`}
@@ -260,8 +340,88 @@ export function AgendaProximosDias({ agendaFlag }: Props) {
         onClose={() => setEventoSelecionado(null)}
         onDeleted={carregar}
       />
+
+      {/* Adicionar evento — reaproveita o mesmo modal do /agenda */}
+      {podeCriar && empresaPadrao && (
+        <EventoFormModal
+          open={novoEventoData !== null}
+          onOpenChange={(o) => !o && setNovoEventoData(null)}
+          empresaId={empresaPadrao}
+          dataPadrao={novoEventoData}
+          onSaved={() => {
+            setNovoEventoData(null)
+            carregar()
+          }}
+        />
+      )}
+
+      {/* Ver todos os eventos do dia — modal com lista clicável */}
+      <Dialog
+        open={verTodosData !== null}
+        onOpenChange={(o) => !o && setVerTodosData(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {verTodosData
+                ? `Eventos · ${formatDiaCompleto(parseISODate(verTodosData))}`
+                : "Eventos do dia"}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Lista de todos os eventos do dia. Clique em um pra ver detalhes.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="max-h-[60vh] space-y-1.5 overflow-y-auto">
+            {(verTodosData
+              ? eventosPorDia.get(verTodosData) ?? []
+              : []
+            ).map((ev) => (
+              <li key={ev.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEventoSelecionado(ev)
+                    setVerTodosData(null)
+                  }}
+                  className="flex w-full items-start gap-2 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
+                >
+                  <span
+                    className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: ev.cor }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    {ev.horaInicio && (
+                      <span className="mr-2 text-xs tabular-nums text-white/55">
+                        {ev.horaInicio}
+                      </span>
+                    )}
+                    <span
+                      className="text-sm font-medium"
+                      style={{ color: ev.cor }}
+                    >
+                      {ev.titulo}
+                    </span>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </DialogContent>
+      </Dialog>
     </>
   )
+}
+
+function parseISODate(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number)
+  return new Date(y!, (m ?? 1) - 1, d ?? 1)
+}
+
+function formatDiaCompleto(d: Date): string {
+  const dia = String(d.getDate()).padStart(2, "0")
+  const mes = String(d.getMonth() + 1).padStart(2, "0")
+  const ano = d.getFullYear()
+  return `${DIAS_SEMANA_CURTO[d.getDay()]} ${dia}/${mes}/${ano}`
 }
 
 const DIAS_SEMANA_CURTO = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]

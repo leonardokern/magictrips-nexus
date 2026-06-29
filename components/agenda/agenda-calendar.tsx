@@ -10,7 +10,6 @@ import {
   Banknote,
   CreditCard,
   Plane,
-  Bell,
   StickyNote,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -45,7 +44,6 @@ const CATEGORIAS_OPERACAO: Categoria[] = [
 
 // Categorias visíveis pra todos
 const CATEGORIAS_PESSOAIS: Categoria[] = [
-  { key: "lembrete", label: "Lembretes do sistema", cor: "#fb923c", icon: Bell },
   { key: "nota", label: "Notas", cor: "#1498D5", icon: StickyNote },
   { key: "reuniao", label: "Reuniões", cor: "#a855f7", icon: CalendarIcon },
   { key: "tarefa", label: "Tarefas", cor: "#10b981", icon: CalendarIcon },

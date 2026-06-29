@@ -214,22 +214,17 @@ export function NotificationsButton({ lembretes: initialLembretes, userId }: Pro
                 <p className="text-sm font-semibold text-white">Notificações</p>
               </div>
               {lembretes.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="rounded-full bg-nexus-bright/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-nexus-bright">
-                    {lembretes.length} {lembretes.length === 1 ? "pendente" : "pendentes"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={dispensarTodos}
-                    disabled={isPending}
-                    title="Marcar tudo como lido"
-                    aria-label="Marcar tudo como lido"
-                    className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-1 text-[10px] font-medium text-white/65 transition-colors hover:bg-white/[0.07] hover:text-white disabled:opacity-50"
-                  >
-                    <CheckCheck className="h-3 w-3" />
-                    Tudo lido
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={dispensarTodos}
+                  disabled={isPending}
+                  title="Marcar tudo como lido"
+                  aria-label="Marcar tudo como lido"
+                  className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-1 text-[10px] font-medium text-white/65 transition-colors hover:bg-white/[0.07] hover:text-white disabled:opacity-50"
+                >
+                  <CheckCheck className="h-3 w-3" />
+                  Tudo lido
+                </button>
               )}
             </div>
 
