@@ -600,12 +600,26 @@ export function VendaResumoPanel({
             </Bloco>
           )}
 
-          {/* Anexos — clicáveis, abrem em nova aba (signed URL) */}
-          {d.anexos.length > 0 && (
-            <Bloco titulo={`Anexos (${d.anexos.length})`}>
+          {/* Anexos — bloco SEMPRE visível pro gerente conferir o que o
+              agente subiu. Quando vazio, mostra estado central "sem anexos". */}
+          <Bloco
+            titulo={
+              d.anexos.length > 0
+                ? `Anexos (${d.anexos.length})`
+                : "Anexos"
+            }
+          >
+            {d.anexos.length > 0 ? (
               <AnexosBloco anexos={d.anexos} />
-            </Bloco>
-          )}
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] px-3 py-6 text-center">
+                <Paperclip className="h-4 w-4 text-white/30" />
+                <p className="text-xs text-white/45">
+                  Nenhum anexo foi adicionado a esta venda.
+                </p>
+              </div>
+            )}
+          </Bloco>
 
           {/* Observações */}
           {d.observacoes && (
