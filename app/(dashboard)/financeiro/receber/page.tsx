@@ -21,6 +21,7 @@ import {
 } from "@/components/financeiro/parcela-status-badge"
 import { GerarFaturaModalTrigger } from "@/components/financeiro/gerar-fatura-modal-trigger"
 import { MarcarParcelaPagaButton } from "@/components/financeiro/marcar-parcela-paga-button"
+import { ProrrogarParcelaButton } from "@/components/financeiro/prorrogar-parcela-button"
 import { VerVendaLink } from "@/components/vendas/ver-venda-link"
 import { getClientesComParcelasPendentes } from "@/app/(dashboard)/financeiro/actions"
 import { getCaixas } from "@/app/(dashboard)/cartoes/actions"
@@ -276,7 +277,7 @@ export default async function ContasReceberPage({
                 <TableHead className="text-right">Valor</TableHead>
                 <TableHead className="w-[150px]">Pago em</TableHead>
                 <TableHead>Status</TableHead>
-                {podeEditar && <TableHead className="w-[60px]" />}
+                {podeEditar && <TableHead className="w-[90px]" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -336,19 +337,29 @@ export default async function ContasReceberPage({
                     </TableCell>
                     {podeEditar && (
                       <TableCell className="text-right">
-                        {!ehPago &&
-                          status !== "cancelado" &&
-                          p.forma_pagamento !== "faturado" &&
-                          p.forma_pagamento !== "pix" && (
-                            <div className="flex items-center justify-end">
-                              <MarcarParcelaPagaButton
-                                parcelaId={p.id}
-                                dataVencimento={p.data_vencimento}
-                                valor={Number(p.valor ?? 0)}
-                                caixas={caixasList}
-                              />
-                            </div>
-                          )}
+                        {!ehPago && status !== "cancelado" && (
+                          <div className="flex items-center justify-end gap-1.5">
+                            <ProrrogarParcelaButton
+                              parcelaId={p.id}
+                              clienteNome={cli?.nome ?? ""}
+                              descricao={p.descricao}
+                              numero={p.numero}
+                              totalParcelas={p.total_parcelas}
+                              valor={Number(p.valor ?? 0)}
+                              formaPagamento={p.forma_pagamento}
+                              dataVencimento={p.data_vencimento}
+                            />
+                            {p.forma_pagamento !== "faturado" &&
+                              p.forma_pagamento !== "pix" && (
+                                <MarcarParcelaPagaButton
+                                  parcelaId={p.id}
+                                  dataVencimento={p.data_vencimento}
+                                  valor={Number(p.valor ?? 0)}
+                                  caixas={caixasList}
+                                />
+                              )}
+                          </div>
+                        )}
                       </TableCell>
                     )}
                   </TableRow>

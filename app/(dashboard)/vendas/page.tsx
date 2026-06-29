@@ -733,7 +733,7 @@ function VendasSection({
                     <TableCell>
                       <span
                         className={
-                          "rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider " +
+                          "inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider " +
                           getStatusChip(v.status)
                         }
                       >
@@ -809,7 +809,7 @@ function VendasSection({
                   </span>
                   <span
                     className={
-                      "rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider " +
+                      "inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider " +
                       getStatusChip(v.status)
                     }
                   >

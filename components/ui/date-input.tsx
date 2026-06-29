@@ -29,6 +29,9 @@ type Props = {
   min?: string
   /** Data máxima permitida (ISO). Datas posteriores ficam desabilitadas no calendário. */
   max?: string
+  /** Abre o calendário ao receber foco (padrão: true). Passar false quando o campo
+   *  está em um modal e não deve abrir o calendário automaticamente no mount. */
+  openOnFocus?: boolean
 }
 
 /** Converte ISO (YYYY-MM-DD) → display (DD/MM/AAAA). */
@@ -88,6 +91,7 @@ export function DateInput({
   className,
   min,
   max,
+  openOnFocus = true,
 }: Props) {
   const [display, setDisplay] = useState(() => isoToDisplay(value))
   const [open, setOpen] = useState(false)
@@ -179,7 +183,7 @@ export function DateInput({
         inputMode="numeric"
         value={display}
         onChange={handleChange}
-        onFocus={() => !disabled && setOpen(true)}
+        onFocus={() => !disabled && openOnFocus && setOpen(true)}
         onClick={() => !disabled && setOpen(true)}
         placeholder={placeholder}
         maxLength={10}
@@ -238,23 +242,24 @@ function CalendarPopover({
   // open/scroll/resize e decide se abre pra baixo ou pra cima.
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const POPOVER_W = 260
-  const POPOVER_H_APROX = 290 // height estimada do calendário
+
+  function computePos(popoverH: number) {
+    const el = anchorRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const espacoAbaixo = window.innerHeight - r.bottom
+    const abrirPraCima = espacoAbaixo < popoverH + 12 && r.top > popoverH
+    const top = abrirPraCima ? r.top - popoverH - 4 : r.bottom + 4
+    let left = r.left
+    const overflowDir = r.left + POPOVER_W - window.innerWidth
+    if (overflowDir > 0) left = Math.max(8, r.left - overflowDir - 8)
+    setPos({ top, left })
+  }
 
   useLayoutEffect(() => {
-    function compute() {
-      const el = anchorRef.current
-      if (!el) return
-      const r = el.getBoundingClientRect()
-      // Espaço disponível abaixo do input — se não cabe, abre pra cima.
-      const espacoAbaixo = window.innerHeight - r.bottom
-      const abrirPraCima = espacoAbaixo < POPOVER_H_APROX + 12 && r.top > POPOVER_H_APROX
-      const top = abrirPraCima ? r.top - POPOVER_H_APROX - 4 : r.bottom + 4
-      // Alinha à direita se transbordaria o lado direito da viewport.
-      let left = r.left
-      const overflowDir = r.left + POPOVER_W - window.innerWidth
-      if (overflowDir > 0) left = Math.max(8, r.left - overflowDir - 8)
-      setPos({ top, left })
-    }
+    // Estimativa inicial (calendário ainda não renderizou).
+    const H_ESTIMADO = 340
+    function compute() { computePos(H_ESTIMADO) }
     compute()
     window.addEventListener("resize", compute)
     window.addEventListener("scroll", compute, true)
@@ -262,7 +267,18 @@ function CalendarPopover({
       window.removeEventListener("resize", compute)
       window.removeEventListener("scroll", compute, true)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchorRef])
+
+  // Após renderizar, mede a altura real e corrige o top para que o calendário
+  // nunca sobreponha o campo de texto (o input fica sempre visível e clicável).
+  useLayoutEffect(() => {
+    const el = popoverRef.current
+    if (!el || !pos) return
+    const actualH = el.getBoundingClientRect().height
+    if (actualH > 0) computePos(actualH)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pos?.left])
 
   // Eventos React em conteúdo portaled propagam pela árvore virtual do
   // React — não pela árvore DOM. Mas o DismissableLayer do Radix Dialog

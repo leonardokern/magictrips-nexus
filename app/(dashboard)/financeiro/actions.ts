@@ -103,6 +103,39 @@ export async function registrarPagamentoParcela(args: {
 }
 
 /**
+ * Prorroga o vencimento de uma parcela a receber. Só aceita datas futuras
+ * (> hoje). Não altera status nem pagamento.
+ *
+ * Restrito a usuários com `financeiro.editar`.
+ */
+export async function prorrogarParcela(args: {
+  parcelaId: string
+  novaData: string
+}): Promise<ActionResult> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "editar")) {
+    return { ok: false, error: "Sem permissão para prorrogar parcelas." }
+  }
+
+  const hoje = new Date().toISOString().slice(0, 10)
+  if (args.novaData <= hoje) {
+    return { ok: false, error: "A nova data deve ser posterior a hoje." }
+  }
+
+  const { error } = await (await createClient())
+    .from("parcelas_receber")
+    .update({ data_vencimento: args.novaData })
+    .eq("id", args.parcelaId)
+
+  if (error) return { ok: false, error: error.message }
+
+  revalidatePath("/financeiro/receber")
+  revalidatePath("/fluxo-de-caixa")
+  revalidatePath("/dashboard")
+  return { ok: true, data: undefined }
+}
+
+/**
  * Hidrata os dados de uma parcela de recebimento pra geração do PDF
  * de fatura. Retorna `null` se a parcela não existe ou o usuário não tem
  * acesso (RLS já barra parcelas fora da empresa). Inclui a instrução de
