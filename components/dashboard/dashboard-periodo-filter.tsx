@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams, usePathname } from "next/navigation"
-import { Calendar, Check, ChevronDown } from "lucide-react"
+import { Calendar, CalendarCheck, Check, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -33,8 +33,7 @@ type Props = {
   /**
    * Valor padrão do filtro pra esse dashboard. Quando o usuário escolhe esse
    * preset, removemos o `?periodo=` da URL — mantém a URL limpa quando ele
-   * está no estado default. Default: "mes-atual" (dashboards gerenciais).
-   * Dashboards de agente passam "ultimos-30d".
+   * está no estado default. Default: "ultimos-30d".
    */
   defaultValue?: PeriodoValue
 }
@@ -43,7 +42,7 @@ export function DashboardPeriodoFilter({
   current,
   from,
   to,
-  defaultValue = "mes-atual",
+  defaultValue = "ultimos-30d",
 }: Props) {
   const router = useRouter()
   const pathname = usePathname()
@@ -101,9 +100,33 @@ export function DashboardPeriodoFilter({
   }
 
   const currentLabel = labelFromCurrent(current, from, to)
+  const isMesAtual = current === "mes-atual"
+  // Alvo do toggle do atalho: se já está no mês atual, volta pro padrão.
+  const alvoAtalho: Exclude<PeriodoValue, "custom"> = isMesAtual
+    ? defaultValue === "custom"
+      ? "ultimos-30d"
+      : defaultValue
+    : "mes-atual"
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="relative flex items-center gap-2">
+      {/* Atalho rápido: Mês atual */}
+      <button
+        type="button"
+        onClick={() => applyPreset(alvoAtalho)}
+        aria-pressed={isMesAtual}
+        title={isMesAtual ? "Voltar para o padrão (últimos 30 dias)" : "Ver somente o mês atual"}
+        className={cn(
+          "inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm transition-colors",
+          isMesAtual
+            ? "border-nexus-bright/40 bg-nexus-bright/15 text-nexus-bright"
+            : "border-white/10 bg-white/[0.04] text-white/75 hover:bg-white/[0.07]",
+        )}
+      >
+        <CalendarCheck className="h-4 w-4" />
+        <span className="whitespace-nowrap">Mês atual</span>
+      </button>
+
       <button
         type="button"
         onClick={() => setOpen((s) => !s)}

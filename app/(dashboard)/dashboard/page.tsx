@@ -55,10 +55,9 @@ export default async function DashboardPage({
   const podeCriarVenda = can(user, "vendas", "criar")
 
   // Default do filtro depende do papel:
-  //   - Agente   → "Últimos 30 dias" (foco em performance recente)
-  //   - Gestão   → "Mês atual" (foco no fechamento do mês)
-  const defaultPeriodo: PeriodoValue =
-    user.perfil.tipo === "agente" ? "ultimos-30d" : "mes-atual"
+  //   Padrão único: "Últimos 30 dias" pra todos os perfis. O filtro tem um
+  //   atalho "Mês atual" pra quem quer o fechamento do mês.
+  const defaultPeriodo: PeriodoValue = "ultimos-30d"
   const periodo = parsePeriodo(searchParams.periodo, defaultPeriodo)
   const range = computeRange(periodo, searchParams.from, searchParams.to)
 
@@ -340,7 +339,7 @@ export default async function DashboardPage({
                   <p className="text-base font-semibold text-white">Início</p>
                   <p className="mt-0.5 text-xs text-white/45">{labelPeriodo(periodo, range)}</p>
                 </div>
-                <DashboardPeriodoFilter current={periodo} from={searchParams.from} to={searchParams.to} />
+                <DashboardPeriodoFilter current={periodo} from={searchParams.from} to={searchParams.to} defaultValue="ultimos-30d" />
               </div>
               <div className="mt-6">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40">Receita aprovada</p>
@@ -519,6 +518,7 @@ export default async function DashboardPage({
             current={periodo}
             from={searchParams.from}
             to={searchParams.to}
+            defaultValue="ultimos-30d"
           />
         </div>
       </div>

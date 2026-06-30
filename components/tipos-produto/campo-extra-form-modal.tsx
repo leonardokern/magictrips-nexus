@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { GripVertical, List, Plus, Tag, Trash2, Type } from "lucide-react"
+import { List, Plus, Tag, Trash2, Type } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { LoaderButton } from "@/components/ui/loader-button"
@@ -135,16 +135,9 @@ export function CampoExtraFormModal(props: Props) {
     }))
   }
 
-  function moverOpcao(idx: number, delta: -1 | 1) {
-    const novo = v.opcoes.slice()
-    const dest = idx + delta
-    if (dest < 0 || dest >= novo.length) return
-    ;[novo[idx], novo[dest]] = [novo[dest]!, novo[idx]!]
-    setV((s) => ({
-      ...s,
-      opcoes: novo.map((o, i) => ({ ...o, ordem: i })),
-    }))
-  }
+  // Reordenação manual foi removida — regra de plataforma manda alfabético
+  // sempre (ver feedback_selects_ordenacao_alfabetica.md). A coluna `ordem`
+  // continua na tabela por compat, mas não é exposta na UI.
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -287,33 +280,38 @@ export function CampoExtraFormModal(props: Props) {
                 </p>
               ) : (
                 <ul className="mt-2 space-y-1.5">
-                  {v.opcoes.map((o, i) => (
-                    <li
-                      key={`${o.valor}-${i}`}
-                      className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2 py-1.5"
-                    >
-                      <div className="flex flex-col">
-                        <button
-                          type="button"
-                          onClick={() => moverOpcao(i, -1)}
-                          disabled={i === 0}
-                          className="text-white/40 hover:text-white disabled:opacity-30"
+                  {/* Lista sempre exibida em ordem alfabética (pt-BR, case/
+                      acento insensível). A `ordem` na tabela vira vestigial:
+                      no submit é normalizada por índice da lista ordenada. */}
+                  {v.opcoes
+                    .slice()
+                    .sort((a, b) =>
+                      a.valor.localeCompare(b.valor, "pt-BR", {
+                        sensitivity: "base",
+                      }),
+                    )
+                    .map((o) => {
+                      const idxOriginal = v.opcoes.findIndex(
+                        (x) => x.valor === o.valor,
+                      )
+                      return (
+                        <li
+                          key={o.valor}
+                          className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2 py-1.5"
                         >
-                          <GripVertical className="h-3 w-3 rotate-90" />
-                        </button>
-                      </div>
-                      <span className="flex-1 text-sm text-white/85">
-                        {o.valor}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => removerOpcao(i)}
-                        className="text-rose-300/70 hover:text-rose-200"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </li>
-                  ))}
+                          <span className="flex-1 text-sm text-white/85">
+                            {o.valor}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removerOpcao(idxOriginal)}
+                            className="text-rose-300/70 hover:text-rose-200"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </li>
+                      )
+                    })}
                 </ul>
               )}
               {errors.opcoes && (
