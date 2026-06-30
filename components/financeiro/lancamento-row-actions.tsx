@@ -45,7 +45,7 @@ export function LancamentoRowActions({
   const [openCancel, setOpenCancel] = useState(false)
   const [isPending, startTransition] = useTransition()
 
-  const podeMostrarDetalhe = tipo === "receber" && !!lancamento
+  const podeMostrarDetalhe = !!lancamento
 
   function confirmarCancelamento() {
     startTransition(async () => {
@@ -86,6 +86,7 @@ export function LancamentoRowActions({
           open={openEdit}
           onClose={() => setOpenEdit(false)}
           mode="edit"
+          tipo={tipo}
           lancamento={lancamento!}
           categorias={categorias}
           caixas={caixas}

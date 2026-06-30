@@ -21,6 +21,7 @@ import {
 } from "@/components/financeiro/parcela-status-badge"
 import { MarcarPagoButton } from "@/components/financeiro/marcar-pago-button"
 import { VerVendaLink } from "@/components/vendas/ver-venda-link"
+import { AnexoChip } from "@/components/financeiro/anexo-chip"
 import Link from "next/link"
 import { Tag } from "lucide-react"
 import { NovaSaidaButton } from "@/components/financeiro/nova-saida-modal"
@@ -38,6 +39,7 @@ type SearchParams = Promise<{
 }>
 
 const FORMA_LABEL: Record<string, string> = {
+  pix: "PIX",
   faturado: "Faturado",
   cartao_agencia: "Cartão agência",
   cliente_fornecedor: "Cliente e Fornecedor",
@@ -100,9 +102,7 @@ export default async function ContasPagarPage({
 
   const sp = await searchParams
   const statusFiltro = sp.status ?? ""
-  // Padrão silencioso: sem param de mês → filtra pelo mês atual na query,
-  // mas não redireciona (evita loop no "Limpar").
-  const mesFiltro = sp.mes ?? mesAtualISO()
+  const mesFiltro = sp.mes ?? ""
   const cartaoFiltro = sp.cartao ?? ""
   const q = (sp.q ?? "").trim()
   const hoje = hojeIso()
@@ -117,9 +117,11 @@ export default async function ContasPagarPage({
       `
       id, numero, total_parcelas, descricao, valor, forma_pagamento,
       data_vencimento, data_pagamento, status, fornecedor_nome, is_manual,
+      categoria_id, data_emissao, caixa_id, observacoes,
       cartao:cartoes(id, nome),
       caixa:caixas(nome),
       categoria:categorias_financeiras(nome),
+      lancamento_anexos!lancamento_anexos_parcela_pagar_id_fkey(id, nome_arquivo),
       venda_produto:venda_produtos(
         id,
         venda:vendas(id, identificador)
@@ -164,31 +166,44 @@ export default async function ContasPagarPage({
   // KPIs — sem filtro de mês/status (visão geral)
   type KpiRow = {
     valor: number | string
+    forma_pagamento: string | null
     data_vencimento: string
     data_pagamento: string | null
     status: string
   }
-  const { data: kpiRows } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: kpiRows } = await (supabase as any)
     .from("parcelas_pagar")
-    .select("valor, data_vencimento, data_pagamento, status")
+    .select("valor, forma_pagamento, data_vencimento, data_pagamento, status")
 
   const kpis = (() => {
     const rows = (kpiRows ?? []) as KpiRow[]
     const mes = mesAtualISO()
-    let emAberto = 0
-    let atrasado = 0
-    let pagoMes = 0
+    const { from: mesFrom, to: mesTo } = rangeDoMes(mes)
+    let emAberto = 0   // todos os pendentes (exceto cartão — automático)
+    let atrasado = 0   // pendentes vencidos (exceto cartão)
+    let pendenteNoMes = 0  // tudo que vence este mês ainda pendente (cartão + não-cartão)
+    let pagoNoMes = 0  // pago manualmente no mês + cartão com vencimento passado no mês
     for (const r of rows) {
+      if (r.status === "cancelado") continue
       const v = Number(r.valor ?? 0)
+      const ehCartao = r.forma_pagamento === "cartao_agencia"
+
       if (r.status === "pendente") {
-        emAberto += v
-        if (r.data_vencimento < hoje) atrasado += v
+        if (!ehCartao) {
+          emAberto += v
+          if (r.data_vencimento < hoje) atrasado += v
+        }
+        // Pendente neste mês — ambos os tipos
+        if (r.data_vencimento >= mesFrom && r.data_vencimento <= mesTo) pendenteNoMes += v
+        // Cartão com vencimento neste mês já passado = fatura fechada = conta como pago
+        if (ehCartao && r.data_vencimento >= mesFrom && r.data_vencimento < hoje) pagoNoMes += v
       }
-      if (r.status === "pago" && r.data_pagamento?.startsWith(mes)) {
-        pagoMes += v
-      }
+
+      // Pago manualmente neste mês
+      if (r.status === "pago" && r.data_pagamento?.startsWith(mes)) pagoNoMes += v
     }
-    return { emAberto, atrasado, pagoMes }
+    return { emAberto, atrasado, pendenteNoMes, pagoNoMes }
   })()
 
   type ParcelaRow = {
@@ -200,12 +215,17 @@ export default async function ContasPagarPage({
     forma_pagamento: string | null
     data_vencimento: string
     data_pagamento: string | null
+    data_emissao: string | null
     status: string
     fornecedor_nome: string | null
     is_manual: boolean
+    categoria_id: string | null
+    caixa_id: string | null
+    observacoes: string | null
     cartao: { id: string; nome: string } | { id: string; nome: string }[] | null
     caixa: { nome: string } | { nome: string }[] | null
     categoria: { nome: string } | { nome: string }[] | null
+    lancamento_anexos: { id: string; nome_arquivo: string }[] | null
     venda_produto:
       | {
           id: string
@@ -263,12 +283,12 @@ export default async function ContasPagarPage({
         )}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          label="Em aberto"
+          label="Total a pagar"
           value={formatBRL(kpis.emAberto)}
           tone="info"
-          hint="Total ainda a pagar"
+          hint="Total pendente — exclui cartões (automático)"
         />
         <KpiCard
           label="Atrasado"
@@ -277,9 +297,16 @@ export default async function ContasPagarPage({
           hint="Vencido sem pagamento"
         />
         <KpiCard
+          label={`Pendente em ${formatMesAtualLabel()}`}
+          value={formatBRL(kpis.pendenteNoMes)}
+          tone="neutral"
+          hint="Vence este mês, ainda em aberto"
+        />
+        <KpiCard
           label={`Pago em ${formatMesAtualLabel()}`}
-          value={formatBRL(kpis.pagoMes)}
+          value={formatBRL(kpis.pagoNoMes)}
           tone="success"
+          hint="Marcado pago + faturas de cartão vencidas"
         />
       </div>
 
@@ -303,11 +330,12 @@ export default async function ContasPagarPage({
           <Table>
             <TableHeader>
               <TableRow className="border-white/[0.06] text-[10px] uppercase tracking-wider text-white/45">
-                <TableHead className="w-[110px]">Vencimento</TableHead>
-                <TableHead>Fornecedor</TableHead>
+                <TableHead>Destino</TableHead>
                 <TableHead>Venda</TableHead>
                 <TableHead>Parcela</TableHead>
                 <TableHead>Forma</TableHead>
+                <TableHead className="w-[110px]">Vencimento</TableHead>
+                <TableHead className="w-[110px]">Pagamento</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-[60px]" />
@@ -341,24 +369,12 @@ export default async function ContasPagarPage({
                     key={p.id}
                     className="border-white/[0.04] hover:bg-white/[0.025]"
                   >
-                    <TableCell className="tabular-nums text-sm">
-                      <span
-                        className={ehAtrasado ? "font-medium text-rose-300" : ""}
-                      >
-                        {formatDateBr(p.data_vencimento)}
-                      </span>
-                      {ehPago && p.data_pagamento && (
-                        <span className="block text-[10px] text-emerald-300/70">
-                          pago {formatDateBr(p.data_pagamento)}
-                        </span>
-                      )}
-                    </TableCell>
                     <TableCell className="text-sm text-white">
                       {p.is_manual ? (
                         <div className="flex flex-col gap-0.5">
-                          <span className="text-white/80">{p.descricao || "—"}</span>
-                          {catObj?.nome && (
-                            <span className="text-[10px] text-white/40">{catObj.nome}</span>
+                          <span className="text-white/80">{catObj?.nome || "—"}</span>
+                          {p.descricao && (
+                            <span className="text-[10px] text-white/35">{p.descricao}</span>
                           )}
                         </div>
                       ) : (
@@ -367,9 +383,11 @@ export default async function ContasPagarPage({
                     </TableCell>
                     <TableCell>
                       {p.is_manual ? (
-                        <span className="rounded border border-rose-500/20 bg-rose-500/[0.08] px-1.5 py-0.5 text-[10px] font-medium text-rose-300">
-                          Manual
-                        </span>
+                        (p.lancamento_anexos ?? []).length > 0 ? (
+                          <AnexoChip anexos={p.lancamento_anexos ?? []} />
+                        ) : (
+                          <span className="font-mono text-xs text-white/30">—</span>
+                        )
                       ) : vnd?.id && vnd?.identificador ? (
                         <VerVendaLink
                           vendaId={vnd.id}
@@ -384,6 +402,18 @@ export default async function ContasPagarPage({
                       {p.numero}/{p.total_parcelas}
                     </TableCell>
                     <TableCell className="text-xs text-white/70">{forma}</TableCell>
+                    <TableCell className="tabular-nums text-sm">
+                      <span className={ehAtrasado ? "font-medium text-rose-300" : ""}>
+                        {formatDateBr(p.data_vencimento)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="tabular-nums text-sm">
+                      {ehPago && p.data_pagamento ? (
+                        <span className="text-emerald-300/80">{formatDateBr(p.data_pagamento)}</span>
+                      ) : (
+                        <span className="text-white/25">—</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums text-sm font-medium text-white">
                       {formatBRL(Number(p.valor ?? 0))}
                     </TableCell>
@@ -413,6 +443,21 @@ export default async function ContasPagarPage({
                               tipo="pagar"
                               parcelaId={p.id}
                               descricao={p.descricao ?? "Lançamento manual"}
+                              lancamento={{
+                                id: p.id,
+                                descricao: p.descricao,
+                                categoria_id: p.categoria_id,
+                                valor: Number(p.valor ?? 0),
+                                forma_pagamento: p.forma_pagamento,
+                                data_emissao: p.data_emissao,
+                                data_vencimento: p.data_vencimento,
+                                cartao_id: cartao?.id ?? null,
+                                caixa_id: p.caixa_id,
+                                observacoes: p.observacoes,
+                              }}
+                              categorias={categorias}
+                              caixas={caixasList}
+                              cartoes={cartoesList}
                             />
                           )}
                         </div>

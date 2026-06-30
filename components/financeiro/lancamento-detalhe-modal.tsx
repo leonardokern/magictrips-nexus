@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select"
 import {
   editarLancamentoReceber,
+  editarLancamentoPagar,
   listarAnexosLancamento,
   uploadAnexoLancamento,
   excluirAnexoLancamento,
@@ -83,13 +84,14 @@ type Props = {
   open: boolean
   onClose: () => void
   mode: "view" | "edit"
+  tipo: "receber" | "pagar"
   lancamento: LancamentoData
   categorias: CategoriaFinanceira[]
   caixas: CaixaItem[]
   cartoes: CartaoSimples[]
 }
 
-export function LancamentoDetalheModal({ open, onClose, mode, lancamento, categorias, caixas, cartoes }: Props) {
+export function LancamentoDetalheModal({ open, onClose, mode, tipo, lancamento, categorias, caixas, cartoes }: Props) {
   const readOnly = mode === "view"
   const hoje = new Date().toISOString().slice(0, 10)
 
@@ -111,8 +113,8 @@ export function LancamentoDetalheModal({ open, onClose, mode, lancamento, catego
   // Carrega anexos ao abrir
   useEffect(() => {
     if (!open) return
-    listarAnexosLancamento("receber", lancamento.id).then(setAnexos)
-  }, [open, lancamento.id])
+    listarAnexosLancamento(tipo, lancamento.id).then(setAnexos)
+  }, [open, tipo, lancamento.id])
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -121,7 +123,7 @@ export function LancamentoDetalheModal({ open, onClose, mode, lancamento, catego
     setUploading(true)
     const fd = new FormData()
     fd.append("file", file)
-    const r = await uploadAnexoLancamento("receber", lancamento.id, fd)
+    const r = await uploadAnexoLancamento(tipo, lancamento.id, fd)
     setUploading(false)
     if (!r.ok) { toast.error(r.error); return }
     setAnexos((prev) => [...prev, r.data!])
@@ -147,8 +149,9 @@ export function LancamentoDetalheModal({ open, onClose, mode, lancamento, catego
 
     const { cartaoId, caixaId } = parseCentro(centro)
 
+    const editarAction = tipo === "pagar" ? editarLancamentoPagar : editarLancamentoReceber
     startTransition(async () => {
-      const r = await editarLancamentoReceber(lancamento.id, {
+      const r = await editarAction(lancamento.id, {
         descricao,
         categoria_id: categoriaId,
         valor,
@@ -167,6 +170,7 @@ export function LancamentoDetalheModal({ open, onClose, mode, lancamento, catego
 
   const cartoesAtivos = cartoes.filter((c) => c.ativo)
   const caixasAtivas = caixas.filter((c) => c.ativo)
+  const categoriasDoTipo = categorias.filter((c) => c.tipo === tipo || (c.tipo as string) === "ambos")
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -185,7 +189,7 @@ export function LancamentoDetalheModal({ open, onClose, mode, lancamento, catego
                 <SelectValue placeholder="Selecionar categoria…" />
               </SelectTrigger>
               <SelectContent>
-                {categorias.map((c) => (
+                {categoriasDoTipo.map((c) => (
                   <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
                 ))}
               </SelectContent>

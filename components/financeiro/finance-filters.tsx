@@ -18,6 +18,19 @@ type Preset = { label: string; status: string; mes?: string }
 type CaixaOption = { id: string; nome: string }
 type CartaoOption = { id: string; nome: string }
 
+/** Gera lista de meses em pt-BR: 6 atrás + atual + 12 à frente. */
+function gerarMeses(): { value: string; label: string }[] {
+  const hoje = new Date()
+  const list: { value: string; label: string }[] = []
+  for (let i = -6; i <= 12; i++) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1)
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+    const raw = d.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
+    list.push({ value, label: raw.charAt(0).toUpperCase() + raw.slice(1) })
+  }
+  return list
+}
+
 export function FinanceFilters({
   placeholderBusca,
   presets = [],
@@ -63,11 +76,13 @@ export function FinanceFilters({
   }
 
   const status = sp.get("status") ?? ""
-  const mes = sp.get("mes") ?? ""
+  const mesSel = sp.get("mes") ?? ""
   const caixaSel = sp.get("caixa") ?? ""
   const cartaoSel = sp.get("cartao") ?? ""
   const algumFiltro =
     sp.get("q") || sp.get("status") || sp.get("mes") || sp.get("caixa") || sp.get("cartao")
+
+  const meses = gerarMeses()
 
   return (
     <div className="space-y-3">
@@ -105,12 +120,22 @@ export function FinanceFilters({
           </Select>
 
           {showMes && (
-            <Input
-              type="month"
-              value={mes}
-              onChange={(e) => navigate({ mes: e.target.value || null })}
-              className="h-9 w-[160px] border-white/10 bg-white/[0.04] text-sm tabular-nums"
-            />
+            <Select
+              value={mesSel || "all"}
+              onValueChange={(v) => navigate({ mes: v })}
+            >
+              <SelectTrigger className="h-9 w-[195px] border-white/10 bg-white/[0.04] text-sm">
+                <SelectValue placeholder="Todos os meses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os meses</SelectItem>
+                {meses.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
 
           {/* Filtro de cartão */}

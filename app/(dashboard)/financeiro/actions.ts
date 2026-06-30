@@ -1361,6 +1361,55 @@ export async function editarLancamentoReceber(
   return { ok: true }
 }
 
+export async function editarLancamentoPagar(
+  id: string,
+  data: {
+    descricao: string
+    categoria_id: string
+    valor: number
+    forma_pagamento: "faturado" | "pix"
+    data_emissao: string
+    data_vencimento: string
+    cartao_id?: string
+    caixa_id?: string
+    observacoes?: string
+  },
+): Promise<ActionResult> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "editar")) {
+    return { ok: false, error: "Sem permissão para editar lançamentos." }
+  }
+  if (!data.descricao.trim()) return { ok: false, error: "Descrição obrigatória." }
+  if (!data.categoria_id) return { ok: false, error: "Categoria obrigatória." }
+  if (!data.valor || data.valor <= 0) return { ok: false, error: "Valor deve ser maior que zero." }
+  if (!data.data_vencimento) return { ok: false, error: "Data de vencimento obrigatória." }
+
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any)
+    .from("parcelas_pagar")
+    .update({
+      descricao: data.descricao.trim(),
+      categoria_id: data.categoria_id,
+      valor: data.valor,
+      forma_pagamento: data.forma_pagamento,
+      data_emissao: data.data_emissao,
+      data_vencimento: data.data_vencimento,
+      cartao_id: data.cartao_id ?? null,
+      caixa_id: data.caixa_id ?? null,
+      observacoes: data.observacoes?.trim() ?? null,
+    })
+    .eq("id", id)
+    .eq("is_manual", true)
+
+  if (error) return { ok: false, error: (error as { message: string }).message }
+
+  revalidatePath("/financeiro/pagar")
+  revalidatePath("/fluxo-de-caixa")
+  revalidatePath("/dashboard")
+  return { ok: true }
+}
+
 export async function criarLancamentoPagar(data: {
   descricao: string
   categoria_id: string

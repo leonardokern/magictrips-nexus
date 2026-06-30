@@ -305,7 +305,7 @@ export default async function ContasReceberPage({
             <TableHeader>
               <TableRow className="border-white/[0.06] text-[10px] uppercase tracking-wider text-white/45">
                 <TableHead className="w-[110px]">Vencimento</TableHead>
-                <TableHead>Cliente</TableHead>
+                <TableHead>Fonte</TableHead>
                 <TableHead>Venda</TableHead>
                 <TableHead>Parcela</TableHead>
                 <TableHead>Forma</TableHead>

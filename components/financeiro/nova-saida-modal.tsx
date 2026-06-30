@@ -113,6 +113,7 @@ export function NovaSaidaModal({ open, onClose, categorias, caixas, cartoes }: P
   const [isPending, startTransition] = useTransition()
   const [criadoId, setCriadoId] = useState<string | null>(null)
   const [anexos, setAnexos] = useState<AnexoLancamento[]>([])
+  const [stagedFiles, setStagedFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -127,6 +128,7 @@ export function NovaSaidaModal({ open, onClose, categorias, caixas, cartoes }: P
     setObservacoes("")
     setCriadoId(null)
     setAnexos([])
+    setStagedFiles([])
   }
 
   function handleClose() {
@@ -160,16 +162,35 @@ export function NovaSaidaModal({ open, onClose, categorias, caixas, cartoes }: P
         observacoes: observacoes || undefined,
       })
       if (!r.ok) { toast.error(r.error); return }
+      const novoId = r.data!.id
+      // Upload staged files
+      const enviados: AnexoLancamento[] = []
+      for (const file of stagedFiles) {
+        const fd = new FormData()
+        fd.append("file", file)
+        const up = await uploadAnexoLancamento("pagar", novoId, fd)
+        if (up.ok && up.data) enviados.push(up.data)
+      }
+      setAnexos(enviados)
+      setStagedFiles([])
+      setCriadoId(novoId)
       toast.success("Lançamento criado com sucesso.")
-      setCriadoId(r.data!.id)
     })
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (!file || !criadoId) return
+    if (!file) return
     e.target.value = ""
+    const totalArquivos = stagedFiles.length + anexos.length
+    if (totalArquivos >= 2) { toast.error("Limite de 2 anexos por lançamento."); return }
 
+    if (!criadoId) {
+      // Antes de criar: enfileira localmente
+      setStagedFiles((prev) => [...prev, file])
+      return
+    }
+    // Após criar: faz upload direto
     setUploading(true)
     const fd = new FormData()
     fd.append("file", file)
@@ -184,6 +205,7 @@ export function NovaSaidaModal({ open, onClose, categorias, caixas, cartoes }: P
     const r = await excluirAnexoLancamento(id)
     if (!r.ok) { toast.error(r.error); return }
     setAnexos((prev) => prev.filter((a) => a.id !== id))
+    toast.success("Anexo removido.")
   }
 
   const categoriasPagar = categorias.filter((c) => c.tipo === "pagar")
@@ -322,53 +344,73 @@ export function NovaSaidaModal({ open, onClose, categorias, caixas, cartoes }: P
             />
           </div>
 
-          {/* Anexos — só disponível após criar */}
-          {criadoId && (
-            <div className="space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium uppercase tracking-wider text-white/55">
-                  Comprovantes
-                </p>
-                <button
-                  onClick={() => fileRef.current?.click()}
-                  disabled={uploading}
-                  className="flex items-center gap-1.5 rounded-md border border-nexus-bright/25 bg-nexus-bright/[0.08] px-2.5 py-1 text-xs text-nexus-bright transition-colors hover:border-nexus-bright/50 hover:bg-nexus-bright/15 disabled:opacity-40"
-                >
-                  {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Paperclip className="h-3 w-3" />}
-                  Anexar arquivo
-                </button>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png,.webp"
-                  className="hidden"
-                  onChange={handleFileChange}
-                />
-              </div>
-              {anexos.length === 0 ? (
-                <p className="text-[11px] text-white/30">Nenhum arquivo anexado.</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {anexos.map((a) => (
-                    <div key={a.id} className="flex items-center gap-2 rounded-md border border-white/[0.04] bg-white/[0.02] px-2.5 py-1.5">
-                      <FileText className="h-3.5 w-3.5 shrink-0 text-white/40" />
-                      <span className="flex-1 truncate text-xs text-white/70">{a.nome_arquivo}</span>
-                      <button
-                        onClick={() => handleRemoveAnexo(a.id)}
-                        className="text-white/30 transition-colors hover:text-rose-300"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
+          {/* Comprovantes — disponível antes e após criar */}
+          {(() => {
+            const totalArquivos = stagedFiles.length + anexos.length
+            const atingiuLimite = totalArquivos >= 2
+            return (
+              <div className="space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium uppercase tracking-wider text-white/55">
+                    Comprovantes
+                    {totalArquivos > 0 && (
+                      <span className="ml-1.5 rounded-full bg-nexus-bright/20 px-1.5 py-0.5 text-[10px] text-nexus-bright">
+                        {totalArquivos}
+                      </span>
+                    )}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => fileRef.current?.click()}
+                    disabled={uploading || isPending || atingiuLimite}
+                    title={atingiuLimite ? "Limite de 2 anexos atingido" : undefined}
+                    className="flex items-center gap-1.5 rounded-md border border-nexus-bright/25 bg-nexus-bright/[0.08] px-2.5 py-1 text-xs text-nexus-bright transition-colors hover:border-nexus-bright/50 hover:bg-nexus-bright/15 disabled:opacity-40"
+                  >
+                    {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Paperclip className="h-3 w-3" />}
+                    Anexar arquivo
+                  </button>
+                  <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" className="hidden" onChange={handleFileChange} />
                 </div>
-              )}
-            </div>
-          )}
+                {totalArquivos === 0 ? (
+                  <p className="text-[11px] text-white/30">Nenhum arquivo anexado.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {stagedFiles.map((f, i) => (
+                      <div key={`staged-${i}`} className="flex items-center gap-2 rounded-md border border-white/[0.04] bg-white/[0.02] px-2.5 py-1.5 opacity-60">
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-white/40" />
+                        <span className="flex-1 truncate text-xs text-white/70">{f.name}</span>
+                        <span className="text-[10px] text-white/30">pendente</span>
+                        <button
+                          type="button"
+                          onClick={() => setStagedFiles((prev) => prev.filter((_, j) => j !== i))}
+                          className="text-white/30 transition-colors hover:text-rose-300"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    {anexos.map((a) => (
+                      <div key={a.id} className="flex items-center gap-2 rounded-md border border-white/[0.04] bg-white/[0.02] px-2.5 py-1.5">
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-emerald-400/60" />
+                        <span className="flex-1 truncate text-xs text-white/70">{a.nome_arquivo}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAnexo(a.id)}
+                          className="text-white/30 transition-colors hover:text-rose-300"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {criadoId && (
             <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.05] px-3 py-2 text-xs text-emerald-300">
-              Lançamento criado com sucesso. Adicione comprovantes acima ou feche.
+              Lançamento criado. Adicione mais comprovantes acima ou feche.
             </div>
           )}
         </div>

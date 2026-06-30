@@ -34,11 +34,12 @@ function isoSomaDias(iso: string, dias: number): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`
 }
 
-function rangePadrao(): { inicio: string; fim: string } {
-  // Padrão: últimos 30 dias até 60 dias à frente — 90 dias de janela centrada
-  // no presente. Dá visibilidade do que veio + do que vem.
-  const hoje = hojeIso()
+function rangePadrao(hoje: string): { inicio: string; fim: string } {
   return { inicio: isoSomaDias(hoje, -30), fim: isoSomaDias(hoje, 60) }
+}
+
+function primeiroDiaMes(hoje: string): string {
+  return hoje.slice(0, 7) + "-01"
 }
 
 type MovimentoRow = {
@@ -46,7 +47,10 @@ type MovimentoRow = {
   valor: number
   origem: "receber" | "pagar"
   status: string
+  isManual: boolean
+  isCartaoAgencia: boolean
   descricao: string
+  categoria: string | null
   ref: string
 }
 
@@ -65,28 +69,42 @@ export default async function FluxoDeCaixaPage({
   }
 
   const sp = await searchParams
-  const padrao = rangePadrao()
+  const hoje = hojeIso()
+  const padrao = rangePadrao(hoje)
   const inicio = sp.inicio || padrao.inicio
   const fim = sp.fim || padrao.fim
-  const hoje = hojeIso()
+
+  // Links para presets de período (calculados no servidor)
+  const presetEsteMes = `?inicio=${primeiroDiaMes(hoje)}&fim=${hoje}`
+  const presetUltimos30 = `?inicio=${isoSomaDias(hoje, -30)}&fim=${hoje}`
+  const presetProximos30 = `?inicio=${hoje}&fim=${isoSomaDias(hoje, 30)}`
+
+  // Preset ativo: compara com o range atual
+  const ativoEsteMes = inicio === primeiroDiaMes(hoje) && fim === hoje
+  const ativoUltimos30 = inicio === isoSomaDias(hoje, -30) && fim === hoje
+  const ativoProximos30 = inicio === hoje && fim === isoSomaDias(hoje, 30)
 
   const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any
 
-  // Carrega receber + pagar no intervalo em paralelo.
   const [recRes, pagRes] = await Promise.all([
-    supabase
+    sb
       .from("parcelas_receber")
       .select(
         `valor, data_vencimento, data_pagamento, status, descricao,
+         is_manual, forma_pagamento,
+         categoria:categorias_financeiras(nome),
          venda:vendas(identificador), cliente:clientes(nome)`,
       )
       .gte("data_vencimento", inicio)
       .lte("data_vencimento", fim),
-    supabase
+    sb
       .from("parcelas_pagar")
       .select(
         `valor, data_vencimento, data_pagamento, status, descricao,
-         fornecedor_nome,
+         is_manual, forma_pagamento, fornecedor_nome,
+         categoria:categorias_financeiras(nome),
          venda_produto:venda_produtos(venda:vendas(identificador))`,
       )
       .gte("data_vencimento", inicio)
@@ -99,6 +117,9 @@ export default async function FluxoDeCaixaPage({
     data_pagamento: string | null
     status: string
     descricao: string | null
+    is_manual: boolean
+    forma_pagamento: string | null
+    categoria: { nome: string } | { nome: string }[] | null
     venda: { identificador: string } | { identificador: string }[] | null
     cliente: { nome: string } | { nome: string }[] | null
   }
@@ -108,63 +129,64 @@ export default async function FluxoDeCaixaPage({
     data_pagamento: string | null
     status: string
     descricao: string | null
+    is_manual: boolean
+    forma_pagamento: string | null
     fornecedor_nome: string | null
+    categoria: { nome: string } | { nome: string }[] | null
     venda_produto:
       | { venda: { identificador: string } | { identificador: string }[] | null }
-      | {
-          venda:
-            | { identificador: string }
-            | { identificador: string }[]
-            | null
-        }[]
+      | { venda: { identificador: string } | { identificador: string }[] | null }[]
       | null
   }
 
   const rec = (recRes.data ?? []) as RecRow[]
   const pag = (pagRes.data ?? []) as PagRow[]
 
-  // Lista de movimentos pra renderizar tabela + agregar no chart.
   const movimentos: MovimentoRow[] = []
 
   for (const r of rec) {
     if (r.status === "cancelado") continue
     const c = Array.isArray(r.cliente) ? r.cliente[0] : r.cliente
     const v = Array.isArray(r.venda) ? r.venda[0] : r.venda
+    const cat = Array.isArray(r.categoria) ? r.categoria[0] : r.categoria
     movimentos.push({
       data: r.data_vencimento,
       valor: Number(r.valor ?? 0),
       origem: "receber",
       status: r.status,
-      descricao: r.descricao ?? "Recebimento",
-      ref: `${v?.identificador ?? "—"} · ${c?.nome ?? "—"}`,
+      isManual: !!r.is_manual,
+      isCartaoAgencia: r.forma_pagamento === "cartao_agencia",
+      descricao: r.is_manual ? (cat?.nome ?? "Lançamento manual") : (r.descricao ?? "Recebimento"),
+      categoria: r.is_manual ? (r.descricao ?? null) : null,
+      ref: r.is_manual ? "" : [v?.identificador, c?.nome].filter(Boolean).join(" · "),
     })
   }
+
   for (const r of pag) {
     if (r.status === "cancelado") continue
     const vp = Array.isArray(r.venda_produto) ? r.venda_produto[0] : r.venda_produto
     const v = vp ? (Array.isArray(vp.venda) ? vp.venda[0] : vp.venda) : null
+    const cat = Array.isArray(r.categoria) ? r.categoria[0] : r.categoria
     movimentos.push({
       data: r.data_vencimento,
       valor: Number(r.valor ?? 0),
       origem: "pagar",
       status: r.status,
-      descricao: r.descricao ?? "Pagamento",
-      ref: `${v?.identificador ?? "—"} · ${r.fornecedor_nome ?? "—"}`,
+      isManual: !!r.is_manual,
+      isCartaoAgencia: r.forma_pagamento === "cartao_agencia",
+      descricao: r.is_manual ? (cat?.nome ?? "Lançamento manual") : (r.fornecedor_nome ?? r.descricao ?? "Pagamento"),
+      categoria: r.is_manual ? (r.descricao ?? null) : null,
+      ref: r.is_manual ? "" : [v?.identificador, r.fornecedor_nome].filter(Boolean).join(" · "),
     })
   }
 
-  // KPIs: somatório no período (entradas previstas, saídas previstas,
-  // saldo previsto = entradas - saídas).
-  const totalEntradas = movimentos
-    .filter((m) => m.origem === "receber")
-    .reduce((acc, m) => acc + m.valor, 0)
-  const totalSaidas = movimentos
-    .filter((m) => m.origem === "pagar")
-    .reduce((acc, m) => acc + m.valor, 0)
+  // KPIs
+  const totalEntradas = movimentos.filter((m) => m.origem === "receber").reduce((a, m) => a + m.valor, 0)
+  const totalRecebido = movimentos.filter((m) => m.origem === "receber" && m.status === "pago").reduce((a, m) => a + m.valor, 0)
+  const totalSaidas = movimentos.filter((m) => m.origem === "pagar").reduce((a, m) => a + m.valor, 0)
   const saldoPrevisto = totalEntradas - totalSaidas
 
-  // Agrega por dia pro chart. Constrói uma timeline contínua do `inicio`
-  // até `fim` pra que o eixo X não tenha buracos.
+  // Gráfico
   const porDia = new Map<string, { entradas: number; saidas: number }>()
   for (const m of movimentos) {
     const cur = porDia.get(m.data) ?? { entradas: 0, saidas: 0 }
@@ -187,8 +209,14 @@ export default async function FluxoDeCaixaPage({
     cursor = isoSomaDias(cursor, 1)
   }
 
-  // Ordena movimentos por data
   movimentos.sort((a, b) => a.data.localeCompare(b.data))
+
+  const presetCls = (ativo: boolean) =>
+    `rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+      ativo
+        ? "border-nexus-bright/60 bg-nexus-bright/15 text-nexus-bright"
+        : "border-white/10 bg-white/[0.03] text-white/55 hover:border-white/25 hover:bg-white/[0.07] hover:text-white"
+    }`
 
   return (
     <div className="space-y-5">
@@ -199,51 +227,68 @@ export default async function FluxoDeCaixaPage({
             Fluxo de Caixa
           </h2>
           <p className="mt-1 text-sm text-white/55">
-            Entradas e saídas previstas do período — independente de
-            pagamento já efetuado.
+            Entradas e saídas do período — pendentes e realizadas.
           </p>
         </div>
 
-        {/* Range — server-side via querystring */}
-        <form className="flex flex-wrap items-end gap-2" action="" method="get">
-          <div>
-            <label className="mb-1 block text-[10px] uppercase tracking-wider text-white/45">
-              De
-            </label>
-            <input
-              type="date"
-              name="inicio"
-              defaultValue={inicio}
-              className="h-9 rounded-md border border-white/10 bg-white/[0.04] px-2.5 text-sm tabular-nums text-white"
-            />
+        {/* Filtros de período */}
+        <div className="flex flex-wrap items-end gap-3">
+          {/* Presets rápidos */}
+          <div className="flex items-center gap-1.5">
+            <a href={presetEsteMes} className={presetCls(ativoEsteMes)}>
+              Este mês
+            </a>
+            <a href={presetUltimos30} className={presetCls(ativoUltimos30)}>
+              Últimos 30 dias
+            </a>
+            <a href={presetProximos30} className={presetCls(ativoProximos30)}>
+              Próximos 30 dias
+            </a>
           </div>
-          <div>
-            <label className="mb-1 block text-[10px] uppercase tracking-wider text-white/45">
-              Até
-            </label>
-            <input
-              type="date"
-              name="fim"
-              defaultValue={fim}
-              className="h-9 rounded-md border border-white/10 bg-white/[0.04] px-2.5 text-sm tabular-nums text-white"
-            />
-          </div>
-          <button
-            type="submit"
-            className="h-9 rounded-md border border-nexus-bright/40 bg-nexus-bright/15 px-3 text-xs font-medium text-nexus-bright transition-colors hover:bg-nexus-bright/25"
-          >
-            Aplicar
-          </button>
-        </form>
+
+          {/* Intervalo personalizado */}
+          <form className="flex flex-wrap items-end gap-2" action="" method="get">
+            <div>
+              <label className="mb-1 block text-[10px] uppercase tracking-wider text-white/45">De</label>
+              <input
+                type="date"
+                name="inicio"
+                defaultValue={inicio}
+                className="h-9 rounded-md border border-white/10 bg-white/[0.04] px-2.5 text-sm tabular-nums text-white"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] uppercase tracking-wider text-white/45">Até</label>
+              <input
+                type="date"
+                name="fim"
+                defaultValue={fim}
+                className="h-9 rounded-md border border-white/10 bg-white/[0.04] px-2.5 text-sm tabular-nums text-white"
+              />
+            </div>
+            <button
+              type="submit"
+              className="h-9 rounded-md border border-nexus-bright/40 bg-nexus-bright/15 px-3 text-xs font-medium text-nexus-bright transition-colors hover:bg-nexus-bright/25"
+            >
+              Aplicar
+            </button>
+          </form>
+        </div>
       </div>
 
       {/* KPIs */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           label="Entradas previstas"
           value={formatBRL(totalEntradas)}
           tone="success"
           hint={`${formatDateBr(inicio)} a ${formatDateBr(fim)}`}
+        />
+        <KpiCard
+          label="Já recebido"
+          value={formatBRL(totalRecebido)}
+          tone="neutral"
+          hint="Confirmado no período"
         />
         <KpiCard
           label="Saídas previstas"
@@ -252,7 +297,7 @@ export default async function FluxoDeCaixaPage({
           hint={`${formatDateBr(inicio)} a ${formatDateBr(fim)}`}
         />
         <KpiCard
-          label="Saldo do período"
+          label="Saldo previsto"
           value={formatBRL(saldoPrevisto)}
           tone={saldoPrevisto >= 0 ? "info" : "warning"}
           hint="Entradas − saídas"
@@ -265,9 +310,7 @@ export default async function FluxoDeCaixaPage({
       {/* Tabela combinada */}
       {movimentos.length === 0 ? (
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-6 py-16 text-center">
-          <p className="text-sm text-white/55">
-            Nenhum movimento no período selecionado.
-          </p>
+          <p className="text-sm text-white/55">Nenhum movimento no período selecionado.</p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
@@ -275,29 +318,27 @@ export default async function FluxoDeCaixaPage({
             <TableHeader>
               <TableRow className="border-white/[0.06] text-[10px] uppercase tracking-wider text-white/45">
                 <TableHead className="w-[110px]">Data</TableHead>
-                <TableHead className="w-[70px]">Tipo</TableHead>
+                <TableHead className="w-[75px]">Tipo</TableHead>
                 <TableHead>Descrição</TableHead>
                 <TableHead>Referência</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
-                <TableHead className="w-[90px]">Status</TableHead>
+                <TableHead className="w-[95px]">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {movimentos.map((m, i) => {
                 const ehRec = m.origem === "receber"
-                const ehAtrasado = m.status === "pendente" && m.data < hoje
+                const ehAtrasado = m.status === "pendente" && m.data < hoje && !m.isCartaoAgencia
+                const ehPago = m.status === "pago"
+
                 return (
-                  <TableRow
-                    key={i}
-                    className="border-white/[0.04] hover:bg-white/[0.025]"
-                  >
+                  <TableRow key={i} className="border-white/[0.04] hover:bg-white/[0.025]">
                     <TableCell className="tabular-nums text-sm">
-                      <span
-                        className={ehAtrasado ? "font-medium text-rose-300" : ""}
-                      >
+                      <span className={ehAtrasado ? "font-medium text-rose-300" : ""}>
                         {formatDateBr(m.data)}
                       </span>
                     </TableCell>
+
                     <TableCell>
                       <span
                         className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
@@ -306,20 +347,26 @@ export default async function FluxoDeCaixaPage({
                             : "border-rose-500/30 bg-rose-500/10 text-rose-300"
                         }`}
                       >
-                        {ehRec ? (
-                          <ArrowUpRight className="h-3 w-3" />
-                        ) : (
-                          <ArrowDownRight className="h-3 w-3" />
-                        )}
+                        {ehRec ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
                         {ehRec ? "Entrada" : "Saída"}
                       </span>
                     </TableCell>
+
                     <TableCell className="text-sm text-white/85">
-                      {m.descricao}
+                      {m.isManual && m.categoria ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span>{m.descricao}</span>
+                          <span className="text-[10px] text-white/35">{m.categoria}</span>
+                        </div>
+                      ) : (
+                        m.descricao
+                      )}
                     </TableCell>
+
                     <TableCell className="text-xs text-white/55">
-                      {m.ref}
+                      {m.ref || <span className="text-white/25">—</span>}
                     </TableCell>
+
                     <TableCell
                       className={`text-right tabular-nums text-sm font-medium ${
                         ehRec ? "text-emerald-300" : "text-rose-300"
@@ -327,14 +374,25 @@ export default async function FluxoDeCaixaPage({
                     >
                       {ehRec ? "+" : "−"} {formatBRL(m.valor)}
                     </TableCell>
-                    <TableCell className="text-xs text-white/55">
-                      {m.status === "pago"
-                        ? ehRec
-                          ? "Recebido"
-                          : "Pago"
-                        : ehAtrasado
-                          ? "Atrasado"
-                          : "Pendente"}
+
+                    <TableCell>
+                      {m.isCartaoAgencia ? (
+                        <span className="rounded border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/30">
+                          Automático
+                        </span>
+                      ) : ehPago ? (
+                        <span className="rounded border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
+                          {ehRec ? "Recebido" : "Pago"}
+                        </span>
+                      ) : ehAtrasado ? (
+                        <span className="rounded border border-rose-500/25 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-rose-300">
+                          Atrasado
+                        </span>
+                      ) : (
+                        <span className="rounded border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/45">
+                          Pendente
+                        </span>
+                      )}
                     </TableCell>
                   </TableRow>
                 )
