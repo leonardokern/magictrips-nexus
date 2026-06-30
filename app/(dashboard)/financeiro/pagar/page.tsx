@@ -130,6 +130,7 @@ export default async function ContasPagarPage({
     )
     .order("data_vencimento", { ascending: true })
     .limit(200)
+    .neq("status", "cancelado")
 
   if (statusFiltro === "atrasado") {
     queryBase = queryBase.eq("status", "pendente").lt("data_vencimento", hoje)

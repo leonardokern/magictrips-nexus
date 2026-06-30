@@ -133,6 +133,7 @@ export default async function ContasReceberPage({
     )
     .order("data_vencimento", { ascending: true })
     .limit(200)
+    .neq("status", "cancelado")
 
   if (statusFiltro === "atrasado") {
     queryBase = queryBase.eq("status", "pendente").lt("data_vencimento", hoje)
@@ -390,9 +391,9 @@ export default async function ContasReceberPage({
                     {podeEditar && (
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {p.is_manual ? (
+                          {p.is_manual && status !== "cancelado" ? (
                             <>
-                              {!ehPago && status !== "cancelado" && (
+                              {!ehPago && (
                                 <MarcarParcelaPagaButton
                                   parcelaId={p.id}
                                   dataVencimento={p.data_vencimento}
@@ -421,7 +422,7 @@ export default async function ContasReceberPage({
                                 cartoes={cartoesList}
                               />
                             </>
-                          ) : !ehPago && status !== "cancelado" ? (
+                          ) : !p.is_manual && !ehPago && status !== "cancelado" ? (
                             <>
                               <ProrrogarParcelaButton
                                 parcelaId={p.id}
