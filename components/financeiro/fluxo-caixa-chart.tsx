@@ -4,6 +4,7 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -23,7 +24,7 @@ export type FluxoPonto = {
  * Linha de saldo acumulado + barras invisíveis de entradas/saídas (no
  * tooltip). Usa Recharts pra consistência com os dashboards existentes.
  */
-export function FluxoCaixaChart({ pontos }: { pontos: FluxoPonto[] }) {
+export function FluxoCaixaChart({ pontos, hoje }: { pontos: FluxoPonto[]; hoje?: string }) {
   if (pontos.length === 0) {
     return (
       <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-6 py-16 text-center text-sm text-white/55">
@@ -104,6 +105,20 @@ export function FluxoCaixaChart({ pontos }: { pontos: FluxoPonto[] }) {
               stroke="transparent"
               fill="transparent"
             />
+            {/* Linha vertical marcando o dia atual */}
+            {hoje && (
+              <ReferenceLine
+                x={hoje}
+                stroke="rgba(255,255,255,0.35)"
+                strokeDasharray="4 3"
+                label={{
+                  value: "Hoje",
+                  fill: "rgba(255,255,255,0.5)",
+                  fontSize: 10,
+                  position: "top",
+                }}
+              />
+            )}
           </AreaChart>
         </ResponsiveContainer>
       </div>

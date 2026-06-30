@@ -305,7 +305,7 @@ export default async function FluxoDeCaixaPage({
       </div>
 
       {/* Chart */}
-      <FluxoCaixaChart pontos={pontos} />
+      <FluxoCaixaChart pontos={pontos} hoje={hoje} />
 
       {/* Tabela combinada */}
       {movimentos.length === 0 ? (
