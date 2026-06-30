@@ -111,14 +111,14 @@ export default async function DashboardLayout({
               } as NavItem,
             ]
           : []),
-        ...(perms.can("cartoes", "ler")
-          ? [{ href: "/cartoes", label: "Cartões e Caixas", icon: "cartoes" } as NavItem]
-          : []),
       ],
     },
     {
       label: "Administração",
       items: [
+        ...(perms.can("cartoes", "ler")
+          ? [{ href: "/cartoes", label: "Cartões e Caixas", icon: "cartoes" } as NavItem]
+          : []),
         ...(perms.can("usuarios", "ler")
           ? [{ href: "/usuarios", label: "Usuários", icon: "usuarios" } as NavItem]
           : []),
