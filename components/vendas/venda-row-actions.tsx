@@ -309,10 +309,14 @@ export function VendaRowActions({
             />
           )
         })()}
-        {podeEditar && venda.status !== "em_revisao" && (
+        {podeEditar && (
           <IconAction
             icon={Pencil}
-            label="Editar venda"
+            label={
+              venda.status === "em_revisao"
+                ? "Revisar e reenviar"
+                : "Editar venda"
+            }
             onClick={() => setEditarOpen(true)}
             tone="bright"
           />

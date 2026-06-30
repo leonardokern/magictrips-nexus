@@ -25,6 +25,8 @@ type Props = {
 export function EditarVendaModal({ vendaId, open, onOpenChange, modoGerente = true }: Props) {
   const [dados, setDados] = useState<DadosNovaVenda | null>(null)
   const [draft, setDraft] = useState<WizardDraftData | null>(null)
+  const [vendaStatus, setVendaStatus] = useState<string | null>(null)
+  const [motivoRevisao, setMotivoRevisao] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1)
   const [maxWizardStep, setMaxWizardStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(6)
@@ -39,6 +41,8 @@ export function EditarVendaModal({ vendaId, open, onOpenChange, modoGerente = tr
     if (!open) {
       setDados(null)
       setDraft(null)
+      setVendaStatus(null)
+      setMotivoRevisao(null)
       setWizardStep(1)
       setMaxWizardStep(6)
       return
@@ -53,6 +57,8 @@ export function EditarVendaModal({ vendaId, open, onOpenChange, modoGerente = tr
       }
       setDados(r.data!.dados)
       setDraft(r.data!.draft as unknown as WizardDraftData)
+      setVendaStatus(r.data!.status ?? null)
+      setMotivoRevisao(r.data!.motivoRevisao ?? null)
     })
   }, [open, vendaId, onOpenChange])
 
@@ -153,7 +159,28 @@ export function EditarVendaModal({ vendaId, open, onOpenChange, modoGerente = tr
           {!pronto ? (
             <ModalLoader label="Carregando venda…" />
           ) : (
-            <VendaWizard
+            <>
+              {/* Banner do motivo de revisão — aparece SEMPRE que o gerente
+                  devolveu (mesmo se o agente já clicou em editar pelo lápis
+                  fora do fluxo de devolução). Some quando status sai de
+                  em_revisao (após reenvio). */}
+              {vendaStatus === "em_revisao" && motivoRevisao && (
+                <div className="mb-5 rounded-lg border border-amber-400/30 bg-amber-400/[0.08] px-4 py-3">
+                  <div className="flex items-start gap-2.5">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                    <div className="flex-1 text-sm">
+                      <p className="font-medium text-amber-200">
+                        Venda devolvida pelo gerente para revisão
+                      </p>
+                      <p className="mt-1 whitespace-pre-wrap text-amber-100/85">
+                        {motivoRevisao}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <VendaWizard
               key={vendaId}
               {...dados}
               clientes={dados.clientes.map((c) => ({
@@ -172,6 +199,7 @@ export function EditarVendaModal({ vendaId, open, onOpenChange, modoGerente = tr
               onMaxStepChange={setMaxWizardStep}
               onStepsStatusChange={setStepsStatus}
             />
+            </>
           )}
         </div>
       </DialogContent>

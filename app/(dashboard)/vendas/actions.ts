@@ -1425,6 +1425,10 @@ export type VendaParaEditar = {
     cobrancaObs: string
     passageiros: { id: string; nome: string; cpf: string; data_nascimento: string; passaporte: string }[]
   }
+  /** Status atual da venda — pra UI decidir banner de devolução. */
+  status: string
+  /** Mensagem que o gerente escreveu ao devolver a venda — null se nunca foi devolvida. */
+  motivoRevisao: string | null
 }
 
 export async function getVendaParaEditar(
@@ -1462,7 +1466,7 @@ export async function getVendaParaEditar(
       getDadosNovaVenda(),
       supabase
         .from("vendas")
-        .select("id, empresa_id, cliente_id, usuario_id, data_venda, origem, indicacao_percentual, comissao_percentual, pax, observacoes")
+        .select("id, empresa_id, cliente_id, usuario_id, data_venda, origem, indicacao_percentual, comissao_percentual, pax, observacoes, status, motivo_revisao")
         .eq("id", id)
         .maybeSingle(),
       supabase
@@ -1600,7 +1604,17 @@ export async function getVendaParaEditar(
     })),
   }
 
-  return { ok: true, data: { dados: dadosRes.data, draft } }
+  return {
+    ok: true,
+    data: {
+      dados: dadosRes.data,
+      draft,
+      status: v.status ?? "rascunho",
+      motivoRevisao:
+        (v as unknown as { motivo_revisao: string | null }).motivo_revisao ??
+        null,
+    },
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
