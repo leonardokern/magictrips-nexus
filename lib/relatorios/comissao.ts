@@ -77,17 +77,7 @@ export async function buildRelatorioComissao(
   if (errPerfis) return { ok: false, error: errPerfis.message }
   const perfilIds = (perfis ?? []).map((p: { id: string }) => p.id)
 
-  // Todos os agentes ativos (mesmo sem vendas no período)
-  const { data: usuarios, error: errUsuarios } = await supabase
-    .from("usuarios")
-    .select("id, nome, empresa:empresas(nome)")
-    .eq("ativo", true)
-    .in("perfil_id", perfilIds)
-    .order("nome")
-
-  if (errUsuarios) return { ok: false, error: errUsuarios.message }
-
-  // Produtos das vendas aprovadas no período
+  // Produtos das vendas aprovadas no período → acumula por usuario_id
   const { data: produtos, error: errProdutos } = await supabase
     .from("venda_produtos")
     .select(
@@ -100,7 +90,6 @@ export async function buildRelatorioComissao(
 
   if (errProdutos) return { ok: false, error: errProdutos.message }
 
-  // Acumula por usuario_id
   type Acc = { vendaIds: Set<string>; qtdProdutos: number; valorVenda: number; ravTotal: number; comissao: number }
   const accumMap = new Map<string, Acc>()
 
@@ -119,6 +108,36 @@ export async function buildRelatorioComissao(
     acc.ravTotal += Number(p.rav ?? 0) + Number(p.rav_extra_cliente ?? 0)
     acc.comissao += Number(p.comissao_vendedor ?? 0)
   }
+
+  // Usuários do relatório: TODOS os agentes ativos (mesmo sem vendas) +
+  // QUALQUER pessoa que vendeu no período (ex.: gerente que fez vendas e
+  // ganhou comissão). Assim ninguém com comissão fica de fora e o total
+  // bate com o dashboard ("vendas do período" = todas as vendas aprovadas).
+  const { data: agentesAtivos, error: errUsuarios } = await supabase
+    .from("usuarios")
+    .select("id, nome, empresa:empresas(nome)")
+    .eq("ativo", true)
+    .in("perfil_id", perfilIds)
+
+  if (errUsuarios) return { ok: false, error: errUsuarios.message }
+
+  const idsAgentes = new Set((agentesAtivos ?? []).map((u: { id: string }) => u.id))
+  const idsVendedoresExtra = [...accumMap.keys()].filter((id) => !idsAgentes.has(id))
+
+  let vendedoresExtra: UsuarioRow[] = []
+  if (idsVendedoresExtra.length > 0) {
+    const { data: extra, error: errExtra } = await supabase
+      .from("usuarios")
+      .select("id, nome, empresa:empresas(nome)")
+      .in("id", idsVendedoresExtra)
+    if (errExtra) return { ok: false, error: errExtra.message }
+    vendedoresExtra = (extra ?? []) as unknown as UsuarioRow[]
+  }
+
+  const usuarios: UsuarioRow[] = [
+    ...((agentesAtivos ?? []) as unknown as UsuarioRow[]),
+    ...vendedoresExtra,
+  ].sort((a, b) => a.nome.localeCompare(b.nome))
 
   const agentes: RelatorioComissaoAgente[] = ((usuarios ?? []) as UsuarioRow[]).map((u) => {
     const acc = accumMap.get(u.id)

@@ -119,7 +119,7 @@ export default async function DashboardPage({
       tipo_produto_id,
       tipo_produto_nome,
       vendas:venda_id (
-        id, status, data_aprovacao, empresa_id, usuario_id, origem,
+        id, status, data_venda, empresa_id, usuario_id, origem,
         empresa:empresa_id ( nome, slug ),
         agente:usuarios!vendas_usuario_id_fkey ( nome )
       )
@@ -128,9 +128,12 @@ export default async function DashboardPage({
     .eq("vendas.status", "aprovado")
 
   if (range) {
+    // Filtra pela DATA DA VENDA (data_venda), não pela data de aprovação —
+    // assim os cards refletem "vendas do período" igual aos relatórios.
+    // data_venda é coluna `date`: comparamos com strings YYYY-MM-DD locais.
     q = q
-      .gte("vendas.data_aprovacao", range.from.toISOString())
-      .lte("vendas.data_aprovacao", range.to.toISOString())
+      .gte("vendas.data_venda", toLocalDateStr(range.from))
+      .lte("vendas.data_venda", toLocalDateStr(range.to))
   }
 
   const { data: linhas } = await q
@@ -143,7 +146,7 @@ export default async function DashboardPage({
     tipo_produto_id: string
     tipo_produto_nome: string
     venda_id: string
-    data_aprovacao: string
+    data_venda: string
     empresa_id: string
     empresa_nome: string
     empresa_slug: string
@@ -155,7 +158,7 @@ export default async function DashboardPage({
   type VendaJoin = {
     id: string
     status: string
-    data_aprovacao: string | null
+    data_venda: string | null
     empresa_id: string
     usuario_id: string
     origem: string | null
@@ -166,7 +169,7 @@ export default async function DashboardPage({
   const dados: LinhaProduto[] = []
   for (const l of linhas ?? []) {
     const v = l.vendas as unknown as VendaJoin | null
-    if (!v || !v.data_aprovacao) continue
+    if (!v || !v.data_venda) continue
     // RAV total = campo `rav` (Venda − Custo). Os extras são DECOMPOSIÇÃO
     // do RAV (somam ele), não componentes adicionais que somam por cima.
     const ravTotal = Number(l.rav ?? 0)
@@ -177,7 +180,7 @@ export default async function DashboardPage({
       tipo_produto_id: l.tipo_produto_id,
       tipo_produto_nome: l.tipo_produto_nome,
       venda_id: v.id,
-      data_aprovacao: v.data_aprovacao,
+      data_venda: v.data_venda,
       empresa_id: v.empresa_id,
       empresa_nome: v.empresa?.nome ?? "—",
       empresa_slug: v.empresa?.slug ?? "",
@@ -1152,6 +1155,14 @@ function formatDateBR(d: Date): string {
   return `${dd}/${mm}/${d.getFullYear()}`
 }
 
+/** Date → "YYYY-MM-DD" em horário LOCAL (pra filtrar coluna `date`). */
+function toLocalDateStr(d: Date): string {
+  const y = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${y}-${mm}-${dd}`
+}
+
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
@@ -1187,7 +1198,7 @@ function aggregate<T, R extends { label: string; [k: string]: unknown }>(
 }
 
 function buildSerieMensal(
-  dados: { data_aprovacao: string; valor_venda: number }[],
+  dados: { data_venda: string; valor_venda: number }[],
   range: { from: Date; to: Date } | null,
 ): { label: string; value: number }[] {
   let inicio: Date
@@ -1197,7 +1208,10 @@ function buildSerieMensal(
     fim = new Date(range.to.getFullYear(), range.to.getMonth(), 1)
   } else {
     if (dados.length === 0) return []
-    const dates = dados.map((d) => new Date(d.data_aprovacao))
+    const dates = dados
+      .map((d) => parseIsoDate(d.data_venda))
+      .filter((x): x is Date => x !== null)
+    if (dates.length === 0) return []
     const min = new Date(Math.min(...dates.map((d) => d.getTime())))
     const max = new Date(Math.max(...dates.map((d) => d.getTime())))
     inicio = new Date(min.getFullYear(), min.getMonth(), 1)
@@ -1216,7 +1230,8 @@ function buildSerieMensal(
   }
 
   for (const d of dados) {
-    const dt = new Date(d.data_aprovacao)
+    const dt = parseIsoDate(d.data_venda)
+    if (!dt) continue
     const key = `${dt.getFullYear()}-${dt.getMonth()}`
     const slot = buckets.find((b) => b.key === key)
     if (slot) slot.value += d.valor_venda

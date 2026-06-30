@@ -68,7 +68,6 @@ export async function POST(req: NextRequest) {
     { header: "Agente", width: 28, kind: "text", get: (a) => a.nomeAgente },
     { header: "Empresa", width: 16, kind: "text", get: (a) => a.empresa || "" },
     { header: "Vendas", width: 10, kind: "number", get: (a) => a.qtdVendas },
-    { header: "Produtos", width: 10, kind: "number", get: (a) => a.qtdProdutos },
     { header: "Valor Vendido", width: 18, kind: "money", get: (a) => a.valorVenda },
     { header: "RAV (base)", width: 18, kind: "money", get: (a) => a.ravTotal },
     { header: "Comissão", width: 18, kind: "money", get: (a) => a.comissao },
@@ -100,7 +99,7 @@ export async function POST(req: NextRequest) {
   // Subtítulo (linha 2)
   ws.mergeCells(2, 1, 2, LAST_COL)
   const periodoCell = ws.getCell(2, 1)
-  periodoCell.value = `Período: ${brDate(dataInicio)} a ${brDate(dataFim)}   ·   ${totais.qtdAgentesComVendas} de ${totais.qtdAgentes} agente(s) com vendas   ·   Total comissões: R$ ${totais.comissao.toFixed(2).replace(".", ",")}`
+  periodoCell.value = `Período: ${brDate(dataInicio)} a ${brDate(dataFim)}   ·   Total comissões: R$ ${totais.comissao.toFixed(2).replace(".", ",")}`
   periodoCell.font = { name: "Calibri", size: 10, color: { argb: "FF595959" } }
   periodoCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 }
   ws.getRow(2).height = 18
@@ -166,8 +165,8 @@ export async function POST(req: NextRequest) {
     const totalRow = ws.getRow(rowIdx)
     totalRow.getCell(1).value = "TOTAL"
 
-    const moneyCols = [5, 6, 7] // Valor Vendido, RAV, Comissão
-    const numberCols = [3, 4]   // Vendas, Produtos
+    const moneyCols = [4, 5, 6] // Valor Vendido, RAV, Comissão
+    const numberCols = [3]      // Vendas
 
     for (const ci of numberCols) {
       const L = colLetter(ci)

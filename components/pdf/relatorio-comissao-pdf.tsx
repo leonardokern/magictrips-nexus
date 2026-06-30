@@ -182,13 +182,12 @@ const s = StyleSheet.create({
 })
 
 const COLS = {
-  agente: "26%",
-  empresa: "14%",
-  vendas: "7%",
-  produtos: "7%",
-  valorVenda: "14%",
-  rav: "14%",
-  comissao: "14%",
+  agente: "28%",
+  empresa: "15%",
+  vendas: "8%",
+  valorVenda: "15%",
+  rav: "15%",
+  comissao: "15%",
   pct: "4%",
 } as const
 
@@ -241,16 +240,12 @@ export function RelatorioComissaoPDF({
               </Text>
             </View>
             <View style={s.metaItem}>
-              <Text style={s.metaLabel}>Agentes</Text>
-              <Text style={s.metaValueNormal}>
-                {totais.qtdAgentes} total · {totais.qtdAgentesComVendas} com vendas
-              </Text>
+              <Text style={s.metaLabel}>No relatório</Text>
+              <Text style={s.metaValueNormal}>{totais.qtdAgentes} agente(s)</Text>
             </View>
             <View style={s.metaItem}>
-              <Text style={s.metaLabel}>Vendas / Produtos</Text>
-              <Text style={s.metaValueNormal}>
-                {totais.qtdVendas} venda(s) · {totais.qtdProdutos} produto(s)
-              </Text>
+              <Text style={s.metaLabel}>Vendas</Text>
+              <Text style={s.metaValueNormal}>{totais.qtdVendas} venda(s)</Text>
             </View>
             <View style={s.metaItemLast}>
               <Text style={s.metaLabel}>Gerado em</Text>
@@ -272,12 +267,6 @@ export function RelatorioComissaoPDF({
               <Text style={s.kpiLabel}>Total de comissões</Text>
               <Text style={[s.kpiValue, { color: "#b45309" }]}>{formatBRL(totais.comissao)}</Text>
             </View>
-            <View style={[s.kpiCard, { borderTopColor: BRIGHT }]}>
-              <Text style={s.kpiLabel}>Agentes com vendas</Text>
-              <Text style={[s.kpiValue, { color: BRIGHT }]}>
-                {totais.qtdAgentesComVendas} / {totais.qtdAgentes}
-              </Text>
-            </View>
           </View>
 
           {/* Tabela */}
@@ -288,7 +277,6 @@ export function RelatorioComissaoPDF({
                 <Text style={[s.th, { width: COLS.agente }]}>Agente</Text>
                 <Text style={[s.th, { width: COLS.empresa }]}>Empresa</Text>
                 <Text style={[s.th, { width: COLS.vendas, textAlign: "center" }]}>Vendas</Text>
-                <Text style={[s.th, { width: COLS.produtos, textAlign: "center" }]}>Prod.</Text>
                 <Text style={[s.th, { width: COLS.valorVenda, textAlign: "right" }]}>Valor Vendido</Text>
                 <Text style={[s.th, { width: COLS.rav, textAlign: "right" }]}>RAV (base)</Text>
                 <Text style={[s.th, { width: COLS.comissao, textAlign: "right" }]}>Comissão</Text>
@@ -309,9 +297,6 @@ export function RelatorioComissaoPDF({
                       <Text style={[s.tdSuave, { width: COLS.empresa }]}>{a.empresa || "—"}</Text>
                       <Text style={[valorStyle, { width: COLS.vendas, textAlign: "center" }]}>
                         {a.qtdVendas}
-                      </Text>
-                      <Text style={[valorStyle, { width: COLS.produtos, textAlign: "center" }]}>
-                        {a.qtdProdutos}
                       </Text>
                       <Text style={[valorStyle, { width: COLS.valorVenda, textAlign: "right" }]}>
                         {semVendas ? "—" : formatBRL(a.valorVenda)}
@@ -336,9 +321,6 @@ export function RelatorioComissaoPDF({
                   <Text style={[s.tdBold, { width: COLS.empresa }]} />
                   <Text style={[s.tdBold, { width: COLS.vendas, textAlign: "center" }]}>
                     {totais.qtdVendas}
-                  </Text>
-                  <Text style={[s.tdBold, { width: COLS.produtos, textAlign: "center" }]}>
-                    {totais.qtdProdutos}
                   </Text>
                   <Text style={[s.tdBold, { width: COLS.valorVenda, textAlign: "right" }]}>
                     {formatBRL(totais.valorVenda)}

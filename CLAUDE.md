@@ -170,6 +170,7 @@ Selects de filtro ocultos no mobile com `<div className="hidden md:contents">`. 
 - **Página `/[recurso]/novo` ou `/[recurso]/[id]/editar`** quase sempre é dead code — usamos modais. Verificar referências antes de criar.
 - **shadcn `cn`** = `twMerge(clsx(...))` — consumer sempre pode sobrescrever defaults do componente base.
 - **Header offset desktop**: o gap de 12px do header vem do `p-3` do wrapper, não de `mt-3` no próprio header. Dobrar com `md:mt-3` deslinha header e sidebar.
+- **Lazy-load em modal — sempre limpar ao fechar**: modais com `if (detalhes) return` para cachear dados devem incluir `if (!open) { setDetalhes(null); return }` antes do guard. Sem isso, reabertura após update de dados (ex: novo anexo) mostra snapshot antigo. Padrão correto: `if (!open) { setX(null); return }; if (x) return; fetch()...`
 
 ## Comandos comuns
 
