@@ -115,6 +115,7 @@ export default async function DashboardPage({
       rav,
       rav_extra_cliente,
       rav_extra_fornecedor,
+      rav_comissionado,
       tipo_produto_id,
       tipo_produto_nome,
       vendas:venda_id (
@@ -166,11 +167,9 @@ export default async function DashboardPage({
   for (const l of linhas ?? []) {
     const v = l.vendas as unknown as VendaJoin | null
     if (!v || !v.data_aprovacao) continue
-    // RAV total = rav base + extras (líquido pra empresa)
-    const ravBase = Number(l.rav ?? 0)
-    const ravExtraCli = Number(l.rav_extra_cliente ?? 0)
-    const ravExtraFor = Number(l.rav_extra_fornecedor ?? 0)
-    const ravTotal = ravBase + ravExtraCli + ravExtraFor
+    // RAV total = campo `rav` (Venda − Custo). Os extras são DECOMPOSIÇÃO
+    // do RAV (somam ele), não componentes adicionais que somam por cima.
+    const ravTotal = Number(l.rav ?? 0)
     dados.push({
       valor_venda: Number(l.valor_venda ?? 0),
       valor_custo: Number(l.valor_custo ?? 0),

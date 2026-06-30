@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 import Image from "next/image"
 import { CheckCircle, AlertTriangle, ChevronDown, ExternalLink, FileDown, Paperclip, Pencil } from "lucide-react"
 import { toast } from "sonner"
@@ -78,6 +78,7 @@ function ProdutoRow({ p }: { p: Produto }) {
     !!p.dataEmissao ||
     p.ravExtraCliente > 0 ||
     p.ravExtraFornecedor > 0 ||
+    p.ravComissionado > 0 ||
     !!p.pgtoForma
 
   return (
@@ -199,6 +200,15 @@ function ProdutoRow({ p }: { p: Produto }) {
                   />
                 )}
 
+                {/* RAV comissionado */}
+                {p.ravComissionado > 0 && (
+                  <MiniStat
+                    label="RAV Comissionado"
+                    value={formatBRL(p.ravComissionado)}
+                    accent="bright"
+                  />
+                )}
+
                 {/* Tipo de comissão */}
                 {p.tipoComissao && (
                   <MiniStat label="Tipo comissão" value={p.tipoComissao} />
@@ -276,7 +286,7 @@ function MiniStat({
   compact,
 }: {
   label: string
-  value: string
+  value: ReactNode
   accent?: "amber" | "bright"
   compact?: boolean
 }) {
@@ -333,7 +343,10 @@ export function VendaResumoPanel({
     !ehAlteracao && (d.alteracoesAprovadas?.length ?? 0) > 0
   const totalVenda = d.produtos.reduce((a, p) => a + p.valorVenda, 0)
   const totalCusto = d.produtos.reduce((a, p) => a + p.valorCusto, 0)
-  // RAV total = RAV base (venda - custo) + RAV Extra Cliente + RAV Extra Fornecedor
+  // RAV total = Venda − Custo (campo `rav`). As 3 fatias (Extra Cliente,
+  // Extra Fornecedor, Comissionado) são uma DECOMPOSIÇÃO do RAV — elas
+  // somam ele, não somam por cima. Os subtotais ficam pra exibir o
+  // breakdown na coluna direita.
   const totalRavBase = d.produtos.reduce((a, p) => a + p.rav, 0)
   const totalRavExtraCliente = d.produtos.reduce(
     (a, p) => a + p.ravExtraCliente,
@@ -343,7 +356,11 @@ export function VendaResumoPanel({
     (a, p) => a + p.ravExtraFornecedor,
     0,
   )
-  const totalRav = totalRavBase + totalRavExtraCliente + totalRavExtraFornecedor
+  const totalRavComissionado = d.produtos.reduce(
+    (a, p) => a + p.ravComissionado,
+    0,
+  )
+  const totalRav = totalRavBase
   // Desfluxo: quando aplicado, sobrepõe valor_custo com custo_efetivo =
   // custo_base × (1 + %/100), reduzindo RAV e comissão. valor_custo real
   // continua no banco (parcelas_pagar usam o real).
@@ -358,6 +375,15 @@ export function VendaResumoPanel({
     (d.produtos.reduce((a, p) => a + p.valorCusto, 0) *
       desfluxoPercentualEfetivo) /
     100
+  // Taxas de cobrança (PagSeguro/Cielo/faturado): % cobrado do cliente
+  // que a agência repassa pra plataforma. É CUSTO da agência — entra no
+  // custo efetivo, reduz RAV e comissão. Cada item de cobrança tem sua
+  // própria taxa aplicada ao valor base (sem somar com a inflação que já
+  // foi pro cliente no campo `valor`).
+  const totalTaxasCobranca = d.cobranca.reduce(
+    (a, c) => a + (c.valor * (c.taxaCobranca ?? 0)) / 100,
+    0,
+  )
   // Comissão = RAV total × % do agente. Recalculada AQUI em vez de somar
   // `p.comissao` armazenado em DB — garante que vendas antigas (gravadas com
   // base que excluía rav_extra_fornecedor) também exibam o valor correto
@@ -371,12 +397,14 @@ export function VendaResumoPanel({
   // e subtraímos. Em venda original (não-alteração), basta `% × RAV total`.
   const totalComissao = (() => {
     if (!ehAlteracao || !d.vendaOriginal) {
-      // Custo efetivo (com desfluxo) reduz o RAV antes da comissão.
-      const ravComDesfluxo = totalRav - desfluxoCustoExtra
-      return ((d.comissaoPercentual ?? 0) * ravComDesfluxo) / 100
+      // Custo efetivo (com desfluxo + taxas de cobrança) reduz o RAV
+      // antes da comissão.
+      const ravComDeducoes = totalRav - desfluxoCustoExtra - totalTaxasCobranca
+      return ((d.comissaoPercentual ?? 0) * ravComDeducoes) / 100
     }
     const ravOriginal = d.vendaOriginal.produtos.reduce(
-      (a, p) => a + p.rav + p.ravExtraCliente + p.ravExtraFornecedor,
+      // RAV total = soma do campo `rav`. Os 3 extras são decomposição.
+      (a, p) => a + p.rav,
       0,
     )
     const ravEfetivo = ravOriginal + totalRav // totalRav aqui é o Δ
@@ -398,7 +426,8 @@ export function VendaResumoPanel({
   const origCusto = orig?.produtos.reduce((a, p) => a + p.valorCusto, 0) ?? 0
   const origRav =
     orig?.produtos.reduce(
-      (a, p) => a + p.rav + p.ravExtraCliente + p.ravExtraFornecedor,
+      // RAV total = soma do campo `rav`. Os 3 extras são decomposição.
+      (a, p) => a + p.rav,
       0,
     ) ?? 0
   const origComissao = ((orig?.comissaoPercentual ?? 0) * origRav) / 100
@@ -557,26 +586,8 @@ export function VendaResumoPanel({
             </div>
           </Bloco>
 
-          {/* Cobrança ao cliente */}
-          {d.cobranca.length > 0 && (
-            <Bloco titulo="Cobrança do cliente">
-              <div className="space-y-3">
-                {d.cobranca.map((c, i) => (
-                  <CobrancaItemCard key={i} item={c} />
-                ))}
-
-                {/* Total */}
-                <div className="flex items-center justify-between border-t border-white/[0.06] pt-3 text-sm font-medium">
-                  <span className="text-white/85">Total cobrado</span>
-                  <span className="tabular-nums text-white">
-                    {formatBRL(totalCobranca)}
-                  </span>
-                </div>
-              </div>
-            </Bloco>
-          )}
-
-          {/* Pagamento ao fornecedor */}
+          {/* Pagamento ao fornecedor — vem ANTES da cobrança pra espelhar
+              a ordem do Step 6 da wizard (Produtos → Pagamento → Cobrança). */}
           {d.produtos.some((p) => p.pgtoForma) && (
             <Bloco titulo="Pagamento ao fornecedor">
               <div className="space-y-3">
@@ -585,6 +596,45 @@ export function VendaResumoPanel({
                   .map((p, i) => (
                     <PgtoFornecedorCard key={i} produto={p} />
                   ))}
+              </div>
+            </Bloco>
+          )}
+
+          {/* Cobrança ao cliente */}
+          {d.cobranca.length > 0 && (
+            <Bloco titulo="Cobrança do cliente">
+              <div className="space-y-3">
+                {d.cobranca.map((c, i) => (
+                  <CobrancaItemCard key={i} item={c} />
+                ))}
+
+                {/* Total cobrado — soma o que o cliente efetivamente paga
+                    (base + taxa de cada item). Quando algum item tem taxa,
+                    mostra "base + R$ X taxas" abaixo em texto fino pra
+                    explicar a composição. */}
+                {(() => {
+                  const totalTaxas = d.cobranca.reduce(
+                    (a, c) => a + (c.valor * (c.taxaCobranca ?? 0)) / 100,
+                    0,
+                  )
+                  const totalComTaxa = totalCobranca + totalTaxas
+                  const temAlgumaTaxa = totalTaxas > 0.005
+                  return (
+                    <div className="space-y-0.5 border-t border-white/[0.06] pt-3">
+                      <div className="flex items-center justify-between text-sm font-medium">
+                        <span className="text-white/85">Total cobrado</span>
+                        <span className="tabular-nums text-white">
+                          {formatBRL(totalComTaxa)}
+                        </span>
+                      </div>
+                      {temAlgumaTaxa && (
+                        <p className="text-right text-[10px] tabular-nums text-white/40">
+                          {formatBRL(totalCobranca)} + {formatBRL(totalTaxas)} taxas
+                        </p>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             </Bloco>
           )}
@@ -658,159 +708,121 @@ export function VendaResumoPanel({
               )}
             </div>
 
+            {/* Métricas — espelha layout do Step 6 do wizard. Custo/RAV
+                exibidos em BASE (sem deduções); deduções (desfluxo + taxa
+                de cobrança) aparecem em bloco âmbar logo abaixo com seus
+                próprios "Custo efetivo / RAV Efetivo". */}
             <div className="mt-4 space-y-2.5">
-              {(() => {
-                // temDesfluxo = desfluxo está VIGENTE pra esta venda
-                // (calculado + não desativado). Quando true, custo/RAV/comissão
-                // exibidos ficam em laranja pra sinalizar que estão sob efeito
-                // do desfluxo. desfluxoCustoExtra já considera o switch.
-                const temDesfluxo =
-                  !ehAlteracao &&
-                  desfluxoAtivoEfetivo &&
-                  d.desfluxoPercentual > 0
-                const custoEfetivo = totalCusto + desfluxoCustoExtra
-                const ravEfetivoLocal = totalRav - desfluxoCustoExtra
-                return (
-                  <>
-                    {/* Desfluxo SEMPRE aparece (exceto em alterações), pra dar
-                        visibilidade do indicador. Quando 0% fica apagado.
-                        Ordem: vem ANTES do Custo total pra deixar claro o
-                        contexto antes do valor que ele afeta. */}
-                    {!ehAlteracao && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span
-                          className={
-                            temDesfluxo ? "text-amber-300/85" : "text-white/30"
-                          }
-                        >
-                          Desfluxo
-                          {temDesfluxo && (
-                            <span className="ml-1 text-white/35">
-                              · {d.desfluxoMeses}{" "}
-                              {d.desfluxoMeses === 1 ? "mês" : "meses"}
-                            </span>
-                          )}
-                        </span>
-                        <span
-                          className={cn(
-                            "tabular-nums",
-                            temDesfluxo
-                              ? "text-amber-300/85"
-                              : "text-white/30",
-                          )}
-                        >
-                          {(temDesfluxo ? d.desfluxoPercentual : 0)
-                            .toFixed(1)
-                            .replace(".", ",")}
-                          %
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-white/55">
-                          {ehAlteracao ? "Δ Custo" : "Custo total"}
-                        </span>
-                        <span
-                          className={cn(
-                            "tabular-nums",
-                            temDesfluxo ? "text-amber-300/85" : "text-white/75",
-                          )}
-                        >
-                          {formatDelta(custoEfetivo, ehAlteracao)}
-                        </span>
-                      </div>
-                      {ehAlteracao && (
-                        <OrigEfet
-                          original={origCusto}
-                          efetivo={efetCusto}
-                          align="right"
-                        />
-                      )}
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-white/55">
-                          {ehAlteracao ? "Δ RAV" : "RAV total"}
-                        </span>
-                        <span
-                          className={cn(
-                            "tabular-nums",
-                            temDesfluxo ? "text-amber-300/85" : "text-white/85",
-                          )}
-                        >
-                          {formatDelta(ravEfetivoLocal, ehAlteracao)}
-                        </span>
-                      </div>
-                      {ehAlteracao && (
-                        <OrigEfet
-                          original={origRav}
-                          efetivo={efetRav}
-                          align="right"
-                        />
-                      )}
-                    </div>
-                  </>
-                )
-              })()}
-              {/* Breakdown do RAV — só mostra se algum extra (cliente ou
-                  fornecedor) > 0. Inclui as 3 linhas existentes (só as > 0). */}
-              {(totalRavExtraCliente > 0 || totalRavExtraFornecedor > 0) && (
-                <div className="space-y-1 border-l border-white/[0.05] pl-3">
-                  {totalRavBase > 0 && (
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-white/40">RAV</span>
-                      <span className="tabular-nums text-white/55">
-                        {formatBRL(totalRavBase)}
-                      </span>
-                    </div>
-                  )}
-                  {totalRavExtraCliente > 0 && (
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-white/40">RAV extra cliente</span>
-                      <span className="tabular-nums text-white/55">
-                        {formatBRL(totalRavExtraCliente)}
-                      </span>
-                    </div>
-                  )}
-                  {totalRavExtraFornecedor > 0 && (
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-white/40">RAV extra fornecedor</span>
-                      <span className="tabular-nums text-white/55">
-                        {formatBRL(totalRavExtraFornecedor)}
-                      </span>
-                    </div>
-                  )}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/55">
+                    {ehAlteracao ? "Δ Custo" : "Custo total"}
+                  </span>
+                  <span className="tabular-nums text-white/75">
+                    {formatDelta(totalCusto, ehAlteracao)}
+                  </span>
                 </div>
-              )}
-              {/* Margem RAV não faz sentido em delta (numerador e denominador
-                  são ambos deltas) — só mostra em vendas normais. Quando
-                  desfluxo está vigente, a margem reflete o RAV efetivo. */}
-              {!ehAlteracao && (() => {
-                const temDesfluxo =
-                  desfluxoAtivoEfetivo && d.desfluxoPercentual > 0
-                const ravParaMargem = totalRav - desfluxoCustoExtra
-                const margemEfetiva =
-                  totalVenda > 0
-                    ? ((ravParaMargem / totalVenda) * 100).toFixed(1)
-                    : null
-                return (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-white/55">Margem RAV</span>
-                    <span
-                      className={cn(
-                        "tabular-nums",
-                        temDesfluxo ? "text-amber-300/85" : "text-white/70",
-                      )}
-                    >
-                      {margemEfetiva !== null ? `${margemEfetiva}%` : "—"}
+                {ehAlteracao && (
+                  <OrigEfet
+                    original={origCusto}
+                    efetivo={efetCusto}
+                    align="right"
+                  />
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/55">
+                    {ehAlteracao ? "Δ RAV" : "RAV total"}
+                  </span>
+                  <span className="tabular-nums text-white/85">
+                    {formatDelta(totalRav, ehAlteracao)}
+                  </span>
+                </div>
+                {ehAlteracao && (
+                  <OrigEfet
+                    original={origRav}
+                    efetivo={efetRav}
+                    align="right"
+                  />
+                )}
+              </div>
+
+              {/* Breakdown do RAV — SEMPRE as 3 fatias quando totalRav > 0,
+                  mesmo que zero. O "RAV cheio" já está em "RAV total" acima. */}
+              {totalRav > 0 && (
+                <div className="space-y-1 border-l border-white/[0.05] pl-3">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-white/40">RAV extra cliente</span>
+                    <span className="tabular-nums text-white/55">
+                      {formatBRL(totalRavExtraCliente)}
                     </span>
                   </div>
-                )
-              })()}
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-white/40">RAV extra fornecedor</span>
+                    <span className="tabular-nums text-white/55">
+                      {formatBRL(totalRavExtraFornecedor)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-white/40">RAV comissionado</span>
+                    <span className="tabular-nums text-white/55">
+                      {formatBRL(totalRavComissionado)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
             </div>
+
+            {/* Deduções (desfluxo + taxa de cobrança) — só em vendas normais
+                e quando há algum efeito. Espelha o bloco âmbar do Step 6
+                da wizard: linhas por dedução + Custo efetivo + RAV Efetivo. */}
+            {!ehAlteracao &&
+              ((desfluxoAtivoEfetivo && d.desfluxoPercentual > 0) ||
+                totalTaxasCobranca > 0) && (
+                <div className="mt-4 space-y-1 text-sm">
+                  {desfluxoAtivoEfetivo && d.desfluxoPercentual > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-amber-300/85">
+                        Desfluxo ({d.desfluxoMeses}{" "}
+                        {d.desfluxoMeses === 1 ? "mês" : "meses"}):
+                      </span>
+                      <span className="tabular-nums text-amber-300/85">
+                        {d.desfluxoPercentual
+                          .toFixed(2)
+                          .replace(".", ",")}
+                        %
+                      </span>
+                    </div>
+                  )}
+                  {totalTaxasCobranca > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-amber-300/85">Taxa de cobrança:</span>
+                      <span className="tabular-nums text-amber-300/85">
+                        {formatBRL(totalTaxasCobranca)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-amber-300/85">Custo efetivo:</span>
+                    <span className="tabular-nums text-amber-300/85">
+                      {formatBRL(
+                        totalCusto + desfluxoCustoExtra + totalTaxasCobranca,
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-amber-300/85">RAV Efetivo:</span>
+                    <span className="tabular-nums text-amber-300/85">
+                      {formatBRL(
+                        totalRav - desfluxoCustoExtra - totalTaxasCobranca,
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )}
 
             {mostraComissao && (
               <div className="mt-4 space-y-1 border-t border-white/[0.06] pt-3.5">
@@ -846,13 +858,39 @@ export function VendaResumoPanel({
               </div>
             )}
 
-            <div className="mt-4 border-t border-white/[0.06] pt-3.5">
+            {/* Margem RAV — não faz sentido em delta. Em vendas normais
+                reflete RAV efetivo quando há deduções (mesma família visual
+                das outras métricas, sem destaque de cor). */}
+            {!ehAlteracao && (() => {
+              const ravParaMargem =
+                totalRav - desfluxoCustoExtra - totalTaxasCobranca
+              const margemEfetiva =
+                totalVenda > 0
+                  ? ((ravParaMargem / totalVenda) * 100).toFixed(1)
+                  : null
+              return (
+                <div className="mt-4 flex items-center justify-between border-t border-white/[0.06] pt-3.5 text-sm">
+                  <span className="text-white/55">Margem RAV</span>
+                  <span className="tabular-nums text-white/70">
+                    {margemEfetiva !== null ? `${margemEfetiva}%` : "—"}
+                  </span>
+                </div>
+              )
+            })()}
+
+            {/* Total cobrado = o que o cliente paga, somando taxas das
+                plataformas. Divergência ainda compara contra o total
+                de venda BASE (sem taxa), que é o que foi vendido. */}
+            <div className={cn("border-t border-white/[0.06] pt-3.5", ehAlteracao ? "mt-4" : "mt-2.5")}>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-white/55">
                   {ehAlteracao ? "Δ Total cobrado" : "Total cobrado"}
                 </span>
                 <span className="tabular-nums text-white/85">
-                  {formatDelta(totalCobranca, ehAlteracao)}
+                  {formatDelta(
+                    totalCobranca + (ehAlteracao ? 0 : totalTaxasCobranca),
+                    ehAlteracao,
+                  )}
                 </span>
               </div>
               {!ehAlteracao &&
@@ -1009,9 +1047,24 @@ function PassageiroCard({
 type ProdutoDetalhes = VendaDetalhes["produtos"][number]
 
 function PgtoFornecedorCard({ produto: p }: { produto: ProdutoDetalhes }) {
+  const formaLabel =
+    p.pgtoForma === "cartao_agencia" && p.pgtoCartaoNome
+      ? `Cartão Agência — ${p.pgtoCartaoNome}`
+      : PGTO_FORMA_LABEL[p.pgtoForma as keyof typeof PGTO_FORMA_LABEL] ??
+        p.pgtoForma ??
+        "—"
+  // Parcelas calculadas pra cartao_agencia (faturado já vem do array).
+  const showParcelasCartao =
+    p.pgtoForma === "cartao_agencia" && p.pgtoNumParcelas > 1
+  const totalPgto = p.pgtoValorTotal ?? 0
+  const extra = p.pgtoPrimeiraParcelaExtra || 0
+  const baseParcela = showParcelasCartao
+    ? (totalPgto - p.pgtoEntrada - extra) / p.pgtoNumParcelas
+    : 0
+  const primeiraParcela = baseParcela + extra
   return (
     <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-3.5">
-      {/* Cabeçalho: tipo de produto */}
+      {/* Cabeçalho: tipo + fornecedor */}
       <div className="mb-3 flex items-center gap-1.5">
         {p.icone && (
           <span className="relative block h-3.5 w-3.5 shrink-0">
@@ -1034,36 +1087,95 @@ function PgtoFornecedorCard({ produto: p }: { produto: ProdutoDetalhes }) {
         <MiniStat
           label="Forma"
           value={
-            PGTO_FORMA_LABEL[p.pgtoForma as keyof typeof PGTO_FORMA_LABEL] ??
-            p.pgtoForma ??
-            "—"
+            <span>
+              {formaLabel}
+              {(p.pgtoForma === "cartao_agencia" ||
+                p.pgtoForma === "faturado") &&
+                p.pgtoNumParcelasReal > 1 && (
+                  <span className="ml-1 text-white/55">
+                    · {p.pgtoNumParcelasReal}x
+                  </span>
+                )}
+            </span>
           }
         />
-        {p.pgtoCartaoNome && (
-          <MiniStat label="Cartão" value={p.pgtoCartaoNome} />
-        )}
-        {p.pgtoValorTotal != null && (
+        {p.pgtoValorTotal != null && p.pgtoValorTotal > 0 && (
           <MiniStat label="Valor total" value={formatBRL(p.pgtoValorTotal)} />
         )}
-        {p.pgtoEntrada > 0 && (
+        {p.pgtoForma === "cartao_agencia" && p.pgtoDataDebito && (
+          <MiniStat
+            label="Data de entrada"
+            value={formatDateBR(p.pgtoDataDebito)}
+          />
+        )}
+        {p.pgtoForma === "cartao_agencia" && p.pgtoEntrada > 0 && (
           <MiniStat label="Entrada" value={formatBRL(p.pgtoEntrada)} />
         )}
-        {p.pgtoNumParcelasReal > 1 ? (
+        {showParcelasCartao && (
           <MiniStat
             label="Parcelas"
             value={
-              p.pgtoValorParcela
-                ? `${p.pgtoNumParcelasReal}× ${formatBRL(p.pgtoValorParcela)}`
-                : `${p.pgtoNumParcelasReal}×`
+              extra > 0
+                ? `${p.pgtoNumParcelas}x — 1ª ${formatBRL(primeiraParcela)} · demais ${formatBRL(baseParcela)}`
+                : `${p.pgtoNumParcelas}x de ${formatBRL(baseParcela)}`
             }
           />
-        ) : (
-          <MiniStat label="Parcelas" value="À vista" />
         )}
-        {p.pgtoDataDebito && (
-          <MiniStat label="Data débito" value={formatDateBR(p.pgtoDataDebito)} />
+        {extra > 0 && (
+          <MiniStat
+            label="Taxa na 1ª parcela"
+            value={
+              <span className="text-nexus-bright">{formatBRL(extra)}</span>
+            }
+          />
         )}
       </div>
+
+      {/* Parcelas detalhadas — faturado: vem do array. Cartão agência:
+          geradas em runtime. Mesmo padrão visual do Step 6 (wizard). */}
+      {(() => {
+        type Linha = { ordem: number; valor: number; data: string | null }
+        let linhas: Linha[] = []
+        if (p.pgtoForma === "faturado" && p.pgtoParcelasFaturado.length > 0) {
+          linhas = p.pgtoParcelasFaturado
+        } else if (showParcelasCartao) {
+          linhas = Array.from({ length: p.pgtoNumParcelas }, (_, i) => ({
+            ordem: i + 1,
+            valor: i === 0 ? primeiraParcela : baseParcela,
+            data: null,
+          }))
+        }
+        if (linhas.length < 2) return null
+        return (
+          <div className="mt-3 border-t border-white/[0.05] pt-2.5">
+            <p className="mb-1.5 text-[10px] uppercase tracking-wider text-white/40">
+              Parcelas
+            </p>
+            <ul className="space-y-0.5">
+              {linhas.map((l) => (
+                <li
+                  key={l.ordem}
+                  className="flex items-baseline gap-2 text-[11px]"
+                >
+                  <span className="w-4 shrink-0 text-right tabular-nums text-white/45">
+                    {l.ordem}.
+                  </span>
+                  <span className="shrink-0 tabular-nums text-white/55">
+                    {l.data ? formatDateBR(l.data) : "—"}
+                  </span>
+                  <span
+                    className="mx-1 flex-1 border-b border-dotted border-white/[0.12]"
+                    aria-hidden
+                  />
+                  <span className="shrink-0 tabular-nums text-white/80">
+                    {formatBRL(l.valor)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -1075,106 +1187,113 @@ type CobrancaItem = VendaDetalhes["cobranca"][number]
 function CobrancaItemCard({ item: c }: { item: CobrancaItem }) {
   const tipoLabel =
     COBRANCA_TIPO_LABEL[c.tipo as keyof typeof COBRANCA_TIPO_LABEL] ?? c.tipo
+  const taxa = c.taxaCobranca ?? 0
+  const totalComTaxa = c.valor + (c.valor * taxa) / 100
+  const temTaxa = taxa > 0
 
   return (
     <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-3.5">
-      {/* Cabeçalho: tipo + valor */}
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-white/85">{tipoLabel}</span>
-        <span className="tabular-nums text-sm text-white">
-          {formatBRL(c.valor)}
-        </span>
-      </div>
-
-      {/* Grade de detalhes */}
-      <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2.5 sm:grid-cols-3">
-        {/* Parcelas */}
-        {c.parcelas > 1 && (
-          <MiniStat
-            label="Parcelas"
-            value={
-              c.valorParcela
-                ? `${c.parcelas}× ${formatBRL(c.valorParcela)}`
-                : `${c.parcelas}×`
-            }
-          />
-        )}
-
-        {/* Datas */}
-        {c.dataInicio && (
-          <MiniStat label="Início" value={formatDateBR(c.dataInicio)} />
-        )}
-        {c.dataPrimeiroRecebimento && (
-          <MiniStat
-            label="1º recebimento"
-            value={formatDateBR(c.dataPrimeiroRecebimento)}
-          />
-        )}
-
-        {/* Destino (para faturado / transferência) */}
-        {c.fornecedorDestino && (
-          <MiniStat label="Destino" value={c.fornecedorDestino} />
-        )}
-
-        {/* Plataforma — PagSeguro / Cielo (campo dedicado) */}
-        {c.plataforma && <MiniStat label="Plataforma" value={c.plataforma} />}
-
-        {/* URL do link de pagamento — só link_externo. Vira âncora clicável. */}
-        {c.plataformaLink && c.tipo === "link_externo" && (
-          <div className="col-span-2 sm:col-span-3">
-            <p className="text-[10px] uppercase tracking-wider text-white/40">
-              Link de pagamento
+      {/* Cabeçalho: tipo + nº de parcelas + plataforma (pill) + valor.
+          Quando há taxa, mostra total c/ taxa em destaque e "base + X%"
+          abaixo em texto fino — é o que o cliente efetivamente paga. */}
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-white/85">{tipoLabel}</span>
+          {c.parcelas > 1 && (
+            <span className="text-[12px] text-white/45">· {c.parcelas}x</span>
+          )}
+          {c.plataforma && (
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-white/55">
+              {c.plataforma}
+            </span>
+          )}
+        </div>
+        <div className="text-right">
+          <p className="tabular-nums text-sm text-white">
+            {formatBRL(temTaxa ? totalComTaxa : c.valor)}
+          </p>
+          {temTaxa && (
+            <p className="text-[10px] tabular-nums text-white/40">
+              {formatBRL(c.valor)} + {taxa.toString().replace(".", ",")}% taxa
             </p>
-            <a
-              href={c.plataformaLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-0.5 inline-flex max-w-full items-center gap-1 break-all text-[12px] text-nexus-bright hover:text-nexus-bright-soft hover:underline"
-            >
-              <ExternalLink className="h-3 w-3 shrink-0" />
-              <span className="truncate">{c.plataformaLink}</span>
-            </a>
-          </div>
-        )}
-
-        {/* Taxa e líquido */}
-        {c.taxaAdquirente != null && c.taxaAdquirente > 0 && (
-          <MiniStat
-            label="Taxa adquirente"
-            value={`${c.taxaAdquirente}%`}
-            accent="amber"
-          />
-        )}
-        {c.valorLiquido != null && c.valorLiquido > 0 && (
-          <MiniStat
-            label="Valor líquido"
-            value={formatBRL(c.valorLiquido)}
-            accent="bright"
-          />
-        )}
+          )}
+        </div>
       </div>
 
-      {/* Detalhamento das parcelas — só quando o operador customizou */}
-      {c.parcelasDetalhe && c.parcelasDetalhe.length > 0 && (
-        <div className="mt-2.5 border-t border-white/[0.05] pt-2.5">
+      {/* Grade de detalhes — só Datas / Destino / Taxa adquirente / Líquido.
+          (Plataforma + parcelas migraram pro header; link migrou pra baixo.) */}
+      {(c.dataInicio ||
+        c.dataPrimeiroRecebimento ||
+        c.fornecedorDestino ||
+        (c.taxaAdquirente != null && c.taxaAdquirente > 0) ||
+        (c.valorLiquido != null && c.valorLiquido > 0)) && (
+        <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2.5 sm:grid-cols-3">
+          {c.dataInicio && (
+            <MiniStat label="Início" value={formatDateBR(c.dataInicio)} />
+          )}
+          {c.dataPrimeiroRecebimento && (
+            <MiniStat
+              label="1º recebimento"
+              value={formatDateBR(c.dataPrimeiroRecebimento)}
+            />
+          )}
+          {c.fornecedorDestino && (
+            <MiniStat label="Destino" value={c.fornecedorDestino} />
+          )}
+          {c.taxaAdquirente != null && c.taxaAdquirente > 0 && (
+            <MiniStat
+              label="Taxa adquirente"
+              value={`${c.taxaAdquirente}%`}
+              accent="amber"
+            />
+          )}
+          {c.valorLiquido != null && c.valorLiquido > 0 && (
+            <MiniStat
+              label="Valor líquido"
+              value={formatBRL(c.valorLiquido)}
+              accent="bright"
+            />
+          )}
+        </div>
+      )}
+
+      {/* URL do link de pagamento — só link_externo. Vira âncora clicável. */}
+      {c.plataformaLink && c.tipo === "link_externo" && (
+        <a
+          href={c.plataformaLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 inline-flex max-w-full items-center gap-1 break-all text-[11px] text-nexus-bright hover:text-nexus-bright-soft hover:underline"
+        >
+          <ExternalLink className="h-3 w-3 shrink-0" />
+          <span className="truncate">{c.plataformaLink}</span>
+        </a>
+      )}
+
+      {/* Detalhamento das parcelas — mesmo padrão da wizard:
+          "1.  10/07/2026 ........ R$ 540,00" */}
+      {c.parcelasDetalhe && c.parcelasDetalhe.length > 1 && (
+        <div className="mt-3 border-t border-white/[0.05] pt-2.5">
           <p className="mb-1.5 text-[10px] uppercase tracking-wider text-white/40">
-            Parcelas planejadas
+            Parcelas
           </p>
           <ul className="space-y-0.5">
             {c.parcelasDetalhe.map((p) => (
               <li
                 key={p.ordem}
-                className="flex items-center justify-between text-[12px]"
+                className="flex items-baseline gap-2 text-[11px]"
               >
-                <span className="text-white/55">
-                  Parcela {p.ordem}
-                  {p.data && (
-                    <span className="ml-2 tabular-nums text-white/45">
-                      {formatDateBR(p.data)}
-                    </span>
-                  )}
+                <span className="w-4 shrink-0 text-right tabular-nums text-white/45">
+                  {p.ordem}.
                 </span>
-                <span className="tabular-nums text-white/75">
+                <span className="shrink-0 tabular-nums text-white/55">
+                  {p.data ? formatDateBR(p.data) : "—"}
+                </span>
+                <span
+                  className="mx-1 flex-1 border-b border-dotted border-white/[0.12]"
+                  aria-hidden
+                />
+                <span className="shrink-0 tabular-nums text-white/80">
                   {formatBRL(p.valor)}
                 </span>
               </li>

@@ -176,6 +176,7 @@ export type VendaOriginalCompleta = {
     rav: number | null
     rav_extra_cliente: number
     rav_extra_fornecedor: number
+    rav_comissionado: number
     comissao_vendedor: number | null
     pgto_modo: string
     pgto_forma: string | null

@@ -255,6 +255,7 @@ export type VendaDetalhes = {
       rav: number
       ravExtraCliente: number
       ravExtraFornecedor: number
+      ravComissionado: number
     }[]
   } | null
   produtos: {
@@ -266,6 +267,7 @@ export type VendaDetalhes = {
     rav: number
     ravExtraCliente: number
     ravExtraFornecedor: number
+    ravComissionado: number
     comissao: number
     tipoComissao: string | null
     fornecedorNome: string
@@ -287,6 +289,9 @@ export type VendaDetalhes = {
     pgtoDataDebito: string | null
     /** Taxa adicional na 1ª parcela (pgto_primeira_parcela_extra). */
     pgtoPrimeiraParcelaExtra: number
+    /** Parcelas detalhadas do faturado (cada entrada = ordem + valor + data).
+     *  Vazio quando outra forma de pgto. */
+    pgtoParcelasFaturado: { ordem: number; valor: number; data: string | null }[]
     /** Campos personalizados do tipo de produto resolvidos para { nome, valor }. */
     camposExtras: { nome: string; valor: string }[]
   }[]
@@ -300,6 +305,10 @@ export type VendaDetalhes = {
     plataforma: string | null
     /** Distribuição planejada — array com valor + data por parcela. */
     parcelasDetalhe: { ordem: number; valor: number; data: string | null }[]
+    /** Taxa % acrescida do cliente (PagSeguro/Cielo/faturado).
+     *  Representa custo extra que a agência paga à plataforma —
+     *  inflama a cobrança ao cliente mas reduz o RAV efetivo. */
+    taxaCobranca: number
     taxaAdquirente: number | null
     valorLiquido: number | null
     dataInicio: string | null
@@ -430,7 +439,7 @@ export async function getVendaDetalhes(
       .from("venda_produtos")
       .select(
         `tipo_produto_nome, valor_venda, valor_custo, rav, comissao_vendedor,
-         rav_extra_cliente, rav_extra_fornecedor, tipo_comissao,
+         rav_extra_cliente, rav_extra_fornecedor, rav_comissionado, tipo_comissao,
          fornecedor_nome, localizador, localizador_fornecedor, destino,
          data_emissao, data_inicio_viagem, data_fim_viagem, valores_extras,
          pgto_forma, pgto_valor_total, pgto_entrada, pgto_num_parcelas,
@@ -452,7 +461,7 @@ export async function getVendaDetalhes(
         `itens:cobranca_cliente_itens(
           tipo, valor_total, num_parcelas, valor_parcela,
           plataforma_link, plataforma, parcelas_detalhe,
-          taxa_adquirente, valor_liquido,
+          taxa_cobranca, taxa_adquirente, valor_liquido,
           data_inicio, data_primeiro_recebimento,
           fornecedor_destino, observacoes,
           comprovante_storage_path, comprovante_nome_arquivo,
@@ -500,7 +509,7 @@ export async function getVendaDetalhes(
       supabase
         .from("venda_produtos")
         .select(
-          "tipo_produto_nome, fornecedor_nome, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor",
+          "tipo_produto_nome, fornecedor_nome, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, rav_comissionado",
         )
         .eq("venda_id", vendaOriginalId)
         .order("ordem"),
@@ -530,6 +539,9 @@ export async function getVendaDetalhes(
           rav: Number(p.rav ?? 0),
           ravExtraCliente: Number(p.rav_extra_cliente ?? 0),
           ravExtraFornecedor: Number(p.rav_extra_fornecedor ?? 0),
+          ravComissionado: Number(
+            (p as unknown as { rav_comissionado: number | string | null }).rav_comissionado ?? 0,
+          ),
         })),
       }
     }
@@ -621,6 +633,9 @@ export async function getVendaDetalhes(
           rav,
           ravExtraCliente: Number(p.rav_extra_cliente ?? 0),
           ravExtraFornecedor: Number(p.rav_extra_fornecedor ?? 0),
+          ravComissionado: Number(
+            (p as unknown as { rav_comissionado: number | string | null }).rav_comissionado ?? 0,
+          ),
           comissao,
           tipoComissao: p.tipo_comissao ?? null,
           fornecedorNome: p.fornecedor_nome ?? "",
@@ -653,6 +668,18 @@ export async function getVendaDetalhes(
           pgtoValorParcela: p.pgto_valor_parcela != null ? Number(p.pgto_valor_parcela) : null,
           pgtoDataDebito: p.pgto_data_debito ?? null,
           pgtoPrimeiraParcelaExtra: Number(p.pgto_primeira_parcela_extra ?? 0),
+          pgtoParcelasFaturado: (() => {
+            if (p.pgto_forma !== "faturado") return []
+            const det = p.pgto_parcelas_detalhe as unknown as
+              | { ordem?: number; valor?: number | string; data?: string | null }[]
+              | null
+            if (!Array.isArray(det)) return []
+            return det.map((parc, j) => ({
+              ordem: Number(parc.ordem ?? j + 1),
+              valor: Number(parc.valor ?? 0),
+              data: parc.data ?? null,
+            }))
+          })(),
           camposExtras,
         }
       }),
@@ -670,6 +697,7 @@ export async function getVendaDetalhes(
               valor: number | string
               data: string | null
             }> | null
+            taxa_cobranca: number | string | null
             taxa_adquirente: number | null
             valor_liquido: number | null
             data_inicio: string | null
@@ -694,6 +722,7 @@ export async function getVendaDetalhes(
           valor: Number(p.valor ?? 0),
           data: p.data ?? null,
         })),
+        taxaCobranca: it.taxa_cobranca != null ? Number(it.taxa_cobranca) : 0,
         taxaAdquirente: it.taxa_adquirente != null ? Number(it.taxa_adquirente) : null,
         valorLiquido: it.valor_liquido != null ? Number(it.valor_liquido) : null,
         dataInicio: it.data_inicio ?? null,
@@ -780,6 +809,7 @@ export type VendaParaPDF = {
     rav: number
     ravExtraCliente: number
     ravExtraFornecedor: number
+    ravComissionado: number
     comissao: number
     tipoComissao: string | null
     pgtoForma: string | null
@@ -787,9 +817,14 @@ export type VendaParaPDF = {
     pgtoValorTotal: number | null
     pgtoEntrada: number
     pgtoNumParcelas: number
+    /** Nº efetivo de parcelas que a agência fronta. Pra faturado vem do
+     *  length de pgto_parcelas_detalhe; pra demais formas, igual a pgtoNumParcelas. */
+    pgtoNumParcelasReal: number
     pgtoValorParcela: number | null
     pgtoDataDebito: string | null
     pgtoPrimeiraParcelaExtra: number
+    /** Parcelas detalhadas do faturado (vazio quando outra forma). */
+    pgtoParcelasFaturado: { ordem: number; valor: number; data: string | null }[]
     camposExtras: { nome: string; valor: string }[]
   }[]
   // Passageiros com dados completos
@@ -810,6 +845,10 @@ export type VendaParaPDF = {
     plataforma: string | null
     /** Distribuição planejada — array com valor + data por parcela. */
     parcelasDetalhe: { ordem: number; valor: number; data: string | null }[]
+    /** Taxa % acrescida do cliente (PagSeguro/Cielo/faturado).
+     *  Representa custo extra que a agência paga à plataforma —
+     *  inflama a cobrança ao cliente mas reduz o RAV efetivo. */
+    taxaCobranca: number
     taxaAdquirente: number | null
     valorLiquido: number | null
     dataInicio: string | null
@@ -872,9 +911,10 @@ export async function getVendaParaPDF(
         ordem, tipo_produto_nome, fornecedor_nome, localizador, localizador_fornecedor,
         destino, data_emissao, data_inicio_viagem, data_fim_viagem,
         valor_venda, valor_custo, rav, comissao_vendedor,
-        rav_extra_cliente, rav_extra_fornecedor, tipo_comissao, valores_extras,
+        rav_extra_cliente, rav_extra_fornecedor, rav_comissionado, tipo_comissao, valores_extras,
         pgto_forma, pgto_valor_total, pgto_entrada, pgto_num_parcelas,
         pgto_valor_parcela, pgto_data_debito, pgto_primeira_parcela_extra,
+        pgto_parcelas_detalhe,
         pgto_cartao:cartoes!fk_venda_produtos_cartao(nome)
       `,
       )
@@ -891,7 +931,7 @@ export async function getVendaParaPDF(
         `itens:cobranca_cliente_itens(
           tipo, valor_total, num_parcelas, valor_parcela,
           plataforma_link, plataforma, parcelas_detalhe,
-          taxa_adquirente, valor_liquido,
+          taxa_cobranca, taxa_adquirente, valor_liquido,
           data_inicio, data_primeiro_recebimento,
           fornecedor_destino, observacoes,
           comprovante_storage_path, comprovante_nome_arquivo,
@@ -1046,6 +1086,9 @@ export async function getVendaParaPDF(
           rav,
           ravExtraCliente: Number(p.rav_extra_cliente ?? 0),
           ravExtraFornecedor: Number(p.rav_extra_fornecedor ?? 0),
+          ravComissionado: Number(
+            (p as unknown as { rav_comissionado: number | string | null }).rav_comissionado ?? 0,
+          ),
           comissao,
           tipoComissao: p.tipo_comissao ?? null,
           pgtoForma: p.pgto_forma ?? null,
@@ -1053,9 +1096,34 @@ export async function getVendaParaPDF(
           pgtoValorTotal: p.pgto_valor_total != null ? Number(p.pgto_valor_total) : null,
           pgtoEntrada: Number(p.pgto_entrada ?? 0),
           pgtoNumParcelas: Number(p.pgto_num_parcelas ?? 1),
+          pgtoNumParcelasReal: (() => {
+            const det = p.pgto_parcelas_detalhe as unknown as
+              | { length?: number }[]
+              | null
+            if (
+              p.pgto_forma === "faturado" &&
+              Array.isArray(det) &&
+              det.length > 0
+            ) {
+              return det.length
+            }
+            return Number(p.pgto_num_parcelas ?? 1)
+          })(),
           pgtoValorParcela: p.pgto_valor_parcela != null ? Number(p.pgto_valor_parcela) : null,
           pgtoDataDebito: p.pgto_data_debito ?? null,
           pgtoPrimeiraParcelaExtra: Number(p.pgto_primeira_parcela_extra ?? 0),
+          pgtoParcelasFaturado: (() => {
+            if (p.pgto_forma !== "faturado") return []
+            const det = p.pgto_parcelas_detalhe as unknown as
+              | { ordem?: number; valor?: number | string; data?: string | null }[]
+              | null
+            if (!Array.isArray(det)) return []
+            return det.map((parc, j) => ({
+              ordem: Number(parc.ordem ?? j + 1),
+              valor: Number(parc.valor ?? 0),
+              data: parc.data ?? null,
+            }))
+          })(),
           camposExtras,
         }
       }),
@@ -1079,6 +1147,7 @@ export async function getVendaParaPDF(
               valor: number | string
               data: string | null
             }> | null
+            taxa_cobranca: number | string | null
             taxa_adquirente: number | null
             valor_liquido: number | null
             data_inicio: string | null
@@ -1103,6 +1172,7 @@ export async function getVendaParaPDF(
           valor: Number(p.valor ?? 0),
           data: p.data ?? null,
         })),
+        taxaCobranca: it.taxa_cobranca != null ? Number(it.taxa_cobranca) : 0,
         taxaAdquirente: it.taxa_adquirente != null ? Number(it.taxa_adquirente) : null,
         valorLiquido: it.valor_liquido != null ? Number(it.valor_liquido) : null,
         dataInicio: it.data_inicio ?? null,
@@ -1319,6 +1389,7 @@ export type VendaParaEditar = {
       fornecedor_outro_nome: string
       valor_venda_str: string; valor_custo_str: string; rav_str: string
       rav_extra_cliente_str: string; rav_extra_fornecedor_str: string
+      rav_comissionado_str: string
       comissao_vendedor_str: string
       valores_extras: Record<string, string>
       data_emissao_str: string
@@ -1373,11 +1444,16 @@ export async function getVendaParaEditar(
 
   if (!vendaCheck) return { ok: false, error: "Venda não encontrada." }
 
-  // Gerente/Admin com aprovar: acesso total. Agente: só a própria venda em_revisao.
-  const isOwnerEmRevisao =
-    vendaCheck.usuario_id === user.id && vendaCheck.status === "em_revisao"
+  // Gerente/Admin com aprovar: acesso total. Agente: a própria venda
+  // enquanto NÃO foi aprovada — inclui rascunho, em_revisao e
+  // pendente_validacao (corrige antes da aprovação do gerente).
+  const isOwnerEditavel =
+    vendaCheck.usuario_id === user.id &&
+    (vendaCheck.status === "rascunho" ||
+      vendaCheck.status === "em_revisao" ||
+      vendaCheck.status === "pendente_validacao")
 
-  if (!canApprove && !isOwnerEmRevisao) {
+  if (!canApprove && !isOwnerEditavel) {
     return { ok: false, error: "Sem permissão." }
   }
 
@@ -1391,7 +1467,7 @@ export async function getVendaParaEditar(
         .maybeSingle(),
       supabase
         .from("venda_produtos")
-        .select("tipo_produto_id, fornecedor_id, fornecedor_nome, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, comissao_vendedor, valores_extras, data_emissao, pgto_modo, pgto_forma, pgto_cartao_id, pgto_valor_total, pgto_entrada, pgto_num_parcelas, pgto_valor_parcela, pgto_data_debito, pgto_primeira_parcela_extra, pgto_parcelas_detalhe, data_inicio_viagem, data_fim_viagem")
+        .select("tipo_produto_id, fornecedor_id, fornecedor_nome, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, rav_comissionado, comissao_vendedor, valores_extras, data_emissao, pgto_modo, pgto_forma, pgto_cartao_id, pgto_valor_total, pgto_entrada, pgto_num_parcelas, pgto_valor_parcela, pgto_data_debito, pgto_primeira_parcela_extra, pgto_parcelas_detalhe, data_inicio_viagem, data_fim_viagem")
         .eq("venda_id", id)
         .order("ordem"),
       supabase
@@ -1460,6 +1536,9 @@ export async function getVendaParaEditar(
       rav_str:                  numStr(p.rav),
       rav_extra_cliente_str:    numStr(p.rav_extra_cliente),
       rav_extra_fornecedor_str: numStr(p.rav_extra_fornecedor),
+      rav_comissionado_str:     numStr(
+        (p as unknown as { rav_comissionado: number | string | null }).rav_comissionado,
+      ),
       comissao_vendedor_str:    numStr(p.comissao_vendedor),
       valores_extras:           (p.valores_extras as Record<string, string> | null) ?? {},
       data_emissao_str:         p.data_emissao ?? "",

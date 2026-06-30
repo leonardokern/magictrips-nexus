@@ -24,7 +24,10 @@ export function VerVendaLink({ vendaId, identificador, mostraComissao = false }:
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      setDetalhes(null)
+      return
+    }
     if (detalhes) return
     let cancelado = false
     setLoading(true)

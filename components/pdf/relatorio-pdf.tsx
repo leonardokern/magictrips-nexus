@@ -268,6 +268,65 @@ function Campo({ label, value, bold, color, width = "33.33%" }: {
   )
 }
 
+/** Linha de discriminação financeira — usada no bloco do topo do relatório.
+ *  Layout label + valor com leader e variações de cor/peso. */
+function FinLine({
+  label,
+  value,
+  bold,
+  suave,
+  accent,
+  indent,
+}: {
+  label: string
+  value: string
+  bold?: boolean
+  suave?: boolean
+  accent?: "amber" | "emerald"
+  indent?: boolean
+}) {
+  const accentColor =
+    accent === "amber" ? "#92400e" : accent === "emerald" ? "#065f46" : null
+  const accentBg =
+    accent === "amber" ? "#fffbeb" : accent === "emerald" ? "#ecfdf5" : "transparent"
+  const labelColor = accentColor ?? (suave ? CORES.textoSuave : CORES.texto)
+  const valueColor = accentColor ?? CORES.texto
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        backgroundColor: accentBg,
+        borderBottomWidth: 0.25,
+        borderBottomColor: CORES.divisor,
+      }}
+    >
+      <Text
+        style={{
+          fontSize: 7.5,
+          color: labelColor,
+          fontFamily: bold ? "Helvetica-Bold" : "Helvetica",
+          paddingLeft: indent ? 12 : 0,
+        }}
+      >
+        {label}
+      </Text>
+      <Text
+        style={{
+          fontSize: 8,
+          color: valueColor,
+          fontFamily: bold ? "Helvetica-Bold" : "Helvetica",
+        }}
+      >
+        {value}
+      </Text>
+    </View>
+  )
+}
+
 const STATUS_INFO: Record<string, { label: string; bg: string; color: string }> = {
   aprovado: { label: "Aprovada", bg: "#d1fae5", color: "#065f46" },
   pendente_validacao: { label: "Aguardando aprovação", bg: "#fef3c7", color: "#92400e" },
@@ -287,14 +346,19 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
   // giro adiantado. Aplicado quando v.desfluxoAplicado=true e %>0.
   const desfluxoPctAtivo = v.desfluxoAplicado ? v.desfluxoPercentual : 0
   const desfluxoCustoExtra = (totalCustoBase * desfluxoPctAtivo) / 100
-  const totalCusto = totalCustoBase + desfluxoCustoExtra
-  const totalRavBruto = v.produtos.reduce(
-    (a, p) => a + p.rav + p.ravExtraCliente + p.ravExtraFornecedor,
+  // Taxas de cobrança (PagSeguro/Cielo/faturado) — entram como CUSTO da
+  // agência (paga à plataforma), reduzindo RAV efetivo e a comissão.
+  const totalTaxasCobranca = v.cobranca.reduce(
+    (a, c) => a + (c.valor * (c.taxaCobranca ?? 0)) / 100,
     0,
   )
-  // RAV efetivo subtrai o desfluxo extra (custo "real contábil" subiu).
-  const totalRav = totalRavBruto - desfluxoCustoExtra
-  // Comissão recomputada com a regra atual (% × RAV total) — não somar
+  const totalCusto = totalCustoBase + desfluxoCustoExtra + totalTaxasCobranca
+  // RAV total = soma do campo `rav` (Venda − Custo). Os 3 extras são
+  // uma DECOMPOSIÇÃO desse RAV (somam = rav), não componentes adicionais.
+  const totalRavBruto = v.produtos.reduce((a, p) => a + p.rav, 0)
+  // RAV efetivo subtrai desfluxo + taxas de cobrança (custo "real contábil" subiu).
+  const totalRav = totalRavBruto - desfluxoCustoExtra - totalTaxasCobranca
+  // Comissão recomputada com a regra atual (% × RAV efetivo) — não somar
   // `p.comissao` armazenado, que pode estar com a base antiga.
   const totalComissao =
     v.comissaoPercentual != null
@@ -302,6 +366,7 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
       : v.produtos.reduce((a, p) => a + p.comissao, 0)
   const margemRav     = totalVenda > 0 ? ((totalRav / totalVenda) * 100).toFixed(1) : "—"
   const totalCobranca = v.cobranca.reduce((a, c) => a + c.valor, 0)
+  const totalCobrancaComTaxa = totalCobranca + totalTaxasCobranca
 
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const statusInfo = STATUS_INFO[v.status] ?? STATUS_INFO["rascunho"]!
@@ -434,32 +499,107 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
             </View>
           </View>
 
-          {/* Aviso de desfluxo quando aplicado — só no relatório (interno). */}
-          {desfluxoPctAtivo > 0 && (
-            <View
-              style={{
-                marginTop: 8,
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 4,
-                borderWidth: 0.5,
-                borderColor: "#fde68a",
-                backgroundColor: "#fffbeb",
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <Text style={{ fontSize: 8, color: "#92400e" }}>
-                Desfluxo de caixa aplicado · {v.desfluxoMeses} meses · +
-                {v.desfluxoPercentual.toFixed(2).replace(".", ",")}% sobre custo
-                base ({formatBRL(totalCustoBase)})
-              </Text>
-              <Text style={{ fontSize: 9, fontFamily: "Helvetica-Bold", color: "#92400e" }}>
-                +{formatBRL(desfluxoCustoExtra)}
-              </Text>
-            </View>
-          )}
+          {/* Discriminação financeira — bloco completo (espelha o painel da
+              wizard). Mostra a composição do RAV total + deduções + comissão
+              efetiva. Substitui o aviso simples de desfluxo. */}
+          {(() => {
+            const totalRavExtraCliente = v.produtos.reduce(
+              (a, p) => a + p.ravExtraCliente,
+              0,
+            )
+            const totalRavExtraFornecedor = v.produtos.reduce(
+              (a, p) => a + p.ravExtraFornecedor,
+              0,
+            )
+            const totalRavComissionado = v.produtos.reduce(
+              (a, p) => a + p.ravComissionado,
+              0,
+            )
+            const temDeducoes =
+              desfluxoPctAtivo > 0 || totalTaxasCobranca > 0.005
+            // Linhas do bloco — apenas as relevantes. As 3 fatias do RAV
+            // sempre aparecem quando totalRavBruto > 0 (mesmo zero).
+            return (
+              <View style={s.section}>
+                <Text style={s.sectionTitle}>Discriminação financeira</Text>
+                <View
+                  style={{
+                    borderWidth: 0.5,
+                    borderColor: CORES.divisor,
+                    borderRadius: 3,
+                    overflow: "hidden",
+                  }}
+                >
+                  <FinLine label="Total da venda" value={formatBRL(totalVenda)} bold />
+                  <FinLine label="Custo base" value={formatBRL(totalCustoBase)} suave />
+                  {desfluxoPctAtivo > 0 && (
+                    <FinLine
+                      label={`Desfluxo (${v.desfluxoMeses} ${v.desfluxoMeses === 1 ? "mês" : "meses"}) · ${v.desfluxoPercentual.toFixed(2).replace(".", ",")}%`}
+                      value={`+ ${formatBRL(desfluxoCustoExtra)}`}
+                      accent="amber"
+                    />
+                  )}
+                  {totalTaxasCobranca > 0.005 && (
+                    <FinLine
+                      label="Taxa de cobrança"
+                      value={`+ ${formatBRL(totalTaxasCobranca)}`}
+                      accent="amber"
+                    />
+                  )}
+                  {temDeducoes && (
+                    <FinLine
+                      label="Custo efetivo"
+                      value={formatBRL(totalCusto)}
+                      bold
+                      accent="amber"
+                    />
+                  )}
+                  <FinLine
+                    label="RAV bruto (Venda − Custo)"
+                    value={formatBRL(totalRavBruto)}
+                  />
+                  {totalRavBruto > 0 && (
+                    <>
+                      <FinLine
+                        label="RAV extra cliente"
+                        value={formatBRL(totalRavExtraCliente)}
+                        indent
+                      />
+                      <FinLine
+                        label="RAV extra fornecedor"
+                        value={formatBRL(totalRavExtraFornecedor)}
+                        indent
+                      />
+                      <FinLine
+                        label="RAV comissionado"
+                        value={formatBRL(totalRavComissionado)}
+                        indent
+                      />
+                    </>
+                  )}
+                  {temDeducoes && (
+                    <FinLine
+                      label="RAV efetivo"
+                      value={formatBRL(totalRav)}
+                      bold
+                      accent="emerald"
+                    />
+                  )}
+                  <FinLine
+                    label={`Margem RAV${temDeducoes ? " (efetiva)" : ""}`}
+                    value={margemRav !== "—" ? `${margemRav}%` : "—"}
+                    suave
+                  />
+                  <FinLine
+                    label={`Comissão agente${v.comissaoPercentual != null ? ` (${v.comissaoPercentual}%)` : ""}`}
+                    value={formatBRL(totalComissao)}
+                    bold
+                    accent="amber"
+                  />
+                </View>
+              </View>
+            )
+          })()}
 
           {/* ── Resumo financeiro (tabela) ────────────────────────────── */}
           <View style={s.section}>
@@ -566,11 +706,29 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
                       value={p.valorVenda > 0 ? `${((p.rav / p.valorVenda) * 100).toFixed(1)}%` : "—"}
                       width="25%"
                     />
-                    {p.ravExtraCliente > 0 && (
-                      <Campo label="RAV Extra Cliente" value={formatBRL(p.ravExtraCliente)} color="#1498D5" width="25%" />
-                    )}
-                    {p.ravExtraFornecedor > 0 && (
-                      <Campo label="RAV Extra Fornecedor" value={formatBRL(p.ravExtraFornecedor)} color="#1498D5" width="25%" />
+                    {/* Discriminação do RAV — sempre as 3 fatias quando RAV > 0,
+                        mesmo com valor zero. O somatório precisa bater com `rav`. */}
+                    {p.rav > 0 && (
+                      <>
+                        <Campo
+                          label="RAV Extra Cliente"
+                          value={formatBRL(p.ravExtraCliente)}
+                          color="#1498D5"
+                          width="25%"
+                        />
+                        <Campo
+                          label="RAV Extra Fornecedor"
+                          value={formatBRL(p.ravExtraFornecedor)}
+                          color="#1498D5"
+                          width="25%"
+                        />
+                        <Campo
+                          label="RAV Comissionado"
+                          value={formatBRL(p.ravComissionado)}
+                          color="#1498D5"
+                          width="25%"
+                        />
+                      </>
                     )}
                     {p.tipoComissao && <Campo label="Tipo comissão" value={p.tipoComissao} width="25%" />}
                   </View>
@@ -593,8 +751,8 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
                     )}
                     <Campo
                       label="Parcelas"
-                      value={p.pgtoNumParcelas > 1
-                        ? `${p.pgtoNumParcelas}× ${p.pgtoValorParcela ? formatBRL(p.pgtoValorParcela) : ""}`
+                      value={p.pgtoNumParcelasReal > 1
+                        ? `${p.pgtoNumParcelasReal}× ${p.pgtoValorParcela ? formatBRL(p.pgtoValorParcela) : ""}`
                         : "À vista"}
                       width="25%"
                     />
@@ -605,10 +763,66 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
                       <Campo
                         label="Taxa 1ª parcela"
                         value={formatBRL(p.pgtoPrimeiraParcelaExtra)}
+                        color="#1498D5"
                         width="25%"
                       />
                     )}
                   </View>
+
+                  {/* Lista de parcelas detalhadas — faturado vem do array
+                      pgtoParcelasFaturado; cartão_agencia é gerado em runtime
+                      (1ª = base + taxa extra, demais = base). */}
+                  {(() => {
+                    type Linha = { ordem: number; valor: number; data: string | null }
+                    let linhas: Linha[] = []
+                    if (p.pgtoForma === "faturado" && p.pgtoParcelasFaturado.length > 0) {
+                      linhas = p.pgtoParcelasFaturado
+                    } else if (p.pgtoForma === "cartao_agencia" && p.pgtoNumParcelas > 1) {
+                      const totalPgto = p.pgtoValorTotal ?? p.valorCusto
+                      const extra = p.pgtoPrimeiraParcelaExtra || 0
+                      const base =
+                        (totalPgto - p.pgtoEntrada - extra) / p.pgtoNumParcelas
+                      linhas = Array.from({ length: p.pgtoNumParcelas }, (_, i) => ({
+                        ordem: i + 1,
+                        valor: i === 0 ? base + extra : base,
+                        data: null,
+                      }))
+                    }
+                    if (linhas.length < 2) return null
+                    return (
+                      <View style={{ marginTop: 5 }}>
+                        <Text
+                          style={{
+                            fontSize: 6.5,
+                            color: CORES.textoSuave,
+                            marginBottom: 2,
+                          }}
+                        >
+                          PARCELAS
+                        </Text>
+                        {linhas.map((l) => (
+                          <View
+                            key={l.ordem}
+                            style={{
+                              flexDirection: "row",
+                              justifyContent: "space-between",
+                              paddingVertical: 1.5,
+                              borderBottomWidth: 0.25,
+                              borderBottomColor: CORES.divisor,
+                            }}
+                          >
+                            <Text style={{ fontSize: 7.5, color: CORES.textoSuave }}>
+                              {l.ordem}.
+                              {l.data ? `  ${formatDate(l.data)}` : ""}
+                            </Text>
+                            <Text style={{ fontSize: 7.5, color: CORES.texto }}>
+                              {formatBRL(l.valor)}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    )
+                  })()}
                 </View>
               </View>
             ))}
@@ -618,15 +832,31 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
           {v.cobranca.length > 0 && (
             <View style={s.section}>
               <Text style={s.sectionTitle}>Cobrança do cliente</Text>
-              {v.cobranca.map((c, i) => (
+              {v.cobranca.map((c, i) => {
+                const taxa = c.taxaCobranca ?? 0
+                const valorTaxa = (c.valor * taxa) / 100
+                const totalItemComTaxa = c.valor + valorTaxa
+                const temTaxa = taxa > 0
+                const tipoLabel = COBRANCA_TIPO_LABEL[c.tipo] ?? c.tipo
+                const labelFinal = c.plataforma
+                  ? `${tipoLabel} · ${c.plataforma}`
+                  : tipoLabel
+                return (
                 <View key={i} style={s.cobrancaCard}>
                   <View style={s.cobrancaHeader}>
                     <Text style={{ fontSize: 7.5, fontFamily: "Helvetica-Bold", color: CORES.texto }}>
-                      {COBRANCA_TIPO_LABEL[c.tipo] ?? c.tipo}
+                      {labelFinal}
                     </Text>
-                    <Text style={{ fontSize: 7.5, fontFamily: "Helvetica-Bold", color: CORES.texto }}>
-                      {formatBRL(c.valor)}
-                    </Text>
+                    <View style={{ alignItems: "flex-end" }}>
+                      <Text style={{ fontSize: 7.5, fontFamily: "Helvetica-Bold", color: CORES.texto }}>
+                        {formatBRL(temTaxa ? totalItemComTaxa : c.valor)}
+                      </Text>
+                      {temTaxa && (
+                        <Text style={{ fontSize: 6, color: CORES.textoSuave, marginTop: 0.5 }}>
+                          {formatBRL(c.valor)} + {taxa.toString().replace(".", ",")}% taxa
+                        </Text>
+                      )}
+                    </View>
                   </View>
                   <View style={s.cobrancaBody}>
                     <View style={s.fieldGrid}>
@@ -645,9 +875,6 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
                       )}
                       {c.fornecedorDestino && (
                         <Campo label="Destino" value={c.fornecedorDestino} width="25%" />
-                      )}
-                      {c.plataforma && (
-                        <Campo label="Plataforma" value={c.plataforma} width="25%" />
                       )}
                       {c.taxaAdquirente != null && c.taxaAdquirente > 0 && (
                         <Campo label="Taxa adquirente" value={`${c.taxaAdquirente}%`} color="#92400e" width="25%" />
@@ -725,8 +952,10 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
                     )}
                   </View>
                 </View>
-              ))}
-              {/* Total cobrado */}
+                )
+              })}
+              {/* Total cobrado — inclui taxas (PagSeguro/Cielo/faturado),
+                  refletindo o que o cliente efetivamente paga. */}
               <View style={{
                 flexDirection: "row",
                 justifyContent: "space-between",
@@ -736,9 +965,19 @@ export function RelatorioPDF({ venda: v, logoPath }: { venda: VendaParaPDF; logo
                 marginTop: 2,
               }}>
                 <Text style={s.tdBold}>Total cobrado</Text>
-                <Text style={[s.tdBold, { color: cor }]}>{formatBRL(totalCobranca)}</Text>
+                <View style={{ alignItems: "flex-end" }}>
+                  <Text style={[s.tdBold, { color: cor }]}>
+                    {formatBRL(totalCobrancaComTaxa)}
+                  </Text>
+                  {totalTaxasCobranca > 0.005 && (
+                    <Text style={{ fontSize: 6, color: CORES.textoSuave, marginTop: 0.5 }}>
+                      {formatBRL(totalCobranca)} + {formatBRL(totalTaxasCobranca)} taxas
+                    </Text>
+                  )}
+                </View>
               </View>
-              {/* Alerta de divergência */}
+              {/* Alerta de divergência — compara BASE da cobrança com o
+                  total da venda (taxa não conta porque vai pra plataforma). */}
               {Math.abs(totalCobranca - totalVenda) > 0.01 && (
                 <View style={{
                   backgroundColor: "#fffbeb",

@@ -37,7 +37,7 @@ const SELECT_LISTA = `
   empresa:empresas(nome, slug),
   cliente:clientes(nome),
   agente:usuarios!vendas_usuario_id_fkey(nome),
-  produtos:venda_produtos(valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor)
+  produtos:venda_produtos(valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, rav_comissionado)
 ` as const
 
 type SearchParams = { page?: string; q?: string }
@@ -139,6 +139,7 @@ export default async function VendasPage({
       rav: number | string | null
       rav_extra_cliente: number | string | null
       rav_extra_fornecedor: number | string | null
+      rav_comissionado: number | string | null
     }[] | null
   }
   const { data: alteracoesRawData } =
@@ -148,7 +149,7 @@ export default async function VendasPage({
           .select(
             `venda_original_id, cliente_id, origem, comissao_percentual, data_aprovacao,
              cliente:clientes(nome),
-             produtos:venda_produtos(valor_venda, rav, rav_extra_cliente, rav_extra_fornecedor)`,
+             produtos:venda_produtos(valor_venda, rav, rav_extra_cliente, rav_extra_fornecedor, rav_comissionado)`,
           )
           .eq("status", "aprovado")
           .eq("tipo_venda", "alteracao_valores")
@@ -165,6 +166,7 @@ export default async function VendasPage({
     deltaRav: number
     deltaRavCliente: number
     deltaRavFornecedor: number
+    deltaRavComissionado: number
   }
   const mergeMap = new Map<string, MergeInfo>()
   // Vem ordenado por data_aprovacao desc — a PRIMEIRA alteração lida pra
@@ -184,6 +186,7 @@ export default async function VendasPage({
         deltaRav: 0,
         deltaRavCliente: 0,
         deltaRavFornecedor: 0,
+        deltaRavComissionado: 0,
       }
       mergeMap.set(alt.venda_original_id, m)
     }
@@ -192,6 +195,7 @@ export default async function VendasPage({
       m.deltaRav += Number(p.rav ?? 0)
       m.deltaRavCliente += Number(p.rav_extra_cliente ?? 0)
       m.deltaRavFornecedor += Number(p.rav_extra_fornecedor ?? 0)
+      m.deltaRavComissionado += Number(p.rav_comissionado ?? 0)
     }
   }
 
@@ -222,6 +226,7 @@ export default async function VendasPage({
             rav: m.deltaRav,
             rav_extra_cliente: m.deltaRavCliente,
             rav_extra_fornecedor: m.deltaRavFornecedor,
+            rav_comissionado: m.deltaRavComissionado,
           },
         ],
       }
@@ -256,17 +261,13 @@ export default async function VendasPage({
       rav: number | null
       rav_extra_cliente: number | null
       rav_extra_fornecedor: number | null
+      rav_comissionado: number | null
     }
     const prods = (v.produtos as ProdRow[] | null) ?? []
     const total = prods.reduce((a, p) => a + Number(p.valor_venda ?? 0), 0)
-    const ravBruto = prods.reduce(
-      (a, p) =>
-        a +
-        Number(p.rav ?? 0) +
-        Number(p.rav_extra_cliente ?? 0) +
-        Number(p.rav_extra_fornecedor ?? 0),
-      0,
-    )
+    // RAV total = soma de `rav` (Venda − Custo). Os 3 extras são DECOMPOSIÇÃO
+    // do RAV (somam ele) — não somam adicional.
+    const ravBruto = prods.reduce((a, p) => a + Number(p.rav ?? 0), 0)
     const custoBase = prods.reduce(
       (a, p) => a + Number(p.valor_custo ?? 0),
       0,
@@ -298,6 +299,7 @@ export default async function VendasPage({
       rav: number | string | null
       rav_extra_cliente: number | string | null
       rav_extra_fornecedor: number | string | null
+      rav_comissionado: number | string | null
     }>
   } & Record<string, unknown>
 
@@ -322,6 +324,7 @@ export default async function VendasPage({
       rav: number | string | null
       rav_extra_cliente: number | string | null
       rav_extra_fornecedor: number | string | null
+      rav_comissionado: number | string | null
     }> | null
   }
   const { data: originaisInfoData } =
@@ -331,7 +334,7 @@ export default async function VendasPage({
           .select(
             `id, identificador, cliente_id, origem, comissao_percentual,
              cliente:clientes(nome),
-             produtos:venda_produtos(valor_venda, rav, rav_extra_cliente, rav_extra_fornecedor)`,
+             produtos:venda_produtos(valor_venda, rav, rav_extra_cliente, rav_extra_fornecedor, rav_comissionado)`,
           )
           .in("id", idsOriginaisPendentes)
       : { data: null as OriginalInfoRow[] | null }
@@ -970,14 +973,17 @@ function computeRowProps(
     mostraComissao: boolean
   },
 ) {
-  // Agente só edita as próprias em rascunho/em_revisao. Admin/Gerente edita
-  // qualquer status (exceto aprovado, onde a UI de edição não faz sentido).
-  // Em ambos os casos exige `vendas.editar`.
+  // Agente edita as próprias enquanto a venda NÃO foi aprovada — inclui
+  // rascunho, em_revisao e pendente_validacao (pode corrigir antes da
+  // validação do gerente). Admin/Gerente edita qualquer status exceto
+  // aprovado. Em ambos os casos exige `vendas.editar`.
   const podeEditarEsta =
     ctx.podeEditarBasico &&
     ((ctx.podeEditarGlobal && v.status !== "aprovado") ||
       (v.usuario_id === ctx.userId &&
-        (v.status === "rascunho" || v.status === "em_revisao")))
+        (v.status === "rascunho" ||
+          v.status === "em_revisao" ||
+          v.status === "pendente_validacao")))
 
   // Excluir: somente quem tem permissão; só faz sentido em validada.
   const podeExcluirEsta = ctx.podeExcluir && v.status === "aprovado"

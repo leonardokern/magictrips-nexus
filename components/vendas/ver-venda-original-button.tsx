@@ -30,7 +30,11 @@ export function VerVendaOriginalButton({
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!open || detalhes) return
+    if (!open) {
+      setDetalhes(null)
+      return
+    }
+    if (detalhes) return
     let cancelado = false
     setLoading(true)
     getVendaDetalhes(vendaId).then((r) => {

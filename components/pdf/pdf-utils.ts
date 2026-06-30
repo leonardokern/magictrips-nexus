@@ -136,6 +136,8 @@ export const COBRANCA_TIPO_LABEL: Record<string, string> = {
   transferencia: "Transferência",
   dinheiro: "Dinheiro",
   faturado: "Faturado",
+  link_externo: "Link externo",
+  cliente_fornecedor: "Cliente x Fornecedor",
   outro: "Outro",
 }
 

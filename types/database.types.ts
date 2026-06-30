@@ -1900,6 +1900,7 @@ export type Database = {
           pgto_valor_parcela: number | null
           pgto_valor_total: number | null
           rav: number | null
+          rav_comissionado: number
           rav_extra_cliente: number
           rav_extra_fornecedor: number
           tipo_comissao: string | null
@@ -1935,6 +1936,7 @@ export type Database = {
           pgto_valor_parcela?: number | null
           pgto_valor_total?: number | null
           rav?: number | null
+          rav_comissionado?: number
           rav_extra_cliente?: number
           rav_extra_fornecedor?: number
           tipo_comissao?: string | null
@@ -1970,6 +1972,7 @@ export type Database = {
           pgto_valor_parcela?: number | null
           pgto_valor_total?: number | null
           rav?: number | null
+          rav_comissionado?: number
           rav_extra_cliente?: number
           rav_extra_fornecedor?: number
           tipo_comissao?: string | null

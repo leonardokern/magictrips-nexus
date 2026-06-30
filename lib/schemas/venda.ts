@@ -110,6 +110,7 @@ export const vendaProdutoSchema = z.object({
   rav: z.number().min(0).nullable().optional(),
   rav_extra_cliente: z.number().min(0).default(0),
   rav_extra_fornecedor: z.number().min(0).default(0),
+  rav_comissionado: z.number().min(0).default(0),
   comissao_vendedor: z.number().min(0).nullable().optional(),
   pgto_modo: z.enum(["comissionado", "net"]).default("comissionado"),
   pgto_forma: z.enum(PGTO_FORMAS).nullable().optional(),
@@ -257,6 +258,7 @@ export const vendaProdutoAlteracaoSchema = vendaProdutoSchema.extend({
   rav: z.number().nullable().optional(),
   rav_extra_cliente: z.number().default(0),
   rav_extra_fornecedor: z.number().default(0),
+  rav_comissionado: z.number().default(0),
 })
 
 export type VendaProdutoAlteracaoInput = z.infer<typeof vendaProdutoAlteracaoSchema>

@@ -214,6 +214,7 @@ type ProdutoState = {
   rav_str: string
   rav_extra_cliente_str: string
   rav_extra_fornecedor_str: string
+  rav_comissionado_str: string
   comissao_vendedor_str: string
   valores_extras: Record<string, string>
   /** Data de emissão do produto (ex: data de emissão do bilhete aéreo).
@@ -336,6 +337,7 @@ function novoProduto(): ProdutoState {
     rav_str: "",
     rav_extra_cliente_str: "",
     rav_extra_fornecedor_str: "",
+    rav_comissionado_str: "",
     comissao_vendedor_str: "",
     valores_extras: {},
     data_emissao_str: "",
@@ -751,6 +753,20 @@ export function VendaWizard(props: Props) {
         e[`produto_${i}_valor_custo`] = "Valor de custo obrigatório."
       if (!p.pgto_forma)
         e[`produto_${i}_pgto_forma`] = "Forma de pagamento obrigatória."
+
+      // Discriminação do RAV — as 3 fatias precisam SOMAR exatamente o RAV
+      // (Venda − Custo). É invariante do negócio: as fatias são uma
+      // decomposição, não extras adicionais.
+      const ravNum = parseValorComSoma(p.rav_str) || 0
+      if (ravNum > 0) {
+        const soma =
+          (parseValorComSoma(p.rav_extra_cliente_str) || 0) +
+          (parseValorComSoma(p.rav_extra_fornecedor_str) || 0) +
+          (parseValorComSoma(p.rav_comissionado_str) || 0)
+        if (Math.abs(soma - ravNum) > 0.01) {
+          e[`produto_${i}_rav_discriminacao`] = `Discriminação do RAV (${formatBRL(soma)}) precisa somar ${formatBRL(ravNum)}.`
+        }
+      }
 
       // Parcelas faturadas — cada parcela precisa de valor > 0 e data.
       if (p.pgto_forma === "faturado") {
@@ -1294,6 +1310,7 @@ export function VendaWizard(props: Props) {
       rav: p.rav_str ? parseValorComSoma(p.rav_str) : null,
       rav_extra_cliente: parseValorComSoma(p.rav_extra_cliente_str) || 0,
       rav_extra_fornecedor: parseValorComSoma(p.rav_extra_fornecedor_str) || 0,
+      rav_comissionado: parseValorComSoma(p.rav_comissionado_str) || 0,
       comissao_vendedor: p.comissao_vendedor_str
         ? parseValorComSoma(p.comissao_vendedor_str)
         : null,
@@ -1660,6 +1677,9 @@ export function VendaWizard(props: Props) {
                 ravExtraFornecedor: p.rav_extra_fornecedor_str
                   ? parseValorComSoma(p.rav_extra_fornecedor_str)
                   : 0,
+                ravComissionado: p.rav_comissionado_str
+                  ? parseValorComSoma(p.rav_comissionado_str)
+                  : 0,
                 camposExtras,
                 pgtoForma: p.pgto_forma || null,
                 pgtoCartaoNome: cartaoNome,
@@ -1676,11 +1696,21 @@ export function VendaWizard(props: Props) {
                 pgtoDataEntrada: p.pgto_data_entrada_str || null,
                 pgtoPrimeiraParcelaExtra:
                   parseValorComSoma(p.pgto_primeira_parcela_extra_str) || 0,
+                pgtoParcelasFaturado:
+                  p.pgto_forma === "faturado"
+                    ? p.pgto_parcelas_faturado.map((parc) => ({
+                        ordem: parc.ordem,
+                        valor: parseValorComSoma(parc.valor_str) || 0,
+                        data: parc.data || null,
+                      }))
+                    : [],
               }
             })}
             cobranca={cobrancaItens.map((it) => ({
               tipo: COBRANCA_TIPO_LABEL[it.tipo],
               valor: parseValorComSoma(it.valor_total_str),
+              taxaCobranca:
+                Number((it.taxa_cobranca_str || "0").replace(",", ".")) || 0,
               parcelas: it.num_parcelas,
               link: it.tipo === "link_externo" ? it.plataforma_link.trim() : null,
               plataforma: it.plataforma || null,
@@ -1716,6 +1746,7 @@ export function VendaWizard(props: Props) {
             mostraComissao={false}
             comissaoPercentual={comissaoDoAgente}
             anexos={anexos}
+            observacoes={observacoesGerais}
           />
         )}
       </div>
@@ -2560,21 +2591,21 @@ function Step2Produtos(props: {
    *  pelo % do agente. Todas as superfícies (lista, dashboards, PDF, resumo)
    *  usam essa mesma base. Retorna "" quando não há % definido (regra
    *  sobrescrita pelo Admin no aprovo). */
+  /** Comissão = % × RAV. Como as 3 fatias (Extra Cliente / Extra Fornecedor /
+   *  Comissionado) são uma DISCRIMINAÇÃO do RAV (somam = RAV), a base já é
+   *  o RAV total — não somamos as fatias separadamente. Os outros args
+   *  ficam por retrocompatibilidade com sites antigos de chamada, mas
+   *  não influenciam o cálculo. */
   function recomputarComissao(
     ravStr: string,
-    ravExtraClienteStr: string,
-    ravExtraFornecedorStr: string,
+    _ravExtraClienteStr?: string,
+    _ravExtraFornecedorStr?: string,
+    _ravComissionadoStr?: string,
   ): string {
     if (props.comissaoPercentual == null) return ""
     const rav = parseValorComSoma(ravStr)
-    const ravExtraCliente = parseValorComSoma(ravExtraClienteStr)
-    const ravExtraFornecedor = parseValorComSoma(ravExtraFornecedorStr)
-    const base =
-      (Number.isFinite(rav) ? rav : 0) +
-      (Number.isFinite(ravExtraCliente) ? ravExtraCliente : 0) +
-      (Number.isFinite(ravExtraFornecedor) ? ravExtraFornecedor : 0)
-    if (base <= 0) return ""
-    const comissao = (base * props.comissaoPercentual) / 100
+    if (!Number.isFinite(rav) || rav <= 0) return ""
+    const comissao = (rav * props.comissaoPercentual) / 100
     return comissao.toFixed(2).replace(".", ",")
   }
 
@@ -2603,13 +2634,17 @@ function Step2Produtos(props: {
       // Auto-calcular comissão usando RAV total = base + extra cliente +
       // extra fornecedor.
       const comissaoStr = props.comissaoPercentual != null
-        ? recomputarComissao(
-            ravStr,
-            prev.rav_extra_cliente_str,
-            prev.rav_extra_fornecedor_str,
-          )
+        ? recomputarComissao(ravStr)
         : prev.comissao_vendedor_str
-      return { [key]: value, rav_str: ravStr, pgto_valor_total_str: pgtoTotalStr, comissao_vendedor_str: comissaoStr }
+      // As 3 fatias do RAV (extra cliente/fornecedor/comissionado) NÃO
+      // são auto-preenchidas — o agente discrimina manualmente e a soma
+      // precisa bater com o RAV (validado no Step 2 e sinalizado no card).
+      return {
+        [key]: value,
+        rav_str: ravStr,
+        pgto_valor_total_str: pgtoTotalStr,
+        comissao_vendedor_str: comissaoStr,
+      }
     })
   }
 
@@ -2631,11 +2666,7 @@ function Step2Produtos(props: {
       const pgtoTotalStr = custoNovo > 0
         ? new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(custoNovo)
         : ""
-      const comissaoStr = recomputarComissao(
-        value,
-        prev.rav_extra_cliente_str,
-        prev.rav_extra_fornecedor_str,
-      )
+      const comissaoStr = recomputarComissao(value)
       return {
         rav_str: value,
         valor_custo_str: custoNovoStr,
@@ -3178,8 +3209,8 @@ function Step2Produtos(props: {
               <p className="mb-2.5 text-[11px] uppercase tracking-wider text-white/40">
                 Valores
               </p>
-              {/* Linha 1: Venda (37,5%) + Custo (37,5%) + RAV (25%)
-                  Linha 2: RAV Extra Cliente (50%) + RAV Extra Fornecedor (50%) */}
+              {/* Linha 1: Venda + Custo + RAV (calculado automaticamente).
+                  Linha 2: Discriminação do RAV em 3 fatias que SOMAM o RAV. */}
               <div className="space-y-3">
                 <div className="grid grid-cols-12 gap-3">
                   {/* Subgrade Venda+Custo ocupa 9/12 (= 75%) e divide igual.
@@ -3219,49 +3250,136 @@ function Step2Produtos(props: {
                   </Field>
                 </div>
 
-                <div className="grid grid-cols-12 gap-3">
-                  {/* RAV Extra Cliente — taxa adicional cobrada do cliente.
-                      Entra na base de comissão do agente. */}
-                  <Field
-                    label="RAV extra (cliente)"
-                    className="col-span-12 sm:col-span-6"
-                  >
-                    <CurrencyInput
-                      value={p.rav_extra_cliente_str}
-                      onChange={(v) =>
-                        patch(p.id, (prev) => ({
-                          rav_extra_cliente_str: v,
-                          comissao_vendedor_str: recomputarComissao(
-                            prev.rav_str,
-                            v,
-                            prev.rav_extra_fornecedor_str,
-                          ),
-                        }))
-                      }
-                    />
-                  </Field>
+                {/* ── Discriminação do RAV ──────────────────────────────
+                    As 3 fatias abaixo são uma DECOMPOSIÇÃO do RAV total
+                    acima — começam zeradas e o agente preenche manualmente.
+                    A soma precisa bater EXATAMENTE com o RAV.
+                    O card muda de cor conforme o estado: cinza (vazio),
+                    âmbar (em progresso ou divergente), esmeralda (bate). */}
+                {(() => {
+                  const ravNum = parseValorComSoma(p.rav_str) || 0
+                  const ec = parseValorComSoma(p.rav_extra_cliente_str) || 0
+                  const ef = parseValorComSoma(p.rav_extra_fornecedor_str) || 0
+                  const cm = parseValorComSoma(p.rav_comissionado_str) || 0
+                  const soma = ec + ef + cm
+                  const diff = ravNum - soma
+                  const bate = ravNum > 0 && Math.abs(diff) < 0.005
+                  const vazio = soma === 0
+                  // Estado visual do card:
+                  // - sem RAV → cinza neutro (ainda não há o que decompor)
+                  // - RAV > 0 + vazio → âmbar com instrução
+                  // - RAV > 0 + soma parcial/divergente → âmbar com delta
+                  // - RAV > 0 + bate → esmeralda confirmando
+                  const tone: "neutral" | "amber" | "emerald" =
+                    ravNum <= 0 ? "neutral" : bate ? "emerald" : "amber"
+                  const toneStyles = {
+                    neutral:
+                      "border-white/[0.08] bg-white/[0.025]",
+                    amber:
+                      "border-amber-400/30 bg-amber-400/[0.06]",
+                    emerald:
+                      "border-emerald-400/30 bg-emerald-400/[0.06]",
+                  }[tone]
+                  const pillStyles = {
+                    neutral:
+                      "border-white/10 bg-white/[0.04] text-white/55",
+                    amber:
+                      "border-amber-300/30 bg-amber-300/10 text-amber-200",
+                    emerald:
+                      "border-emerald-300/30 bg-emerald-300/10 text-emerald-200",
+                  }[tone]
+                  return (
+                    <div
+                      className={cn(
+                        "rounded-xl border p-4 transition-colors",
+                        toneStyles,
+                      )}
+                    >
+                      {/* Header — título + pill com soma vs RAV alvo */}
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="space-y-0.5">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-white/65">
+                            Discriminação do RAV
+                          </p>
+                          <p className="text-[11px] leading-snug text-white/45">
+                            Distribua o RAV nas 3 fatias — a soma precisa
+                            bater com {formatBRL(ravNum) || "o RAV"}.
+                          </p>
+                        </div>
+                        {ravNum > 0 && (
+                          <div
+                            className={cn(
+                              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium tabular-nums",
+                              pillStyles,
+                            )}
+                          >
+                            {bate ? (
+                              <Check className="h-3 w-3" />
+                            ) : (
+                              <AlertTriangle className="h-3 w-3" />
+                            )}
+                            <span>
+                              {formatBRL(soma)} / {formatBRL(ravNum)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
 
-                  <Field
-                    label="RAV extra (fornecedor)"
-                    className="col-span-12 sm:col-span-6"
-                  >
-                    <CurrencyInput
-                      value={p.rav_extra_fornecedor_str}
-                      onChange={(v) =>
-                        patch(p.id, (prev) => ({
-                          rav_extra_fornecedor_str: v,
-                          // RAV extra fornecedor agora entra na base de
-                          // comissão — recalcula sempre que muda.
-                          comissao_vendedor_str: recomputarComissao(
-                            prev.rav_str,
-                            prev.rav_extra_cliente_str,
-                            v,
-                          ),
-                        }))
-                      }
-                    />
-                  </Field>
-                </div>
+                      <div className="mt-3 grid grid-cols-12 gap-3">
+                        {/* RAV Extra Cliente — taxa adicional cobrada do cliente */}
+                        <Field
+                          label="RAV extra (cliente)"
+                          className="col-span-12 sm:col-span-4"
+                        >
+                          <CurrencyInput
+                            value={p.rav_extra_cliente_str}
+                            onChange={(v) =>
+                              patch(p.id, () => ({
+                                rav_extra_cliente_str: v,
+                              }))
+                            }
+                          />
+                        </Field>
+
+                        <Field
+                          label="RAV extra (fornecedor)"
+                          className="col-span-12 sm:col-span-4"
+                        >
+                          <CurrencyInput
+                            value={p.rav_extra_fornecedor_str}
+                            onChange={(v) =>
+                              patch(p.id, () => ({
+                                rav_extra_fornecedor_str: v,
+                              }))
+                            }
+                          />
+                        </Field>
+
+                        <Field
+                          label="RAV comissionado"
+                          className="col-span-12 sm:col-span-4"
+                        >
+                          <CurrencyInput
+                            value={p.rav_comissionado_str}
+                            onChange={(v) =>
+                              patch(p.id, () => ({ rav_comissionado_str: v }))
+                            }
+                          />
+                        </Field>
+                      </div>
+
+                      {/* Feedback contextual — só quando há RAV mas não bate.
+                          Indica claramente o delta e a direção (faltam X / excede X). */}
+                      {ravNum > 0 && !bate && !vazio && (
+                        <p className="mt-2.5 text-[11px] text-amber-200/85">
+                          {diff > 0
+                            ? `Faltam ${formatBRL(diff)} pra fechar o RAV.`
+                            : `A soma excede o RAV em ${formatBRL(Math.abs(diff))}.`}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             </div>
 
@@ -4493,6 +4611,7 @@ function ProdutosRevisao(props: {
     rav: number
     ravExtraCliente: number
     ravExtraFornecedor: number
+    ravComissionado: number
     camposExtras: { nome: string; valor: string }[]
     pgtoForma: string | null
     pgtoCartaoNome: string | null
@@ -4544,10 +4663,10 @@ function ProdutosRevisao(props: {
               p.camposExtras.length > 0 ||
               p.ravExtraCliente > 0 ||
               p.ravExtraFornecedor > 0 ||
+              p.ravComissionado > 0 ||
               !!p.fornecedorNome ||
               !!p.dataInicioViagem ||
-              !!p.dataFimViagem ||
-              !!p.pgtoForma
+              !!p.dataFimViagem
             return (
               <Fragment key={i}>
                 <tr
@@ -4649,81 +4768,18 @@ function ProdutosRevisao(props: {
                             </span>
                           </div>
                         )}
-                      </div>
-
-                      {/* ── Pagamento ao fornecedor ──────────────────── */}
-                      {p.pgtoForma && (
-                        <div className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1.5 border-t border-white/[0.04] pl-6 pt-2 sm:grid-cols-2">
+                        {p.ravComissionado > 0 && (
                           <div className="flex items-baseline gap-2 text-[12px]">
-                            <span className="text-white/40">Forma de pgto:</span>
-                            <span className="text-white/85">
-                              {p.pgtoForma === "cartao_agencia" && p.pgtoCartaoNome
-                                ? `Cartão Agência — ${p.pgtoCartaoNome}`
-                                : PGTO_FORMA_LABEL[p.pgtoForma as PgtoForma] ??
-                                  p.pgtoForma}
-                              {(p.pgtoForma === "cartao_agencia" ||
-                                p.pgtoForma === "faturado") &&
-                                p.pgtoNumParcelasReal > 1 && (
-                                  <span className="ml-1 text-white/55">
-                                    · {p.pgtoNumParcelasReal}x
-                                  </span>
-                                )}
+                            <span className="text-white/40">
+                              RAV comissionado:
+                            </span>
+                            <span className="tabular-nums text-nexus-bright">
+                              {formatBRL(p.ravComissionado)}
                             </span>
                           </div>
-                          {p.pgtoForma === "cartao_agencia" && p.pgtoDataEntrada && (
-                            <div className="flex items-baseline gap-2 text-[12px]">
-                              <span className="text-white/40">Data de entrada:</span>
-                              <span className="tabular-nums text-white/85">
-                                {formatDateBR(p.pgtoDataEntrada)}
-                              </span>
-                            </div>
-                          )}
-                          {p.pgtoForma === "cartao_agencia" && p.pgtoEntrada > 0 && (
-                            <div className="flex items-baseline gap-2 text-[12px]">
-                              <span className="text-white/40">Entrada:</span>
-                              <span className="tabular-nums text-white/85">
-                                {formatBRL(p.pgtoEntrada)}
-                              </span>
-                            </div>
-                          )}
-                          {p.pgtoForma === "cartao_agencia" && p.pgtoNumParcelas > 1 && (() => {
-                            const totalPgto =
-                              p.pgtoValorTotal > 0 ? p.pgtoValorTotal : p.valorCusto
-                            const extra = p.pgtoPrimeiraParcelaExtra || 0
-                            const base =
-                              (totalPgto - p.pgtoEntrada - extra) / p.pgtoNumParcelas
-                            const p1 = base + extra
-                            return (
-                              <>
-                                <div className="flex items-baseline gap-2 text-[12px]">
-                                  <span className="text-white/40">Parcelas:</span>
-                                  <span className="tabular-nums text-white/85">
-                                    {p.pgtoNumParcelas}x{" "}
-                                    {extra > 0 ? (
-                                      <>
-                                        — 1ª: {formatBRL(p1)} · demais:{" "}
-                                        {formatBRL(base)}
-                                      </>
-                                    ) : (
-                                      <>de {formatBRL(base)}</>
-                                    )}
-                                  </span>
-                                </div>
-                                {extra > 0 && (
-                                  <div className="flex items-baseline gap-2 text-[12px]">
-                                    <span className="text-white/40">
-                                      Taxa na 1ª parcela:
-                                    </span>
-                                    <span className="tabular-nums text-nexus-bright">
-                                      {formatBRL(extra)}
-                                    </span>
-                                  </div>
-                                )}
-                              </>
-                            )
-                          })()}
-                        </div>
-                      )}
+                        )}
+                      </div>
+
                     </td>
                   </tr>
                 )}
@@ -4755,6 +4811,163 @@ function ProdutosRevisao(props: {
   )
 }
 
+/** Card que detalha o pagamento ao fornecedor de UM produto. Renderizado
+ *  no bloco "Pagamento ao fornecedor" do Step 6 — espelha o padrão do
+ *  PgtoFornecedorCard do VendaResumoPanel (revisão do gerente). */
+function PgtoFornecedorRevisaoCard({
+  produto: p,
+}: {
+  produto: {
+    tipoNome: string
+    icone: string | null
+    fornecedorNome: string
+    valorCusto: number
+    pgtoForma: string | null
+    pgtoCartaoNome: string | null
+    pgtoValorTotal: number
+    pgtoEntrada: number
+    pgtoNumParcelas: number
+    pgtoNumParcelasReal: number
+    pgtoDataEntrada: string | null
+    pgtoPrimeiraParcelaExtra: number
+    pgtoParcelasFaturado: { ordem: number; valor: number; data: string | null }[]
+  }
+}) {
+  if (!p.pgtoForma) return null
+  const formaLabel =
+    p.pgtoForma === "cartao_agencia" && p.pgtoCartaoNome
+      ? `Cartão Agência — ${p.pgtoCartaoNome}`
+      : PGTO_FORMA_LABEL[p.pgtoForma as PgtoForma] ?? p.pgtoForma
+  // Parcelas detalhadas só fazem sentido pra cartao_agencia com > 1x.
+  const showParcelasCartao =
+    p.pgtoForma === "cartao_agencia" && p.pgtoNumParcelas > 1
+  const totalPgto = p.pgtoValorTotal > 0 ? p.pgtoValorTotal : p.valorCusto
+  const extra = p.pgtoPrimeiraParcelaExtra || 0
+  const baseParcela = showParcelasCartao
+    ? (totalPgto - p.pgtoEntrada - extra) / p.pgtoNumParcelas
+    : 0
+  const primeiraParcela = baseParcela + extra
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-3.5">
+      {/* Cabeçalho: tipo + fornecedor */}
+      <div className="mb-3 flex items-center gap-1.5">
+        {p.icone && (
+          <span className="relative block h-3.5 w-3.5 shrink-0">
+            <Image
+              src={`/icons/tipos-produto/${p.icone}.png`}
+              alt={p.tipoNome}
+              fill
+              className="object-contain"
+              style={{ filter: "brightness(0) invert(1)", opacity: 0.45 }}
+            />
+          </span>
+        )}
+        <span className="text-sm font-medium text-white/85">{p.tipoNome}</span>
+        {p.fornecedorNome && (
+          <span className="text-[12px] text-white/40">
+            · {p.fornecedorNome}
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2.5 sm:grid-cols-3">
+        <Stat
+          label="Forma"
+          value={
+            <span>
+              {formaLabel}
+              {(p.pgtoForma === "cartao_agencia" ||
+                p.pgtoForma === "faturado") &&
+                p.pgtoNumParcelasReal > 1 && (
+                  <span className="ml-1 text-white/55">
+                    · {p.pgtoNumParcelasReal}x
+                  </span>
+                )}
+            </span>
+          }
+        />
+        {totalPgto > 0 && (
+          <Stat label="Valor total" value={formatBRL(totalPgto)} />
+        )}
+        {p.pgtoForma === "cartao_agencia" && p.pgtoDataEntrada && (
+          <Stat
+            label="Data de entrada"
+            value={formatDateBR(p.pgtoDataEntrada)}
+          />
+        )}
+        {p.pgtoForma === "cartao_agencia" && p.pgtoEntrada > 0 && (
+          <Stat label="Entrada" value={formatBRL(p.pgtoEntrada)} />
+        )}
+        {showParcelasCartao && (
+          <Stat
+            label="Parcelas"
+            value={
+              extra > 0
+                ? `${p.pgtoNumParcelas}x — 1ª ${formatBRL(primeiraParcela)} · demais ${formatBRL(baseParcela)}`
+                : `${p.pgtoNumParcelas}x de ${formatBRL(baseParcela)}`
+            }
+          />
+        )}
+        {extra > 0 && (
+          <Stat
+            label="Taxa na 1ª parcela"
+            value={
+              <span className="text-nexus-bright">{formatBRL(extra)}</span>
+            }
+          />
+        )}
+      </div>
+
+      {/* Parcelas detalhadas — faturado: array vindo do Step 2 com valor +
+          data por parcela. Cartão agência: geradas em runtime a partir de
+          entrada + extra + base. Em ambos: lista compacta abaixo da grade. */}
+      {(() => {
+        type Linha = { ordem: number; valor: number; data: string | null }
+        let linhas: Linha[] = []
+        if (p.pgtoForma === "faturado" && p.pgtoParcelasFaturado.length > 0) {
+          linhas = p.pgtoParcelasFaturado
+        } else if (showParcelasCartao) {
+          linhas = Array.from({ length: p.pgtoNumParcelas }, (_, i) => ({
+            ordem: i + 1,
+            valor: i === 0 ? primeiraParcela : baseParcela,
+            data: null,
+          }))
+        }
+        if (linhas.length < 2) return null
+        return (
+          <div className="mt-3 border-t border-white/[0.05] pt-2.5">
+            <p className="mb-1.5 text-[10px] uppercase tracking-wider text-white/40">
+              Parcelas
+            </p>
+            <ul className="space-y-0.5">
+              {linhas.map((l) => (
+                <li
+                  key={l.ordem}
+                  className="flex items-baseline gap-2 text-[11px]"
+                >
+                  <span className="w-4 shrink-0 text-right tabular-nums text-white/45">
+                    {l.ordem}.
+                  </span>
+                  <span className="shrink-0 tabular-nums text-white/55">
+                    {l.data ? formatDateBR(l.data) : "—"}
+                  </span>
+                  <span
+                    className="mx-1 flex-1 border-b border-dotted border-white/[0.12]"
+                    aria-hidden
+                  />
+                  <span className="shrink-0 tabular-nums text-white/80">
+                    {formatBRL(l.valor)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      })()}
+    </div>
+  )
+}
+
 function Step6Revisao(props: {
   empresaNome: string
   dataVenda: string
@@ -4776,6 +4989,7 @@ function Step6Revisao(props: {
     rav: number
     ravExtraCliente: number
     ravExtraFornecedor: number
+    ravComissionado: number
     camposExtras: { nome: string; valor: string }[]
     pgtoForma: string | null
     pgtoCartaoNome: string | null
@@ -4787,10 +5001,15 @@ function Step6Revisao(props: {
     pgtoNumParcelasReal: number
     pgtoDataEntrada: string | null
     pgtoPrimeiraParcelaExtra: number
+    /** Parcelas detalhadas do faturado — array vazio quando outra forma. */
+    pgtoParcelasFaturado: { ordem: number; valor: number; data: string | null }[]
   }[]
   cobranca: {
     tipo: string
     valor: number
+    /** Taxa % cobrada do cliente (PagSeguro/Cielo/faturado). É custo da
+     *  agência — entra no custo efetivo e reduz RAV/comissão. */
+    taxaCobranca: number
     parcelas: number
     /** Quando preenchido, mostra link clicável abaixo do item.
      *  Hoje só é usado pelo tipo `link_externo` (PagSeguro/Cielo). */
@@ -4821,6 +5040,8 @@ function Step6Revisao(props: {
   /** Lista de anexos (carregada do server) — exibida em bloco próprio
    *  abaixo de Passageiros. Vazio = bloco oculto. */
   anexos: AnexoVenda[]
+  /** Observações gerais da venda (Step 5). Quando vazio, bloco fica oculto. */
+  observacoes?: string
 }) {
   const totalVenda = props.produtos.reduce((a, p) => a + p.valorVenda, 0)
   // Soma só produtos cobráveis pela Magic (exclui cliente_fornecedor) —
@@ -4834,7 +5055,10 @@ function Step6Revisao(props: {
   // Comissão recalculada AQUI = RAV total × % do agente. Vendas antigas
   // gravadas com base diferente (sem rav_extra_fornecedor) também exibem
   // o valor correto pela regra atual.
-  // RAV total = RAV base (venda - custo) + RAV Extra Cliente + RAV Extra Fornecedor
+  // RAV total = Venda − Custo (campo `rav`). As 3 fatias abaixo (Extra
+  // Cliente, Extra Fornecedor, Comissionado) são uma DECOMPOSIÇÃO do RAV
+  // e devem somar ele — não somam ON TOP. Mantemos os subtotais pra exibir
+  // o breakdown no painel.
   const totalRavBase = props.produtos.reduce((a, p) => a + p.rav, 0)
   const totalRavExtraCliente = props.produtos.reduce(
     (a, p) => a + p.ravExtraCliente,
@@ -4844,7 +5068,11 @@ function Step6Revisao(props: {
     (a, p) => a + p.ravExtraFornecedor,
     0,
   )
-  const totalRav = totalRavBase + totalRavExtraCliente + totalRavExtraFornecedor
+  const totalRavComissionado = props.produtos.reduce(
+    (a, p) => a + p.ravComissionado,
+    0,
+  )
+  const totalRav = totalRavBase
   // Desfluxo: calculado em runtime no wizard a partir dos dados em mão.
   // O backend recalcula no commit e armazena em vendas.desfluxo_*. Aqui
   // só usamos pra mostrar o impacto ao agente antes de submeter.
@@ -4857,8 +5085,15 @@ function Step6Revisao(props: {
     cobrancas: props.cobranca.map((c) => ({ num_parcelas: c.parcelas })),
   })
   const desfluxoCustoExtra = (totalCusto * desfluxoCalc.percentual) / 100
-  const custoEfetivo = totalCusto + desfluxoCustoExtra
-  const ravEfetivo = totalRav - desfluxoCustoExtra
+  // Taxas de cobrança (PagSeguro/Cielo/faturado): % cobrado do cliente
+  // que vai pra plataforma. Custo da agência — entra no custo efetivo,
+  // reduz RAV e comissão.
+  const totalTaxasCobranca = props.cobranca.reduce(
+    (a, c) => a + (c.valor * (c.taxaCobranca ?? 0)) / 100,
+    0,
+  )
+  const custoEfetivo = totalCusto + desfluxoCustoExtra + totalTaxasCobranca
+  const ravEfetivo = totalRav - desfluxoCustoExtra - totalTaxasCobranca
   const totalComissao =
     props.comissaoPercentual != null
       ? (ravEfetivo * props.comissaoPercentual) / 100
@@ -4866,8 +5101,10 @@ function Step6Revisao(props: {
   const lucroBruto = totalVenda - custoEfetivo - totalComissao
   const totalCobranca = props.cobranca.reduce((a, c) => a + c.valor, 0)
 
+  // Margem RAV usa RAV EFETIVO (com deduções) — mesma régua do painel
+  // de visualização, pra que o número reflita o que vai pra comissão.
   const margemRav =
-    totalVenda > 0 ? ((totalRav / totalVenda) * 100).toFixed(1) : null
+    totalVenda > 0 ? ((ravEfetivo / totalVenda) * 100).toFixed(1) : null
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
@@ -4907,78 +5144,146 @@ function Step6Revisao(props: {
           />
         </Bloco>
 
+        {props.produtos.some((p) => p.pgtoForma) && (
+          <Bloco titulo="Pagamento ao fornecedor">
+            <div className="space-y-3">
+              {props.produtos
+                .filter((p) => p.pgtoForma)
+                .map((p, i) => (
+                  <PgtoFornecedorRevisaoCard key={i} produto={p} />
+                ))}
+            </div>
+          </Bloco>
+        )}
+
         <Bloco titulo="Cobrança do cliente">
-          <ul className="space-y-2.5 text-sm">
-            {props.cobranca.map((c, i) => (
-              <li key={i} className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-white/75">
-                    {c.tipo}
+          <div className="space-y-3">
+            {props.cobranca.map((c, i) => {
+              const taxa = c.taxaCobranca ?? 0
+              const totalItemComTaxa = c.valor + (c.valor * taxa) / 100
+              const temTaxa = taxa > 0
+              return (
+              <div
+                key={i}
+                className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-3.5"
+              >
+                {/* Cabeçalho: tipo + plataforma + valor (c/ taxa quando há,
+                    com sublinha mini "base + X% taxa" pra explicar). */}
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-white/85">
+                      {c.tipo}
+                    </span>
                     {c.parcelas > 1 && (
-                      <span className="ml-2 text-xs text-white/45">
-                        {c.parcelas}x
+                      <span className="text-[12px] text-white/45">
+                        · {c.parcelas}x
                       </span>
                     )}
                     {c.plataforma && (
-                      <span className="ml-2 rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-white/55">
+                      <span className="rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-white/55">
                         {c.plataforma}
                       </span>
                     )}
-                  </span>
-                  <span className="tabular-nums text-white">
-                    {formatBRL(c.valor)}
-                  </span>
+                  </div>
+                  <div className="text-right">
+                    <p className="tabular-nums text-sm text-white">
+                      {formatBRL(temTaxa ? totalItemComTaxa : c.valor)}
+                    </p>
+                    {temTaxa && (
+                      <p className="text-[10px] tabular-nums text-white/40">
+                        {formatBRL(c.valor)} + {taxa.toString().replace(".", ",")}% taxa
+                      </p>
+                    )}
+                  </div>
                 </div>
+
+
+                {/* Link de pagamento (link_externo) */}
                 {c.link && (
                   <a
                     href={c.link}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex max-w-full items-center gap-1 break-all text-[11px] text-nexus-bright hover:text-nexus-bright-soft hover:underline"
+                    className="mt-2 inline-flex max-w-full items-center gap-1 break-all text-[11px] text-nexus-bright hover:text-nexus-bright-soft hover:underline"
                   >
                     <ExternalLink className="h-3 w-3 shrink-0" />
                     <span className="truncate">{c.link}</span>
                   </a>
                 )}
-                {c.parcelasDetalhe && c.parcelasDetalhe.length > 0 && (
-                  <ul className="mt-1 space-y-0.5 border-l border-white/[0.05] pl-3">
-                    {c.parcelasDetalhe.map((p) => (
-                      <li
-                        key={p.ordem}
-                        className="flex items-center justify-between text-[11px]"
-                      >
-                        <span className="text-white/45">
-                          Parcela {p.ordem}
-                          {p.data && (
-                            <span className="ml-2 tabular-nums text-white/55">
-                              {formatDateBR(p.data)}
-                            </span>
-                          )}
-                        </span>
-                        <span className="tabular-nums text-white/65">
-                          {formatBRL(p.valor)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+
+                {/* Parcelas detalhadas — mesmo padrão do Pagamento ao
+                    fornecedor: leader dotted entre data e valor. */}
+                {c.parcelasDetalhe && c.parcelasDetalhe.length > 1 && (
+                  <div className="mt-3 border-t border-white/[0.05] pt-2.5">
+                    <p className="mb-1.5 text-[10px] uppercase tracking-wider text-white/40">
+                      Parcelas
+                    </p>
+                    <ul className="space-y-0.5">
+                      {c.parcelasDetalhe.map((p) => (
+                        <li
+                          key={p.ordem}
+                          className="flex items-baseline gap-2 text-[11px]"
+                        >
+                          <span className="w-4 shrink-0 text-right tabular-nums text-white/45">
+                            {p.ordem}.
+                          </span>
+                          <span className="shrink-0 tabular-nums text-white/55">
+                            {p.data ? formatDateBR(p.data) : "—"}
+                          </span>
+                          <span
+                            className="mx-1 flex-1 border-b border-dotted border-white/[0.12]"
+                            aria-hidden
+                          />
+                          <span className="shrink-0 tabular-nums text-white/80">
+                            {formatBRL(p.valor)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
-                {/* Comprovante de pagamento — botão abre em nova aba */}
+
+                {/* Comprovante de pagamento */}
                 {c.comprovante && (
-                  <RevisaoComprovanteLink
-                    storagePath={c.comprovante.storagePath}
-                    nomeArquivo={c.comprovante.nomeArquivo}
-                    mimeType={c.comprovante.mimeType}
-                  />
+                  <div className="mt-2">
+                    <RevisaoComprovanteLink
+                      storagePath={c.comprovante.storagePath}
+                      nomeArquivo={c.comprovante.nomeArquivo}
+                      mimeType={c.comprovante.mimeType}
+                    />
+                  </div>
                 )}
-              </li>
-            ))}
-            <li className="mt-2 flex items-center justify-between border-t border-white/[0.06] pt-2 font-medium">
-              <span className="text-white/85">Total cobrado</span>
-              <span className="tabular-nums text-white">
-                {formatBRL(totalCobranca)}
-              </span>
-            </li>
-          </ul>
+              </div>
+              )
+            })}
+
+            {/* Total cobrado — o que o cliente efetivamente paga (base +
+                taxas). Quando há taxa em qualquer item, mostra "base + R$ X
+                taxas" abaixo em texto fino pra explicar a composição. */}
+            {(() => {
+              const totalTaxas = props.cobranca.reduce(
+                (a, c) => a + (c.valor * (c.taxaCobranca ?? 0)) / 100,
+                0,
+              )
+              const totalComTaxa = totalCobranca + totalTaxas
+              const temAlgumaTaxa = totalTaxas > 0.005
+              return (
+                <div className="space-y-0.5 border-t border-white/[0.06] pt-2.5">
+                  <div className="flex items-center justify-between text-sm font-medium">
+                    <span className="text-white/85">Total cobrado</span>
+                    <span className="tabular-nums text-white">
+                      {formatBRL(totalComTaxa)}
+                    </span>
+                  </div>
+                  {temAlgumaTaxa && (
+                    <p className="text-right text-[10px] tabular-nums text-white/40">
+                      {formatBRL(totalCobranca)} + {formatBRL(totalTaxas)} taxas
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
         </Bloco>
 
         <Bloco titulo={`Passageiros (${props.passageiros.length})`}>
@@ -5027,6 +5332,14 @@ function Step6Revisao(props: {
             <AnexosRevisao anexos={props.anexos} />
           </Bloco>
         )}
+
+        {props.observacoes && props.observacoes.trim() && (
+          <Bloco titulo="Observações">
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/75">
+              {props.observacoes}
+            </p>
+          </Bloco>
+        )}
       </div>
 
       {/* ── Coluna direita — painel financeiro ───────────────────────── */}
@@ -5059,58 +5372,57 @@ function Step6Revisao(props: {
                 {formatBRL(totalRav) || "—"}
               </span>
             </div>
-            {/* Breakdown do RAV — só aparece se algum extra (cliente ou
-                fornecedor) tiver valor. Inclui as 3 linhas: RAV, RAV extra
-                cliente e RAV extra fornecedor, mostrando só as > 0. */}
-            {(totalRavExtraCliente > 0 || totalRavExtraFornecedor > 0) && (
+            {/* Breakdown do RAV — sempre as 3 fatias discriminadas, mesmo
+                quando R$ 0,00. O "RAV" cheio já aparece em "RAV total"
+                acima, então o repetimos aqui. */}
+            {totalRav > 0 && (
               <div className="space-y-1 border-l border-white/[0.05] pl-3">
-                {totalRavBase > 0 && (
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-white/40">RAV</span>
-                    <span className="tabular-nums text-white/55">
-                      {formatBRL(totalRavBase)}
-                    </span>
-                  </div>
-                )}
-                {totalRavExtraCliente > 0 && (
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-white/40">RAV extra cliente</span>
-                    <span className="tabular-nums text-white/55">
-                      {formatBRL(totalRavExtraCliente)}
-                    </span>
-                  </div>
-                )}
-                {totalRavExtraFornecedor > 0 && (
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-white/40">RAV extra fornecedor</span>
-                    <span className="tabular-nums text-white/55">
-                      {formatBRL(totalRavExtraFornecedor)}
-                    </span>
-                  </div>
-                )}
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-white/40">RAV extra cliente</span>
+                  <span className="tabular-nums text-white/55">
+                    {formatBRL(totalRavExtraCliente)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-white/40">RAV extra fornecedor</span>
+                  <span className="tabular-nums text-white/55">
+                    {formatBRL(totalRavExtraFornecedor)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-white/40">RAV comissionado</span>
+                  <span className="tabular-nums text-white/55">
+                    {formatBRL(totalRavComissionado)}
+                  </span>
+                </div>
               </div>
             )}
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-white/55">Margem RAV</span>
-              <span className="tabular-nums text-white/70">
-                {margemRav !== null ? `${margemRav}%` : "—"}
-              </span>
-            </div>
           </div>
 
-          {/* Desfluxo — 3 linhas simples laranja, sem card. Aparece só
-              quando ≥ 2 meses de diferença. */}
-          {desfluxoCalc.percentual > 0 && (
+          {/* Deduções (desfluxo + taxa cobrança) — linhas simples laranja,
+              sem card. Aparece quando há qualquer ajuste. Mostra cada
+              componente e os totais efetivos (custo + RAV após deduções). */}
+          {(desfluxoCalc.percentual > 0 || totalTaxasCobranca > 0) && (
             <div className="space-y-1 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-amber-300/85">
-                  Desfluxo ({desfluxoCalc.meses}{" "}
-                  {desfluxoCalc.meses === 1 ? "mês" : "meses"}):
-                </span>
-                <span className="tabular-nums text-amber-300/85">
-                  {desfluxoCalc.percentual.toFixed(2).replace(".", ",")}%
-                </span>
-              </div>
+              {desfluxoCalc.percentual > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-amber-300/85">
+                    Desfluxo ({desfluxoCalc.meses}{" "}
+                    {desfluxoCalc.meses === 1 ? "mês" : "meses"}):
+                  </span>
+                  <span className="tabular-nums text-amber-300/85">
+                    {desfluxoCalc.percentual.toFixed(2).replace(".", ",")}%
+                  </span>
+                </div>
+              )}
+              {totalTaxasCobranca > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-amber-300/85">Taxa de cobrança:</span>
+                  <span className="tabular-nums text-amber-300/85">
+                    {formatBRL(totalTaxasCobranca)}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <span className="text-amber-300/85">Custo efetivo:</span>
                 <span className="tabular-nums text-amber-300/85">
@@ -5151,12 +5463,26 @@ function Step6Revisao(props: {
             </div>
           )}
 
-          {/* Total cobrado + alerta de divergência */}
+          {/* Margem RAV — calculada com RAV EFETIVO (já considerando
+              deduções). Logo acima do Total cobrado pra dar contexto antes
+              do valor final. */}
           <div className="border-t border-white/[0.06] pt-3.5">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/55">Margem RAV</span>
+              <span className="tabular-nums text-white/70">
+                {margemRav !== null ? `${margemRav}%` : "—"}
+              </span>
+            </div>
+          </div>
+
+          {/* Total cobrado — inclui taxas (PagSeguro/Cielo/faturado),
+              refletindo o que o cliente efetivamente paga. Divergência
+              compara base × total cobrável (taxa não conta). */}
+          <div className="border-t border-white/[0.06] pt-2.5">
             <div className="flex items-center justify-between text-sm">
               <span className="text-white/55">Total cobrado</span>
               <span className="tabular-nums text-white/85">
-                {formatBRL(totalCobranca) || "—"}
+                {formatBRL(totalCobranca + totalTaxasCobranca) || "—"}
               </span>
             </div>
             {totalVendaCobravel > 0 &&

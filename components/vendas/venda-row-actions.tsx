@@ -69,7 +69,8 @@ type Props = {
   venda: VendaListItem
   /** Usuário pode aprovar/devolver — exibe botões de ação no modal. */
   podeAprovar: boolean
-  /** Usuário pode editar (gerente/admin com permissão ou agente dono em_revisao). */
+  /** Usuário pode editar — gerente/admin com permissão sobre qualquer
+   *  venda não-aprovada, OU agente dono em rascunho/em_revisao/pendente_validacao. */
   podeEditar: boolean
   /** Usuário pode excluir esta venda (Admin/Gerente em status aprovado). */
   podeExcluir?: boolean
@@ -121,10 +122,7 @@ export function VendaRowActions({
   const statusAtual = detalhes?.status ?? venda.status
   const podeAcionarModal =
     podeAprovar && statusAtual === "pendente_validacao"
-  // Agente dono de uma venda em revisão — pode abrir o editor a partir
-  // do modal de visualização (a tabela mostra só o olho nesse status).
-  const podeRevisarNoModal = podeEditar && statusAtual === "em_revisao"
-  // Quando o criador da venda já é Gerente/Admin, o botão "Solicitar revisão"
+// Quando o criador da venda já é Gerente/Admin, o botão "Solicitar revisão"
   // não faz sentido — ele tem permissão pra editar e aprovar direto. Devolver
   // a venda a si mesmo seria fluxo perdido.
   const criadorEhValidador =
@@ -141,8 +139,11 @@ export function VendaRowActions({
   // Cancela a fetch se o componente desmontar ou se o modal fechar antes
   // da resposta voltar — evita setState em instância errada.
   useEffect(() => {
-    if (!viewOpen) return
-    if (detalhes) return // já carregado pra esta venda
+    if (!viewOpen) {
+      setDetalhes(null)
+      return
+    }
+    if (detalhes) return
     let cancelado = false
     setLoadingDetalhes(true)
     getVendaDetalhes(venda.id).then((r) => {
@@ -464,19 +465,6 @@ export function VendaRowActions({
               </>
             )}
 
-            {podeRevisarNoModal && detalhes && (
-              <Button
-                onClick={() => {
-                  setViewOpen(false)
-                  setEditarOpen(true)
-                }}
-                className="border border-nexus-bright/25 bg-nexus-bright/[0.08] text-nexus-bright hover:border-nexus-bright/50 hover:bg-nexus-bright/15"
-                variant="ghost"
-              >
-                <Pencil className="mr-2 h-4 w-4" />
-                Revisar e reenviar para validação
-              </Button>
-            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

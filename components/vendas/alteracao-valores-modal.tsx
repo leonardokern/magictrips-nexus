@@ -423,6 +423,7 @@ export function AlteracaoValoresModal({ open, onOpenChange }: Props) {
         rav: deltaRav,
         rav_extra_cliente: 0,
         rav_extra_fornecedor: 0,
+        rav_comissionado: 0,
         valores_extras: {},
         // Datas absolutas — a alteração armazena o novo valor desejado
         // (não delta). Vazio = null no banco.
