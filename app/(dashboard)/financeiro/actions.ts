@@ -1130,6 +1130,507 @@ export async function getFaturaParaPDF(
  * versões futuras isso pode vir da configuração da empresa (chave PIX
  * cadastrada, dados bancários etc).
  */
+// ─────────────────────────────────────────────────────────────────────────────
+// Categorias Financeiras
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CategoriaFinanceira = {
+  id: string
+  empresa_id: string | null
+  nome: string
+  tipo: "receber" | "pagar"
+  ativo: boolean
+  created_at: string
+}
+
+export async function listarCategorias(
+  tipo?: "receber" | "pagar",
+): Promise<CategoriaFinanceira[]> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "ler")) return []
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let q = (supabase as any)
+    .from("categorias_financeiras")
+    .select("id, empresa_id, nome, tipo, ativo, created_at")
+    .eq("ativo", true)
+    .order("nome")
+  if (tipo) {
+    q = q.eq("tipo", tipo)
+  }
+  const { data } = await q
+  return (data ?? []) as CategoriaFinanceira[]
+}
+
+export async function listarTodasCategorias(): Promise<CategoriaFinanceira[]> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "ler")) return []
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (supabase as any)
+    .from("categorias_financeiras")
+    .select("id, empresa_id, nome, tipo, ativo, created_at")
+    .order("nome")
+  return (data ?? []) as CategoriaFinanceira[]
+}
+
+export async function criarCategoria(data: {
+  nome: string
+  tipo: "receber" | "pagar"
+}): Promise<ActionResult> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "editar")) {
+    return { ok: false, error: "Sem permissão para criar categorias." }
+  }
+  if (!data.nome.trim()) return { ok: false, error: "Nome obrigatório." }
+
+  const supabase = await createClient()
+  const { data: ue } = await supabase
+    .from("usuarios_empresas")
+    .select("empresa_id")
+    .eq("usuario_id", user.id)
+    .limit(1)
+    .maybeSingle()
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any)
+    .from("categorias_financeiras")
+    .insert({ nome: data.nome.trim(), tipo: data.tipo, empresa_id: ue?.empresa_id ?? null })
+  if (error) return { ok: false, error: (error as { message: string }).message }
+
+  revalidatePath("/financeiro/receber")
+  revalidatePath("/financeiro/pagar")
+  return { ok: true, data: undefined }
+}
+
+export async function editarCategoria(
+  id: string,
+  data: { nome: string; tipo: "receber" | "pagar" },
+): Promise<ActionResult> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "editar")) {
+    return { ok: false, error: "Sem permissão para editar categorias." }
+  }
+  if (!data.nome.trim()) return { ok: false, error: "Nome obrigatório." }
+
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any)
+    .from("categorias_financeiras")
+    .update({ nome: data.nome.trim(), tipo: data.tipo })
+    .eq("id", id)
+  if (error) return { ok: false, error: (error as { message: string }).message }
+
+  revalidatePath("/financeiro/receber")
+  revalidatePath("/financeiro/pagar")
+  return { ok: true, data: undefined }
+}
+
+export async function toggleCategoriaAtiva(
+  id: string,
+  ativo: boolean,
+): Promise<ActionResult> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "editar")) {
+    return { ok: false, error: "Sem permissão." }
+  }
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any)
+    .from("categorias_financeiras")
+    .update({ ativo })
+    .eq("id", id)
+  if (error) return { ok: false, error: (error as { message: string }).message }
+
+  revalidatePath("/financeiro/receber")
+  revalidatePath("/financeiro/pagar")
+  return { ok: true, data: undefined }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lançamentos Manuais
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function criarLancamentoReceber(data: {
+  descricao: string
+  categoria_id: string
+  valor: number
+  forma_pagamento: "faturado" | "pix"
+  data_emissao: string
+  data_vencimento: string
+  cartao_id?: string
+  caixa_id?: string
+  observacoes?: string
+}): Promise<ActionResult<{ id: string }>> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "editar")) {
+    return { ok: false, error: "Sem permissão para criar lançamentos." }
+  }
+  if (!data.descricao.trim()) return { ok: false, error: "Descrição obrigatória." }
+  if (!data.categoria_id) return { ok: false, error: "Categoria obrigatória." }
+  if (!data.valor || data.valor <= 0) return { ok: false, error: "Valor deve ser maior que zero." }
+  if (!data.data_vencimento) return { ok: false, error: "Data de vencimento obrigatória." }
+
+  const supabase = await createClient()
+  const { data: ue } = await supabase
+    .from("usuarios_empresas")
+    .select("empresa_id")
+    .eq("usuario_id", user.id)
+    .limit(1)
+    .maybeSingle()
+  if (!ue?.empresa_id) return { ok: false, error: "Empresa não encontrada." }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: row, error } = await (supabase as any)
+    .from("parcelas_receber")
+    .insert({
+      empresa_id: ue.empresa_id,
+      venda_id: null,
+      cliente_id: null,
+      numero: 1,
+      total_parcelas: 1,
+      descricao: data.descricao.trim(),
+      categoria_id: data.categoria_id,
+      valor: data.valor,
+      forma_pagamento: data.forma_pagamento,
+      data_emissao: data.data_emissao,
+      data_vencimento: data.data_vencimento,
+      cartao_id: data.cartao_id ?? null,
+      caixa_id: data.caixa_id ?? null,
+      observacoes: data.observacoes?.trim() ?? null,
+      status: "pendente",
+      is_manual: true,
+    })
+    .select("id")
+    .single()
+
+  if (error || !row) return { ok: false, error: (error as { message: string })?.message ?? "Erro ao criar lançamento." }
+
+  revalidatePath("/financeiro/receber")
+  revalidatePath("/fluxo-de-caixa")
+  revalidatePath("/dashboard")
+  return { ok: true, data: { id: row.id as string } }
+}
+
+export async function editarLancamentoReceber(
+  id: string,
+  data: {
+    descricao: string
+    categoria_id: string
+    valor: number
+    forma_pagamento: "faturado" | "pix"
+    data_emissao: string
+    data_vencimento: string
+    cartao_id?: string
+    caixa_id?: string
+    observacoes?: string
+  },
+): Promise<ActionResult> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "editar")) {
+    return { ok: false, error: "Sem permissão para editar lançamentos." }
+  }
+  if (!data.descricao.trim()) return { ok: false, error: "Descrição obrigatória." }
+  if (!data.categoria_id) return { ok: false, error: "Categoria obrigatória." }
+  if (!data.valor || data.valor <= 0) return { ok: false, error: "Valor deve ser maior que zero." }
+  if (!data.data_vencimento) return { ok: false, error: "Data de vencimento obrigatória." }
+
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any)
+    .from("parcelas_receber")
+    .update({
+      descricao: data.descricao.trim(),
+      categoria_id: data.categoria_id,
+      valor: data.valor,
+      forma_pagamento: data.forma_pagamento,
+      data_emissao: data.data_emissao,
+      data_vencimento: data.data_vencimento,
+      cartao_id: data.cartao_id ?? null,
+      caixa_id: data.caixa_id ?? null,
+      observacoes: data.observacoes?.trim() ?? null,
+    })
+    .eq("id", id)
+    .eq("is_manual", true)
+
+  if (error) return { ok: false, error: (error as { message: string }).message }
+
+  revalidatePath("/financeiro/receber")
+  revalidatePath("/fluxo-de-caixa")
+  revalidatePath("/dashboard")
+  return { ok: true }
+}
+
+export async function criarLancamentoPagar(data: {
+  descricao: string
+  categoria_id: string
+  valor: number
+  forma_pagamento: "faturado" | "pix"
+  data_emissao: string
+  data_vencimento: string
+  cartao_id?: string
+  caixa_id?: string
+  observacoes?: string
+}): Promise<ActionResult<{ id: string }>> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "editar")) {
+    return { ok: false, error: "Sem permissão para criar lançamentos." }
+  }
+  if (!data.descricao.trim()) return { ok: false, error: "Descrição obrigatória." }
+  if (!data.categoria_id) return { ok: false, error: "Categoria obrigatória." }
+  if (!data.valor || data.valor <= 0) return { ok: false, error: "Valor deve ser maior que zero." }
+  if (!data.data_vencimento) return { ok: false, error: "Data de vencimento obrigatória." }
+
+  const supabase = await createClient()
+  const { data: ue } = await supabase
+    .from("usuarios_empresas")
+    .select("empresa_id")
+    .eq("usuario_id", user.id)
+    .limit(1)
+    .maybeSingle()
+  if (!ue?.empresa_id) return { ok: false, error: "Empresa não encontrada." }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: row, error } = await (supabase as any)
+    .from("parcelas_pagar")
+    .insert({
+      empresa_id: ue.empresa_id,
+      venda_produto_id: null,
+      fornecedor_id: null,
+      fornecedor_nome: data.descricao.trim(),
+      numero: 1,
+      total_parcelas: 1,
+      descricao: data.descricao.trim(),
+      categoria_id: data.categoria_id,
+      valor: data.valor,
+      forma_pagamento: data.forma_pagamento,
+      data_emissao: data.data_emissao,
+      data_vencimento: data.data_vencimento,
+      cartao_id: data.cartao_id ?? null,
+      caixa_id: data.caixa_id ?? null,
+      observacoes: data.observacoes?.trim() ?? null,
+      status: "pendente",
+      is_manual: true,
+    })
+    .select("id")
+    .single()
+
+  if (error || !row) return { ok: false, error: (error as { message: string })?.message ?? "Erro ao criar lançamento." }
+
+  revalidatePath("/financeiro/pagar")
+  revalidatePath("/fluxo-de-caixa")
+  revalidatePath("/dashboard")
+  return { ok: true, data: { id: row.id as string } }
+}
+
+export async function cancelarLancamentoManual(
+  tipo: "receber" | "pagar",
+  id: string,
+): Promise<ActionResult> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "editar")) {
+    return { ok: false, error: "Sem permissão para cancelar lançamentos." }
+  }
+
+  const supabase = await createClient()
+  const tabela = tipo === "receber" ? "parcelas_receber" : "parcelas_pagar"
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: existing, error: getErr } = await (supabase as any)
+    .from(tabela)
+    .select("id, is_manual, status")
+    .eq("id", id)
+    .maybeSingle()
+
+  if (getErr) return { ok: false, error: getErr.message }
+  if (!existing) return { ok: false, error: "Lançamento não encontrado." }
+  if (!existing.is_manual) return { ok: false, error: "Apenas lançamentos manuais podem ser cancelados aqui." }
+  if (existing.status === "cancelado") return { ok: false, error: "Já está cancelado." }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any)
+    .from(tabela)
+    .update({ status: "cancelado" })
+    .eq("id", id)
+
+  if (error) return { ok: false, error: error.message }
+
+  if (tipo === "receber") {
+    revalidatePath("/financeiro/receber")
+  } else {
+    revalidatePath("/financeiro/pagar")
+  }
+  revalidatePath("/fluxo-de-caixa")
+  revalidatePath("/dashboard")
+  return { ok: true, data: undefined }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Anexos de Lançamentos Manuais
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LANCAMENTO_BUCKET = "lancamento-anexos"
+const MAX_LANCAMENTO_ANEXO_BYTES = 10 * 1024 * 1024 // 10 MB
+const LANCAMENTO_MIMES_ACEITOS = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+] as const
+
+export type AnexoLancamento = {
+  id: string
+  nome_arquivo: string
+  mime_type: string | null
+  tamanho_bytes: number | null
+  storage_path: string
+  created_at: string
+}
+
+export async function uploadAnexoLancamento(
+  tipo: "receber" | "pagar",
+  parcelaId: string,
+  formData: FormData,
+): Promise<ActionResult<AnexoLancamento>> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "editar")) {
+    return { ok: false, error: "Sem permissão para anexar arquivos." }
+  }
+
+  const file = formData.get("file")
+  if (!(file instanceof File)) return { ok: false, error: "Arquivo inválido." }
+  if (file.size === 0) return { ok: false, error: "Arquivo vazio." }
+  if (file.size > MAX_LANCAMENTO_ANEXO_BYTES) return { ok: false, error: "Arquivo maior que 10 MB." }
+  if (!(LANCAMENTO_MIMES_ACEITOS as readonly string[]).includes(file.type)) {
+    return { ok: false, error: "Tipo de arquivo não permitido (use PDF ou imagem)." }
+  }
+
+  const supabase = await createClient()
+
+  // Limite de 2 anexos por registro
+  const colunaContagem = tipo === "receber" ? "parcela_receber_id" : "parcela_pagar_id"
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { count } = await (supabase as any)
+    .from("lancamento_anexos")
+    .select("id", { count: "exact", head: true })
+    .eq(colunaContagem, parcelaId)
+  if ((count ?? 0) >= 2) {
+    return { ok: false, error: "Limite de 2 anexos por lançamento atingido." }
+  }
+
+  const { data: ue } = await supabase
+    .from("usuarios_empresas")
+    .select("empresa_id")
+    .eq("usuario_id", user.id)
+    .limit(1)
+    .maybeSingle()
+  if (!ue?.empresa_id) return { ok: false, error: "Empresa não encontrada." }
+
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "bin"
+  const storagePath = `${tipo}/${parcelaId}/${crypto.randomUUID()}.${ext}`
+
+  const arrayBuffer = await file.arrayBuffer()
+  const { error: upErr } = await supabase.storage
+    .from(LANCAMENTO_BUCKET)
+    .upload(storagePath, arrayBuffer, { contentType: file.type, upsert: false })
+  if (upErr) return { ok: false, error: `Falha no upload: ${upErr.message}` }
+
+  const insertPayload =
+    tipo === "receber"
+      ? { parcela_receber_id: parcelaId, parcela_pagar_id: null }
+      : { parcela_receber_id: null, parcela_pagar_id: parcelaId }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: row, error: insErr } = await (supabase as any)
+    .from("lancamento_anexos")
+    .insert({
+      empresa_id: ue.empresa_id,
+      ...insertPayload,
+      nome_arquivo: file.name,
+      storage_path: storagePath,
+      mime_type: file.type,
+      tamanho_bytes: file.size,
+      created_by: user.id,
+    })
+    .select("id, nome_arquivo, mime_type, tamanho_bytes, storage_path, created_at")
+    .single()
+
+  if (insErr || !row) {
+    await supabase.storage.from(LANCAMENTO_BUCKET).remove([storagePath]).catch(() => null)
+    return { ok: false, error: insErr?.message ?? "Falha ao registrar anexo." }
+  }
+
+  return { ok: true, data: row as AnexoLancamento }
+}
+
+export async function listarAnexosLancamento(
+  tipo: "receber" | "pagar",
+  parcelaId: string,
+): Promise<AnexoLancamento[]> {
+  await requireCurrentUser()
+  const supabase = await createClient()
+  const coluna = tipo === "receber" ? "parcela_receber_id" : "parcela_pagar_id"
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (supabase as any)
+    .from("lancamento_anexos")
+    .select("id, nome_arquivo, mime_type, tamanho_bytes, storage_path, created_at")
+    .eq(coluna, parcelaId)
+    .order("created_at")
+  return (data ?? []) as AnexoLancamento[]
+}
+
+export async function obterUrlAnexoLancamento(
+  id: string,
+): Promise<ActionResult<{ url: string; nomeArquivo: string }>> {
+  await requireCurrentUser()
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: row, error } = await (supabase as any)
+    .from("lancamento_anexos")
+    .select("storage_path, nome_arquivo")
+    .eq("id", id)
+    .maybeSingle()
+
+  if (error) return { ok: false, error: error.message }
+  if (!row) return { ok: false, error: "Anexo não encontrado." }
+
+  const { data: signed, error: signErr } = await supabase.storage
+    .from(LANCAMENTO_BUCKET)
+    .createSignedUrl(row.storage_path as string, 300, { download: false })
+
+  if (signErr || !signed?.signedUrl) {
+    return { ok: false, error: signErr?.message ?? "Falha ao gerar URL." }
+  }
+  return { ok: true, data: { url: signed.signedUrl, nomeArquivo: row.nome_arquivo as string } }
+}
+
+export async function excluirAnexoLancamento(id: string): Promise<ActionResult> {
+  const user = await requireCurrentUser()
+  if (!can(user, "financeiro", "editar")) {
+    return { ok: false, error: "Sem permissão." }
+  }
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: row, error: getErr } = await (supabase as any)
+    .from("lancamento_anexos")
+    .select("storage_path")
+    .eq("id", id)
+    .maybeSingle()
+  if (getErr) return { ok: false, error: getErr.message }
+  if (!row) return { ok: false, error: "Anexo não encontrado." }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error: delErr } = await (supabase as any)
+    .from("lancamento_anexos")
+    .delete()
+    .eq("id", id)
+  if (delErr) return { ok: false, error: delErr.message }
+
+  await supabase.storage.from(LANCAMENTO_BUCKET).remove([row.storage_path as string]).catch(() => null)
+  return { ok: true, data: undefined }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function instrucaoPagamento(forma: string | null, empresa: string): string | null {
   switch (forma) {
     case "pix":

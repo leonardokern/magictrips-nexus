@@ -21,6 +21,12 @@ import {
 } from "@/components/financeiro/parcela-status-badge"
 import { MarcarPagoButton } from "@/components/financeiro/marcar-pago-button"
 import { VerVendaLink } from "@/components/vendas/ver-venda-link"
+import Link from "next/link"
+import { Tag } from "lucide-react"
+import { NovaSaidaButton } from "@/components/financeiro/nova-saida-modal"
+import { LancamentoRowActions } from "@/components/financeiro/lancamento-row-actions"
+import { listarCategorias } from "@/app/(dashboard)/financeiro/actions"
+import { getCaixas } from "@/app/(dashboard)/cartoes/actions"
 
 export const metadata: Metadata = { title: "Contas a Pagar" }
 
@@ -28,6 +34,7 @@ type SearchParams = Promise<{
   status?: string
   mes?: string
   q?: string
+  cartao?: string
 }>
 
 const FORMA_LABEL: Record<string, string> = {
@@ -40,9 +47,12 @@ function derivarStatus(
   statusDb: string,
   vencimentoIso: string,
   hoje: string,
+  formaPagamento?: string | null,
 ): ParcelaStatus {
   if (statusDb === "pago") return "pago"
   if (statusDb === "cancelado") return "cancelado"
+  // Cartão agência nunca fica "atrasado" — o pagamento ocorre no fechamento da fatura
+  if (formaPagamento === "cartao_agencia") return "pendente"
   if (vencimentoIso < hoje) return "atrasado"
   return "pendente"
 }
@@ -90,19 +100,26 @@ export default async function ContasPagarPage({
 
   const sp = await searchParams
   const statusFiltro = sp.status ?? ""
-  const mesFiltro = sp.mes ?? ""
+  // Padrão silencioso: sem param de mês → filtra pelo mês atual na query,
+  // mas não redireciona (evita loop no "Limpar").
+  const mesFiltro = sp.mes ?? mesAtualISO()
+  const cartaoFiltro = sp.cartao ?? ""
   const q = (sp.q ?? "").trim()
   const hoje = hojeIso()
 
   const supabase = await createClient()
 
-  let queryBase = supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any
+  let queryBase = sb
     .from("parcelas_pagar")
     .select(
       `
       id, numero, total_parcelas, descricao, valor, forma_pagamento,
-      data_vencimento, data_pagamento, status, fornecedor_nome,
+      data_vencimento, data_pagamento, status, fornecedor_nome, is_manual,
       cartao:cartoes(id, nome),
+      caixa:caixas(nome),
+      categoria:categorias_financeiras(nome),
       venda_produto:venda_produtos(
         id,
         venda:vendas(id, identificador)
@@ -125,9 +142,26 @@ export default async function ContasPagarPage({
     queryBase = queryBase.gte("data_vencimento", from).lte("data_vencimento", to)
   }
 
-  const { data: parcelasRaw, error } = await queryBase
+  if (cartaoFiltro) {
+    queryBase = queryBase.eq("cartao_id", cartaoFiltro)
+  }
 
-  // KPIs
+  const [{ data: parcelasRaw, error }, caixasList, categorias] = await Promise.all([
+    queryBase,
+    getCaixas(),
+    listarCategorias("pagar"),
+  ])
+
+  // Cartões para filtro e modal Nova Saída
+  const { data: cartoesRaw } = await supabase
+    .from("cartoes")
+    .select("id, nome, banco, ativo")
+    .order("ativo", { ascending: false })
+    .order("nome")
+  const cartoesList = (cartoesRaw ?? []) as { id: string; nome: string; banco: string | null; ativo: boolean }[]
+  const cartoesAtivos = cartoesList.filter((c) => c.ativo)
+
+  // KPIs — sem filtro de mês/status (visão geral)
   type KpiRow = {
     valor: number | string
     data_vencimento: string
@@ -168,7 +202,10 @@ export default async function ContasPagarPage({
     data_pagamento: string | null
     status: string
     fornecedor_nome: string | null
+    is_manual: boolean
     cartao: { id: string; nome: string } | { id: string; nome: string }[] | null
+    caixa: { nome: string } | { nome: string }[] | null
+    categoria: { nome: string } | { nome: string }[] | null
     venda_produto:
       | {
           id: string
@@ -208,6 +245,22 @@ export default async function ContasPagarPage({
             produtos com pagamento <strong>faturado</strong>.
           </p>
         </div>
+        {podeEditar && (
+          <div className="flex items-center gap-2">
+            <Link
+              href="/financeiro/categorias?from=pagar"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/60 transition-colors hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+            >
+              <Tag className="h-4 w-4" />
+              Categorias
+            </Link>
+            <NovaSaidaButton
+              categorias={categorias}
+              caixas={caixasList}
+              cartoes={cartoesList}
+            />
+          </div>
+        )}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -232,12 +285,7 @@ export default async function ContasPagarPage({
 
       <FinanceFilters
         placeholderBusca="Buscar por fornecedor…"
-        presets={[
-          { label: "Atrasados", status: "atrasado" },
-          { label: "Este mês", status: "", mes: mesAtualISO() },
-          { label: "Pendentes", status: "pendente" },
-          { label: "Pagos", status: "pago" },
-        ]}
+        cartoes={cartoesAtivos.map((c) => ({ id: c.id, nome: c.nome }))}
       />
 
       {error ? (
@@ -268,6 +316,8 @@ export default async function ContasPagarPage({
             <TableBody>
               {parcelas.map((p) => {
                 const cartao = Array.isArray(p.cartao) ? p.cartao[0] : p.cartao
+                const caixaObj = Array.isArray(p.caixa) ? p.caixa[0] : p.caixa
+                const catObj = Array.isArray(p.categoria) ? p.categoria[0] : p.categoria
                 const vp = Array.isArray(p.venda_produto)
                   ? p.venda_produto[0]
                   : p.venda_produto
@@ -276,13 +326,15 @@ export default async function ContasPagarPage({
                     ? vp.venda[0]
                     : vp.venda
                   : null
-                const status = derivarStatus(p.status, p.data_vencimento, hoje)
+                const status = derivarStatus(p.status, p.data_vencimento, hoje, p.forma_pagamento)
                 const ehPago = status === "pago"
                 const ehAtrasado = status === "atrasado"
+                const ehCartaoAgencia = p.forma_pagamento === "cartao_agencia"
                 const formaBase = p.forma_pagamento
                   ? FORMA_LABEL[p.forma_pagamento] ?? p.forma_pagamento
                   : "—"
-                const forma = cartao?.nome ? `${formaBase} · ${cartao.nome}` : formaBase
+                const centroCusto = cartao?.nome ?? caixaObj?.nome
+                const forma = centroCusto ? `${formaBase} · ${centroCusto}` : formaBase
 
                 return (
                   <TableRow
@@ -302,10 +354,23 @@ export default async function ContasPagarPage({
                       )}
                     </TableCell>
                     <TableCell className="text-sm text-white">
-                      {p.fornecedor_nome || "—"}
+                      {p.is_manual ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-white/80">{p.descricao || "—"}</span>
+                          {catObj?.nome && (
+                            <span className="text-[10px] text-white/40">{catObj.nome}</span>
+                          )}
+                        </div>
+                      ) : (
+                        p.fornecedor_nome || "—"
+                      )}
                     </TableCell>
                     <TableCell>
-                      {vnd?.id && vnd?.identificador ? (
+                      {p.is_manual ? (
+                        <span className="rounded border border-rose-500/20 bg-rose-500/[0.08] px-1.5 py-0.5 text-[10px] font-medium text-rose-300">
+                          Manual
+                        </span>
+                      ) : vnd?.id && vnd?.identificador ? (
                         <VerVendaLink
                           vendaId={vnd.id}
                           identificador={vnd.identificador}
@@ -323,17 +388,33 @@ export default async function ContasPagarPage({
                       {formatBRL(Number(p.valor ?? 0))}
                     </TableCell>
                     <TableCell>
-                      <ParcelaStatusBadge status={status} />
+                      {ehCartaoAgencia ? (
+                        <span className="rounded border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/30">
+                          Automático
+                        </span>
+                      ) : (
+                        <ParcelaStatusBadge status={status} />
+                      )}
                     </TableCell>
                     <TableCell>
                       {podeEditar && status !== "cancelado" && (
-                        <div className="flex justify-end">
-                          <MarcarPagoButton
-                            tipo="pagar"
-                            parcelaId={p.id}
-                            acao={ehPago ? "pendente" : "pago"}
-                            resumo={`Parcela ${p.numero}/${p.total_parcelas} para ${p.fornecedor_nome ?? "—"} · ${formatBRL(Number(p.valor ?? 0))}`}
-                          />
+                        <div className="flex items-center justify-end gap-1.5">
+                          {/* Cartão agência: pagamento ocorre no fechamento, sem ação manual */}
+                          {!ehCartaoAgencia && (
+                            <MarcarPagoButton
+                              tipo="pagar"
+                              parcelaId={p.id}
+                              acao={ehPago ? "pendente" : "pago"}
+                              resumo={`Parcela ${p.numero}/${p.total_parcelas} para ${p.fornecedor_nome ?? p.descricao ?? "—"} · ${formatBRL(Number(p.valor ?? 0))}`}
+                            />
+                          )}
+                          {p.is_manual && !ehPago && (
+                            <LancamentoRowActions
+                              tipo="pagar"
+                              parcelaId={p.id}
+                              descricao={p.descricao ?? "Lançamento manual"}
+                            />
+                          )}
                         </div>
                       )}
                     </TableCell>

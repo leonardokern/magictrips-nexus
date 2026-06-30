@@ -56,6 +56,7 @@ const ICONS: Record<string, LucideIcon> = {
   perfis: Shield,
   comissoes: Percent,
   origens: Tag,
+  categorias_fin: Tag,
   tipos_produto: Boxes,
   faturas: ScrollText,
   relatorios: FileBarChart,

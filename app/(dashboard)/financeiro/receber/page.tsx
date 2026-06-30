@@ -23,7 +23,12 @@ import { GerarFaturaModalTrigger } from "@/components/financeiro/gerar-fatura-mo
 import { MarcarParcelaPagaButton } from "@/components/financeiro/marcar-parcela-paga-button"
 import { ProrrogarParcelaButton } from "@/components/financeiro/prorrogar-parcela-button"
 import { VerVendaLink } from "@/components/vendas/ver-venda-link"
-import { getClientesComParcelasPendentes } from "@/app/(dashboard)/financeiro/actions"
+import Link from "next/link"
+import { Tag } from "lucide-react"
+import { NovaEntradaButton } from "@/components/financeiro/nova-entrada-modal"
+import { LancamentoRowActions } from "@/components/financeiro/lancamento-row-actions"
+import { AnexoChip } from "@/components/financeiro/anexo-chip"
+import { getClientesComParcelasPendentes, listarCategorias } from "@/app/(dashboard)/financeiro/actions"
 import { getCaixas } from "@/app/(dashboard)/cartoes/actions"
 
 export const metadata: Metadata = { title: "Contas a Receber" }
@@ -117,10 +122,14 @@ export default async function ContasReceberPage({
     .from("parcelas_receber")
     .select(
       `id, numero, total_parcelas, descricao, valor, forma_pagamento,
-      data_vencimento, data_pagamento, status, caixa_id,
+      data_vencimento, data_pagamento, status, caixa_id, cartao_id,
+      observacoes, data_emissao, categoria_id, is_manual,
       cliente:clientes(id, nome),
       venda:vendas(id, identificador),
-      caixa:caixas(nome)`,
+      caixa:caixas(nome),
+      cartao:cartoes(id, nome),
+      categoria:categorias_financeiras(nome),
+      lancamento_anexos!lancamento_anexos_parcela_receber_id_fkey(id, nome_arquivo)`,
     )
     .order("data_vencimento", { ascending: true })
     .limit(200)
@@ -142,7 +151,7 @@ export default async function ContasReceberPage({
     queryBase = queryBase.eq("caixa_id", caixaFiltro)
   }
 
-  const [{ data: parcelasRaw, error }, { data: kpiRows }, clientesFatura, caixasList] =
+  const [{ data: parcelasRaw, error }, { data: kpiRows }, clientesFatura, caixasList, categorias, { data: cartoesRaw }] =
     await Promise.all([
       queryBase,
       supabase
@@ -150,7 +159,11 @@ export default async function ContasReceberPage({
         .select("valor, data_vencimento, data_pagamento, status"),
       podeCriar ? getClientesComParcelasPendentes() : Promise.resolve([]),
       getCaixas(),
+      listarCategorias("receber"),
+      supabase.from("cartoes").select("id, nome, banco, ativo").order("ativo", { ascending: false }).order("nome"),
     ])
+
+  const cartoesList = (cartoesRaw ?? []) as { id: string; nome: string; banco: string | null; ativo: boolean }[]
 
   type KpiRow = {
     valor: number | string
@@ -187,14 +200,22 @@ export default async function ContasReceberPage({
     forma_pagamento: string | null
     data_vencimento: string
     data_pagamento: string | null
+    data_emissao: string | null
     status: string
     caixa_id: string | null
+    cartao_id: string | null
+    categoria_id: string | null
+    observacoes: string | null
+    is_manual: boolean
     cliente: { id: string; nome: string } | { id: string; nome: string }[] | null
     venda:
       | { id: string; identificador: string }
       | { id: string; identificador: string }[]
       | null
     caixa: { nome: string } | { nome: string }[] | null
+    cartao: { id: string; nome: string } | { id: string; nome: string }[] | null
+    categoria: { nome: string } | { nome: string }[] | null
+    lancamento_anexos: { id: string; nome_arquivo: string }[] | null
   }
   let parcelas = (parcelasRaw ?? []) as unknown as ParcelaRow[]
 
@@ -219,9 +240,23 @@ export default async function ContasReceberPage({
             venda é aprovada.
           </p>
         </div>
-        {podeCriar && (
-          <GerarFaturaModalTrigger clientes={clientesFatura} />
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {podeEditar && (
+            <Link
+              href="/financeiro/categorias?from=receber"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/60 transition-colors hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+            >
+              <Tag className="h-4 w-4" />
+              Categorias
+            </Link>
+          )}
+          {podeEditar && (
+            <NovaEntradaButton categorias={categorias} caixas={caixasList} cartoes={cartoesList} />
+          )}
+          {podeCriar && (
+            <GerarFaturaModalTrigger clientes={clientesFatura} />
+          )}
+        </div>
       </div>
 
       {/* KPIs */}
@@ -285,6 +320,8 @@ export default async function ContasReceberPage({
                 const cli = Array.isArray(p.cliente) ? p.cliente[0] : p.cliente
                 const vnd = Array.isArray(p.venda) ? p.venda[0] : p.venda
                 const caixaObj = Array.isArray(p.caixa) ? p.caixa[0] : p.caixa
+                const catObj = Array.isArray(p.categoria) ? p.categoria[0] : p.categoria
+                const anexos = p.lancamento_anexos ?? []
                 const status = derivarStatus(p.status, p.data_vencimento, hoje)
                 const ehPago = status === "pago" || status === "pago_atraso"
                 const ehAtrasado = status === "atrasado"
@@ -295,9 +332,24 @@ export default async function ContasReceberPage({
                         {formatDateBr(p.data_vencimento)}
                       </span>
                     </TableCell>
-                    <TableCell className="text-sm text-white">{cli?.nome ?? "—"}</TableCell>
+                    {/* Cliente: para manual mostra categoria + descrição; para venda mostra o cliente */}
+                    <TableCell className="text-sm text-white">
+                      {p.is_manual ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-white/70">{catObj?.nome ?? "—"}</span>
+                          {p.descricao && (
+                            <span className="text-[10px] text-white/35">{p.descricao}</span>
+                          )}
+                        </div>
+                      ) : (cli?.nome ?? "—")}
+                    </TableCell>
+                    {/* Venda: para manual mostra chip de anexo (se houver); para venda mostra link */}
                     <TableCell>
-                      {vnd?.id && vnd?.identificador ? (
+                      {p.is_manual ? (
+                        anexos.length > 0
+                          ? <AnexoChip anexos={anexos} />
+                          : <span className="font-mono text-xs text-white/30">—</span>
+                      ) : vnd?.id && vnd?.identificador ? (
                         <VerVendaLink
                           vendaId={vnd.id}
                           identificador={vnd.identificador}
@@ -337,20 +389,10 @@ export default async function ContasReceberPage({
                     </TableCell>
                     {podeEditar && (
                       <TableCell className="text-right">
-                        {!ehPago && status !== "cancelado" && (
-                          <div className="flex items-center justify-end gap-1.5">
-                            <ProrrogarParcelaButton
-                              parcelaId={p.id}
-                              clienteNome={cli?.nome ?? ""}
-                              descricao={p.descricao}
-                              numero={p.numero}
-                              totalParcelas={p.total_parcelas}
-                              valor={Number(p.valor ?? 0)}
-                              formaPagamento={p.forma_pagamento}
-                              dataVencimento={p.data_vencimento}
-                            />
-                            {p.forma_pagamento !== "faturado" &&
-                              p.forma_pagamento !== "pix" && (
+                        <div className="flex items-center justify-end gap-1.5">
+                          {p.is_manual ? (
+                            <>
+                              {!ehPago && status !== "cancelado" && (
                                 <MarcarParcelaPagaButton
                                   parcelaId={p.id}
                                   dataVencimento={p.data_vencimento}
@@ -358,8 +400,51 @@ export default async function ContasReceberPage({
                                   caixas={caixasList}
                                 />
                               )}
-                          </div>
-                        )}
+                              <LancamentoRowActions
+                                tipo="receber"
+                                parcelaId={p.id}
+                                descricao={p.descricao ?? "Lançamento manual"}
+                                lancamento={{
+                                  id: p.id,
+                                  descricao: p.descricao,
+                                  categoria_id: p.categoria_id,
+                                  valor: Number(p.valor ?? 0),
+                                  forma_pagamento: p.forma_pagamento,
+                                  data_emissao: p.data_emissao,
+                                  data_vencimento: p.data_vencimento,
+                                  cartao_id: p.cartao_id,
+                                  caixa_id: p.caixa_id,
+                                  observacoes: p.observacoes,
+                                }}
+                                categorias={categorias}
+                                caixas={caixasList}
+                                cartoes={cartoesList}
+                              />
+                            </>
+                          ) : !ehPago && status !== "cancelado" ? (
+                            <>
+                              <ProrrogarParcelaButton
+                                parcelaId={p.id}
+                                clienteNome={cli?.nome ?? p.descricao ?? ""}
+                                descricao={p.descricao}
+                                numero={p.numero}
+                                totalParcelas={p.total_parcelas}
+                                valor={Number(p.valor ?? 0)}
+                                formaPagamento={p.forma_pagamento}
+                                dataVencimento={p.data_vencimento}
+                              />
+                              {p.forma_pagamento !== "faturado" &&
+                                p.forma_pagamento !== "pix" && (
+                                  <MarcarParcelaPagaButton
+                                    parcelaId={p.id}
+                                    dataVencimento={p.data_vencimento}
+                                    valor={Number(p.valor ?? 0)}
+                                    caixas={caixasList}
+                                  />
+                                )}
+                            </>
+                          ) : null}
+                        </div>
                       </TableCell>
                     )}
                   </TableRow>

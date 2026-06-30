@@ -16,29 +16,20 @@ import { cn } from "@/lib/utils"
 
 type Preset = { label: string; status: string; mes?: string }
 type CaixaOption = { id: string; nome: string }
+type CartaoOption = { id: string; nome: string }
 
-/**
- * Barra de filtros das telas financeiras. Mantém estado na URL pra que
- * o server component refaça a query a cada mudança. Inclui presets de
- * período (este mês, próximos 30, atrasados) pra reduzir cliques.
- *
- * Props:
- * - `placeholderBusca`: placeholder do input de busca (cliente/fornecedor).
- * - `presets`: pílulas de filtro rápido. Cada uma seta {status, mes} na URL.
- *   Omitir = sem pílulas (default []).
- * - `showMes`: exibe o input de mês (default true).
- * - `caixas`: quando passado, exibe um Select de caixa (param `caixa` na URL).
- */
 export function FinanceFilters({
   placeholderBusca,
   presets = [],
   showMes = true,
   caixas,
+  cartoes,
 }: {
   placeholderBusca: string
   presets?: Preset[]
   showMes?: boolean
   caixas?: CaixaOption[]
+  cartoes?: CartaoOption[]
 }) {
   const router = useRouter()
   const sp = useSearchParams()
@@ -74,8 +65,9 @@ export function FinanceFilters({
   const status = sp.get("status") ?? ""
   const mes = sp.get("mes") ?? ""
   const caixaSel = sp.get("caixa") ?? ""
+  const cartaoSel = sp.get("cartao") ?? ""
   const algumFiltro =
-    sp.get("q") || sp.get("status") || sp.get("mes") || sp.get("caixa")
+    sp.get("q") || sp.get("status") || sp.get("mes") || sp.get("caixa") || sp.get("cartao")
 
   return (
     <div className="space-y-3">
@@ -121,7 +113,27 @@ export function FinanceFilters({
             />
           )}
 
-          {/* Filtro de caixa — só aparece se a tela passar a lista. */}
+          {/* Filtro de cartão */}
+          {cartoes && cartoes.length > 0 && (
+            <Select
+              value={cartaoSel || "all"}
+              onValueChange={(v) => navigate({ cartao: v })}
+            >
+              <SelectTrigger className="h-9 w-[200px] border-white/10 bg-white/[0.04] text-sm">
+                <SelectValue placeholder="Todos os cartões" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os cartões</SelectItem>
+                {cartoes.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {/* Filtro de caixa */}
           {caixas && caixas.length > 0 && (
             <Select
               value={caixaSel || "all"}
@@ -157,7 +169,7 @@ export function FinanceFilters({
         )}
       </div>
 
-      {/* Linha 2: presets rápidos — só renderiza quando há pelo menos um. */}
+      {/* Linha 2: presets rápidos */}
       {presets.length > 0 && (
       <div className="flex flex-wrap gap-1.5">
         {presets.map((p) => (
