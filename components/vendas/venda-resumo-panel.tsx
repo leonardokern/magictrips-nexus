@@ -342,6 +342,13 @@ export function VendaResumoPanel({
   const temAlteracaoAprovada =
     !ehAlteracao && (d.alteracoesAprovadas?.length ?? 0) > 0
   const totalVenda = d.produtos.reduce((a, p) => a + p.valorVenda, 0)
+  // Total cobrável pela Magic Trips — exclui produtos pagos entre
+  // cliente e fornecedor (o dinheiro nunca passa pela agência).
+  // Usado no alerta de divergência com o Total cobrado.
+  const totalVendaCobravel = d.produtos.reduce(
+    (a, p) => (p.pgtoForma === "cliente_fornecedor" ? a : a + p.valorVenda),
+    0,
+  )
   const totalCusto = d.produtos.reduce((a, p) => a + p.valorCusto, 0)
   // RAV total = Venda − Custo (campo `rav`). As 3 fatias (Extra Cliente,
   // Extra Fornecedor, Comissionado) são uma DECOMPOSIÇÃO do RAV — elas
@@ -893,13 +900,16 @@ export function VendaResumoPanel({
                   )}
                 </span>
               </div>
+              {/* Comparação da cobrança BASE contra o total COBRÁVEL da
+                  venda (exclui produtos cliente_fornecedor, cujo dinheiro
+                  não passa pela agência). Taxa não conta em nenhum lado. */}
               {!ehAlteracao &&
-                totalVenda > 0 &&
+                totalVendaCobravel > 0 &&
                 totalCobranca > 0 &&
-                Math.abs(totalCobranca - totalVenda) > 0.01 && (
+                Math.abs(totalCobranca - totalVendaCobravel) > 0.01 && (
                   <p className="mt-2 rounded-md border border-amber-500/20 bg-amber-500/[0.08] px-2.5 py-1.5 text-[11px] leading-snug text-amber-300/90">
-                    Cobrança ({formatBRL(totalCobranca)}) difere do total da
-                    venda ({formatBRL(totalVenda)}).
+                    Cobrança ({formatBRL(totalCobranca)}) difere do total
+                    cobrável ({formatBRL(totalVendaCobravel)}).
                   </p>
                 )}
             </div>
