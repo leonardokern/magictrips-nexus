@@ -105,6 +105,29 @@ export type DadosNovaVenda = {
   usuariosAgentes: { id: string; nome: string; perfil_id: string; comissao_percentual: number | null }[]
   usuarioLogadoId: string
   podeTrocarAgente: boolean
+  /** Pacotes (templates de venda) ativos — pra aplicação rápida no Step 2 do wizard. */
+  pacotes: PacoteOption[]
+}
+
+/** Pacote (template de venda) com itens e opções de fornecedor aninhados. */
+export type PacoteOption = {
+  id: string
+  empresa_id: string
+  nome: string
+  tipo_pacote: "unica_operadora" | "multi_operadora"
+  data_inicio_viagem: string
+  data_fim_viagem: string
+  tipo_produto_id: string | null
+  fornecedor_id: string | null
+  valor_custo_total: number | null
+  valores_extras: Record<string, string>
+  itens: {
+    id: string
+    tipo_produto_id: string
+    descricao: string | null
+    valores_extras: Record<string, string>
+    fornecedores: { fornecedor_id: string; valor_custo: number }[]
+  }[]
 }
 
 /**
@@ -261,6 +284,13 @@ export type VendaDetalhes = {
   produtos: {
     tipoNome: string
     icone: string | null
+    /** Linha originada de pacote (única operadora) — usa ícone/nome de pacote. */
+    isPacote?: boolean
+    pacoteNome?: string | null
+    /** Campos agrupados por produto incluso no pacote (substitui camposExtras nessas linhas). */
+    gruposPacote?:
+      | { titulo: string; icone: string | null; campos: { nome: string; valor: string }[] }[]
+      | null
     dataEmissao: string | null
     valorVenda: number
     valorCusto: number
@@ -442,6 +472,7 @@ export async function getVendaDetalhes(
          rav_extra_cliente, rav_extra_fornecedor, rav_comissionado, tipo_comissao,
          fornecedor_nome, localizador, localizador_fornecedor, destino,
          data_emissao, data_inicio_viagem, data_fim_viagem, valores_extras,
+         origem_pacote_id,
          pgto_forma, pgto_valor_total, pgto_entrada, pgto_num_parcelas,
          pgto_valor_parcela, pgto_data_debito, pgto_primeira_parcela_extra,
          pgto_parcelas_detalhe,
@@ -482,6 +513,49 @@ export async function getVendaDetalhes(
   const camposMap: Record<string, string> = {}
   for (const c of camposExtraRows ?? []) {
     camposMap[c.id] = c.nome
+  }
+
+  // Pacotes de única operadora referenciados por produtos desta venda —
+  // usados pra reagrupar `valores_extras` (chave composta `campoId::itemId`)
+  // por produto incluso na visualização/revisão do gerente.
+  const pacoteIds = Array.from(
+    new Set(
+      (produtos ?? [])
+        .map((p) => (p as { origem_pacote_id: string | null }).origem_pacote_id)
+        .filter((x): x is string => !!x),
+    ),
+  )
+  type PacoteDetalhe = {
+    nome: string
+    tipo_pacote: string
+    itens: { id: string; tipo_produto_id: string; descricao: string | null; ordem: number }[]
+  }
+  const pacotesMap: Record<string, PacoteDetalhe> = {}
+  const tipoProdutoMap: Record<string, { nome: string; icone: string | null }> = {}
+  if (pacoteIds.length > 0) {
+    const [{ data: pacotesRows }, { data: tiposRows }] = await Promise.all([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any)
+        .from("pacotes")
+        .select("id, nome, tipo_pacote, pacote_itens(id, tipo_produto_id, descricao, ordem)")
+        .in("id", pacoteIds),
+      supabase.from("tipos_produto").select("id, nome, icone"),
+    ])
+    for (const t of (tiposRows ?? []) as { id: string; nome: string; icone: string | null }[]) {
+      tipoProdutoMap[t.id] = { nome: t.nome, icone: t.icone ?? null }
+    }
+    for (const pk of (pacotesRows ?? []) as {
+      id: string
+      nome: string
+      tipo_pacote: string
+      pacote_itens: { id: string; tipo_produto_id: string; descricao: string | null; ordem: number }[] | null
+    }[]) {
+      pacotesMap[pk.id] = {
+        nome: pk.nome,
+        tipo_pacote: pk.tipo_pacote,
+        itens: (pk.pacote_itens ?? []).slice().sort((a, b) => a.ordem - b.ordem),
+      }
+    }
   }
 
   const dataInicio =
@@ -611,14 +685,43 @@ export async function getVendaDetalhes(
               ? Number(((rav * comissaoPercentual) / 100).toFixed(2))
               : 0
 
-        // Resolve campos extras: { campo_id: valor } → [{ nome, valor }]
+        // Resolve campos extras: { campo_id: valor } → [{ nome, valor }].
+        // Linhas de pacote usam chave composta `campoId::itemId`.
         const extras = p.valores_extras as Record<string, unknown> | null
+        const origemPacoteId = (p as { origem_pacote_id: string | null }).origem_pacote_id
+        const pacote = origemPacoteId ? pacotesMap[origemPacoteId] : undefined
+        const isPacote = !!pacote && pacote.tipo_pacote === "unica_operadora"
+
+        // Linhas normais: lista achatada (chaves simples). Linhas de pacote:
+        // camposExtras fica vazio e o detalhamento vai pra gruposPacote.
         const camposExtras: { nome: string; valor: string }[] = []
+        // Pacote: um grupo por produto incluso, com os campos daquele item
+        // (chave `campoId::itemId`).
+        let gruposPacote:
+          | { titulo: string; icone: string | null; campos: { nome: string; valor: string }[] }[]
+          | null = null
+
         if (extras) {
-          for (const [campoId, val] of Object.entries(extras)) {
-            if (val === null || val === undefined || val === "") continue
-            const nome = camposMap[campoId] ?? campoId
-            camposExtras.push({ nome, valor: String(val) })
+          if (isPacote && pacote) {
+            gruposPacote = pacote.itens.map((item) => {
+              const tp = tipoProdutoMap[item.tipo_produto_id]
+              const campos: { nome: string; valor: string }[] = []
+              for (const [chave, val] of Object.entries(extras)) {
+                if (val === null || val === undefined || val === "") continue
+                const [campoId, itemId] = chave.split("::")
+                if (itemId !== item.id) continue
+                campos.push({ nome: camposMap[campoId!] ?? campoId!, valor: String(val) })
+              }
+              return { titulo: tp?.nome ?? "Produto", icone: tp?.icone ?? null, campos }
+            })
+          } else {
+            for (const [chave, val] of Object.entries(extras)) {
+              if (val === null || val === undefined || val === "") continue
+              // Chave simples em produtos normais; se vier composta (edge),
+              // ignora o sufixo pra resolver o nome.
+              const campoId = chave.split("::")[0]!
+              camposExtras.push({ nome: camposMap[campoId] ?? campoId, valor: String(val) })
+            }
           }
         }
 
@@ -627,6 +730,9 @@ export async function getVendaDetalhes(
         return {
           tipoNome: p.tipo_produto_nome,
           icone: (p.tipo_produto as unknown as TipoProduto)?.icone ?? null,
+          isPacote,
+          pacoteNome: isPacote && pacote ? pacote.nome : null,
+          gruposPacote,
           dataEmissao: p.data_emissao ?? null,
           valorVenda: Number(p.valor_venda ?? 0),
           valorCusto: Number(p.valor_custo ?? 0),
@@ -1065,8 +1171,10 @@ export async function getVendaParaPDF(
         const extras = p.valores_extras as Record<string, unknown> | null
         const camposExtras: { nome: string; valor: string }[] = []
         if (extras) {
-          for (const [campoId, val] of Object.entries(extras)) {
+          for (const [chave, val] of Object.entries(extras)) {
             if (val === null || val === undefined || val === "") continue
+            // Chave composta `campoId::itemId` em linhas de pacote.
+            const campoId = chave.split("::")[0]!
             camposExtras.push({ nome: camposMap[campoId] ?? campoId, valor: String(val) })
           }
         }
@@ -1272,6 +1380,15 @@ export async function getDadosNovaVenda(): Promise<ActionResult<DadosNovaVenda>>
     supabase.from("perfis_comissoes").select("perfil_id, origem_id, percentual"),
   ])
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: pacotesRaw } = await (supabase as any)
+    .from("pacotes")
+    .select(
+      "id, empresa_id, nome, tipo_pacote, data_inicio_viagem, data_fim_viagem, tipo_produto_id, fornecedor_id, valor_custo_total, valores_extras, pacote_itens(id, tipo_produto_id, descricao, valores_extras, pacote_item_fornecedores(fornecedor_id, valor_custo))",
+    )
+    .eq("ativo", true)
+    .order("nome")
+
   const vinculosPorTipo = new Map<
     string,
     { campo_id: string; obrigatorio: boolean; ordem: number }[]
@@ -1343,6 +1460,46 @@ export async function getDadosNovaVenda(): Promise<ActionResult<DadosNovaVenda>>
       })),
       usuarioLogadoId: user.id,
       podeTrocarAgente: can(user, "vendas", "aprovar"),
+      pacotes: ((pacotesRaw ?? []) as {
+        id: string
+        empresa_id: string
+        nome: string
+        tipo_pacote: "unica_operadora" | "multi_operadora"
+        data_inicio_viagem: string
+        data_fim_viagem: string
+        tipo_produto_id: string | null
+        fornecedor_id: string | null
+        valor_custo_total: number | null
+        valores_extras: Record<string, string> | null
+        pacote_itens: {
+          id: string
+          tipo_produto_id: string
+          descricao: string | null
+          valores_extras: Record<string, string> | null
+          pacote_item_fornecedores: { fornecedor_id: string; valor_custo: number }[] | null
+        }[] | null
+      }[]).map((p) => ({
+        id: p.id,
+        empresa_id: p.empresa_id,
+        nome: p.nome,
+        tipo_pacote: p.tipo_pacote,
+        data_inicio_viagem: p.data_inicio_viagem,
+        data_fim_viagem: p.data_fim_viagem,
+        tipo_produto_id: p.tipo_produto_id,
+        fornecedor_id: p.fornecedor_id,
+        valor_custo_total: p.valor_custo_total,
+        valores_extras: p.valores_extras ?? {},
+        itens: (p.pacote_itens ?? []).map((it) => ({
+          id: it.id,
+          tipo_produto_id: it.tipo_produto_id,
+          descricao: it.descricao,
+          valores_extras: it.valores_extras ?? {},
+          fornecedores: (it.pacote_item_fornecedores ?? []).map((f) => ({
+            fornecedor_id: f.fornecedor_id,
+            valor_custo: Number(f.valor_custo),
+          })),
+        })),
+      })),
     },
   }
 }

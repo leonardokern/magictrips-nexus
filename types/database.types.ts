@@ -312,6 +312,41 @@ export type Database = {
           },
         ]
       }
+      categorias_financeiras: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          empresa_id: string | null
+          id: string
+          nome: string
+          tipo: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          empresa_id?: string | null
+          id?: string
+          nome: string
+          tipo: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          empresa_id?: string | null
+          id?: string
+          nome?: string
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "categorias_financeiras_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ciclos_faturamento: {
         Row: {
           ano: number
@@ -970,6 +1005,74 @@ export type Database = {
           },
         ]
       }
+      lancamento_anexos: {
+        Row: {
+          created_at: string
+          created_by: string
+          empresa_id: string
+          id: string
+          mime_type: string | null
+          nome_arquivo: string
+          parcela_pagar_id: string | null
+          parcela_receber_id: string | null
+          storage_path: string
+          tamanho_bytes: number | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          empresa_id: string
+          id?: string
+          mime_type?: string | null
+          nome_arquivo: string
+          parcela_pagar_id?: string | null
+          parcela_receber_id?: string | null
+          storage_path: string
+          tamanho_bytes?: number | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          empresa_id?: string
+          id?: string
+          mime_type?: string | null
+          nome_arquivo?: string
+          parcela_pagar_id?: string | null
+          parcela_receber_id?: string | null
+          storage_path?: string
+          tamanho_bytes?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lancamento_anexos_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lancamento_anexos_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lancamento_anexos_parcela_pagar_id_fkey"
+            columns: ["parcela_pagar_id"]
+            isOneToOne: false
+            referencedRelation: "parcelas_pagar"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lancamento_anexos_parcela_receber_id_fkey"
+            columns: ["parcela_receber_id"]
+            isOneToOne: false
+            referencedRelation: "parcelas_receber"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lembretes: {
         Row: {
           created_at: string
@@ -1054,9 +1157,178 @@ export type Database = {
         }
         Relationships: []
       }
+      pacote_item_fornecedores: {
+        Row: {
+          fornecedor_id: string
+          id: string
+          ordem: number
+          pacote_item_id: string
+          valor_custo: number
+        }
+        Insert: {
+          fornecedor_id: string
+          id?: string
+          ordem?: number
+          pacote_item_id: string
+          valor_custo: number
+        }
+        Update: {
+          fornecedor_id?: string
+          id?: string
+          ordem?: number
+          pacote_item_id?: string
+          valor_custo?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pacote_item_fornecedores_fornecedor_id_fkey"
+            columns: ["fornecedor_id"]
+            isOneToOne: false
+            referencedRelation: "fornecedores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pacote_item_fornecedores_pacote_item_id_fkey"
+            columns: ["pacote_item_id"]
+            isOneToOne: false
+            referencedRelation: "pacote_itens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pacote_itens: {
+        Row: {
+          created_at: string
+          descricao: string | null
+          id: string
+          ordem: number
+          pacote_id: string
+          tipo_produto_id: string
+          valores_extras: Json
+        }
+        Insert: {
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          ordem?: number
+          pacote_id: string
+          tipo_produto_id: string
+          valores_extras?: Json
+        }
+        Update: {
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          ordem?: number
+          pacote_id?: string
+          tipo_produto_id?: string
+          valores_extras?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pacote_itens_pacote_id_fkey"
+            columns: ["pacote_id"]
+            isOneToOne: false
+            referencedRelation: "pacotes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pacote_itens_tipo_produto_id_fkey"
+            columns: ["tipo_produto_id"]
+            isOneToOne: false
+            referencedRelation: "tipos_produto"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pacotes: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          created_by: string | null
+          data_fim_viagem: string
+          data_inicio_viagem: string
+          descricao: string | null
+          empresa_id: string
+          fornecedor_id: string | null
+          id: string
+          nome: string
+          tipo_pacote: string
+          tipo_produto_id: string | null
+          updated_at: string
+          valor_custo_total: number | null
+          valores_extras: Json
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          created_by?: string | null
+          data_fim_viagem: string
+          data_inicio_viagem: string
+          descricao?: string | null
+          empresa_id: string
+          fornecedor_id?: string | null
+          id?: string
+          nome: string
+          tipo_pacote: string
+          tipo_produto_id?: string | null
+          updated_at?: string
+          valor_custo_total?: number | null
+          valores_extras?: Json
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          created_by?: string | null
+          data_fim_viagem?: string
+          data_inicio_viagem?: string
+          descricao?: string | null
+          empresa_id?: string
+          fornecedor_id?: string | null
+          id?: string
+          nome?: string
+          tipo_pacote?: string
+          tipo_produto_id?: string | null
+          updated_at?: string
+          valor_custo_total?: number | null
+          valores_extras?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pacotes_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pacotes_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pacotes_fornecedor_id_fkey"
+            columns: ["fornecedor_id"]
+            isOneToOne: false
+            referencedRelation: "fornecedores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pacotes_tipo_produto_id_fkey"
+            columns: ["tipo_produto_id"]
+            isOneToOne: false
+            referencedRelation: "tipos_produto"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       parcelas_pagar: {
         Row: {
+          caixa_id: string | null
           cartao_id: string | null
+          categoria_id: string | null
           created_at: string
           data_emissao: string
           data_pagamento: string | null
@@ -1067,6 +1339,7 @@ export type Database = {
           fornecedor_id: string | null
           fornecedor_nome: string
           id: string
+          is_manual: boolean
           numero: number
           observacoes: string | null
           status: string
@@ -1076,7 +1349,9 @@ export type Database = {
           venda_produto_id: string | null
         }
         Insert: {
+          caixa_id?: string | null
           cartao_id?: string | null
+          categoria_id?: string | null
           created_at?: string
           data_emissao: string
           data_pagamento?: string | null
@@ -1087,6 +1362,7 @@ export type Database = {
           fornecedor_id?: string | null
           fornecedor_nome: string
           id?: string
+          is_manual?: boolean
           numero: number
           observacoes?: string | null
           status?: string
@@ -1096,7 +1372,9 @@ export type Database = {
           venda_produto_id?: string | null
         }
         Update: {
+          caixa_id?: string | null
           cartao_id?: string | null
+          categoria_id?: string | null
           created_at?: string
           data_emissao?: string
           data_pagamento?: string | null
@@ -1107,6 +1385,7 @@ export type Database = {
           fornecedor_id?: string | null
           fornecedor_nome?: string
           id?: string
+          is_manual?: boolean
           numero?: number
           observacoes?: string | null
           status?: string
@@ -1117,10 +1396,24 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "parcelas_pagar_caixa_id_fkey"
+            columns: ["caixa_id"]
+            isOneToOne: false
+            referencedRelation: "caixas"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "parcelas_pagar_cartao_id_fkey"
             columns: ["cartao_id"]
             isOneToOne: false
             referencedRelation: "cartoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parcelas_pagar_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_financeiras"
             referencedColumns: ["id"]
           },
           {
@@ -1156,6 +1449,8 @@ export type Database = {
       parcelas_receber: {
         Row: {
           caixa_id: string | null
+          cartao_id: string | null
+          categoria_id: string | null
           cliente_id: string | null
           cobranca_item_id: string | null
           created_at: string
@@ -1166,6 +1461,7 @@ export type Database = {
           empresa_id: string
           forma_pagamento: string | null
           id: string
+          is_manual: boolean
           numero: number
           observacoes: string | null
           status: string
@@ -1176,6 +1472,8 @@ export type Database = {
         }
         Insert: {
           caixa_id?: string | null
+          cartao_id?: string | null
+          categoria_id?: string | null
           cliente_id?: string | null
           cobranca_item_id?: string | null
           created_at?: string
@@ -1186,6 +1484,7 @@ export type Database = {
           empresa_id: string
           forma_pagamento?: string | null
           id?: string
+          is_manual?: boolean
           numero: number
           observacoes?: string | null
           status?: string
@@ -1196,6 +1495,8 @@ export type Database = {
         }
         Update: {
           caixa_id?: string | null
+          cartao_id?: string | null
+          categoria_id?: string | null
           cliente_id?: string | null
           cobranca_item_id?: string | null
           created_at?: string
@@ -1206,6 +1507,7 @@ export type Database = {
           empresa_id?: string
           forma_pagamento?: string | null
           id?: string
+          is_manual?: boolean
           numero?: number
           observacoes?: string | null
           status?: string
@@ -1220,6 +1522,20 @@ export type Database = {
             columns: ["caixa_id"]
             isOneToOne: false
             referencedRelation: "caixas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parcelas_receber_cartao_id_fkey"
+            columns: ["cartao_id"]
+            isOneToOne: false
+            referencedRelation: "cartoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parcelas_receber_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_financeiras"
             referencedColumns: ["id"]
           },
           {
@@ -1888,6 +2204,7 @@ export type Database = {
           localizador: string | null
           localizador_fornecedor: string | null
           ordem: number
+          origem_pacote_id: string | null
           pgto_cartao_id: string | null
           pgto_data_debito: string | null
           pgto_entrada: number | null
@@ -1924,6 +2241,7 @@ export type Database = {
           localizador?: string | null
           localizador_fornecedor?: string | null
           ordem?: number
+          origem_pacote_id?: string | null
           pgto_cartao_id?: string | null
           pgto_data_debito?: string | null
           pgto_entrada?: number | null
@@ -1960,6 +2278,7 @@ export type Database = {
           localizador?: string | null
           localizador_fornecedor?: string | null
           ordem?: number
+          origem_pacote_id?: string | null
           pgto_cartao_id?: string | null
           pgto_data_debito?: string | null
           pgto_entrada?: number | null
@@ -1996,6 +2315,13 @@ export type Database = {
             columns: ["fornecedor_id"]
             isOneToOne: false
             referencedRelation: "fornecedores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venda_produtos_origem_pacote_id_fkey"
+            columns: ["origem_pacote_id"]
+            isOneToOne: false
+            referencedRelation: "pacotes"
             referencedColumns: ["id"]
           },
           {
@@ -2368,6 +2694,22 @@ export type Database = {
         Args: { p_foto_url?: string; p_user_id: string }
         Returns: undefined
       }
+      atualizar_pacote: {
+        Args: {
+          p_data_fim_viagem: string
+          p_data_inicio_viagem: string
+          p_descricao: string
+          p_fornecedor_id?: string
+          p_id: string
+          p_itens?: Json
+          p_nome: string
+          p_tipo_pacote: string
+          p_tipo_produto_id?: string
+          p_valor_custo_total?: number
+          p_valores_extras?: Json
+        }
+        Returns: undefined
+      }
       calc_desfluxo_venda: { Args: { p_venda_id: string }; Returns: undefined }
       comissao_efetiva_perfil: {
         Args: { p_origem_id: string; p_perfil_id: string }
@@ -2384,6 +2726,23 @@ export type Database = {
           p_nome: string
           p_tipo?: string
           p_tipos_produto_ids?: string[]
+        }
+        Returns: string
+      }
+      criar_pacote: {
+        Args: {
+          p_created_by?: string
+          p_data_fim_viagem: string
+          p_data_inicio_viagem: string
+          p_descricao: string
+          p_empresa_id: string
+          p_fornecedor_id?: string
+          p_itens?: Json
+          p_nome: string
+          p_tipo_pacote: string
+          p_tipo_produto_id?: string
+          p_valor_custo_total?: number
+          p_valores_extras?: Json
         }
         Returns: string
       }

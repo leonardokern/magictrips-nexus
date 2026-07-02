@@ -109,6 +109,13 @@ export const MODULOS_PERMISSAO: ModuloDef[] = [
     acoes: CRUD_BASE,
   },
   {
+    key: "pacotes",
+    label: "Pacotes",
+    description:
+      "Templates de venda com produtos, fornecedores e custos pré-definidos, reutilizáveis no Passo 2 da venda.",
+    acoes: CRUD_BASE,
+  },
+  {
     key: "usuarios",
     label: "Usuários",
     description: "Cadastro de usuários do sistema e atribuição de perfis.",

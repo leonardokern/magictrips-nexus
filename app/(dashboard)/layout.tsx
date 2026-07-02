@@ -144,6 +144,9 @@ export default async function DashboardLayout({
               } as NavItem,
             ]
           : []),
+        ...(perms.can("pacotes", "ler")
+          ? [{ href: "/pacotes", label: "Pacotes", icon: "pacotes" } as NavItem]
+          : []),
       ],
     },
   ].filter((s) => s.items.length > 0)

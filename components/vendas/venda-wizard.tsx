@@ -1,7 +1,7 @@
 "use client"
 
 import Image from "next/image"
-import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react"
+import { Fragment, forwardRef, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
   AlertCircle,
@@ -16,6 +16,7 @@ import {
   CreditCard,
   ExternalLink,
   Minus,
+  Package,
   Paperclip,
   Plus,
   Save,
@@ -24,6 +25,8 @@ import {
   User,
   UserCog,
   Users,
+  X,
+  type LucideIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -86,6 +89,7 @@ import { DateInput } from "@/components/ui/date-input"
 import { CurrencyInput } from "@/components/ui/currency-input"
 import { formatCnpj, formatCnpjPartial, formatCpf, formatTelefone, onlyDigits, toTitleCase } from "@/lib/utils/formatters"
 import { PhoneInput } from "@/components/shared/phone-input"
+import { CampoDinamicoInput, colSpanCampoDinamico } from "@/components/shared/campo-dinamico-input"
 import { cnpjValido, cpfValido, emailValido } from "@/lib/utils/validators"
 import {
   lookupClientePorCpf,
@@ -114,6 +118,27 @@ type Cartao = {
 }
 type Origem = { id: string; nome: string; comissao_percentual: number | null }
 
+/** Pacote (template de venda) com itens e opções de fornecedor aninhados. */
+type PacoteOption = {
+  id: string
+  empresa_id: string
+  nome: string
+  tipo_pacote: "unica_operadora" | "multi_operadora"
+  data_inicio_viagem: string
+  data_fim_viagem: string
+  tipo_produto_id: string | null
+  fornecedor_id: string | null
+  valor_custo_total: number | null
+  valores_extras: Record<string, string>
+  itens: {
+    id: string
+    tipo_produto_id: string
+    descricao: string | null
+    valores_extras: Record<string, string>
+    fornecedores: { fornecedor_id: string; valor_custo: number }[]
+  }[]
+}
+
 type CampoExtra = {
   id: string
   nome: string
@@ -137,6 +162,7 @@ type Props = {
   origens: Origem[]
   tiposProduto: TipoProduto[]
   camposExtra: CampoExtra[]
+  pacotes: PacoteOption[]
   usuariosAgentes: Usuario[]
   usuarioLogadoId: string
   /** Regras padrão de comissão por empresa + origem (tabela comissoes_regras). */
@@ -240,6 +266,11 @@ type ProdutoState = {
    *  parcela traz valor + data prevista, alimentando o controle de contas
    *  a pagar. Em outras formas de pagamento fica []. */
   pgto_parcelas_faturado: ParcelaDetalhe[]
+  /** Pacote (template) que originou esta linha, se aplicado no Passo 2. Null em produto manual. */
+  origem_pacote_id: string | null
+  /** Quantidade de pacotes vendidos (linhas de pacote única operadora).
+   *  Só afeta o custo: custo = quantidade × custo unitário do pacote. */
+  pacote_quantidade: number
 }
 
 type ParcelaDetalhe = {
@@ -326,7 +357,7 @@ export const STEPS = [
   { num: 6, label: "Revisão", icon: Check },
 ] as const
 
-function novoProduto(): ProdutoState {
+function novoProduto(overrides: Partial<ProdutoState> = {}): ProdutoState {
   return {
     id: crypto.randomUUID(),
     tipo_produto_id: "",
@@ -352,6 +383,9 @@ function novoProduto(): ProdutoState {
     pgto_data_entrada_str: "",
     pgto_primeira_parcela_extra_str: "",
     pgto_parcelas_faturado: [],
+    origem_pacote_id: null,
+    pacote_quantidade: 1,
+    ...overrides,
   }
 }
 
@@ -590,7 +624,7 @@ export function VendaWizard(props: Props) {
   // Produtos — normaliza rascunhos antigos que não têm os campos de fornecedor
   const [produtos, setProdutos] = useState<ProdutoState[]>(() => {
     const raw = d?.produtos
-    if (!raw) return [novoProduto()]
+    if (!raw) return []
     return raw.map((p) => ({
       ...novoProduto(),
       ...p,
@@ -653,6 +687,12 @@ export function VendaWizard(props: Props) {
   const cartoesDaEmpresa = useMemo(
     () => props.cartoes.filter((c) => c.empresa_id === empresaId),
     [props.cartoes, empresaId],
+  )
+
+  // Pacotes (templates de venda) da empresa selecionada
+  const pacotesDaEmpresa = useMemo(
+    () => props.pacotes.filter((p) => p.empresa_id === empresaId),
+    [props.pacotes, empresaId],
   )
 
   // Ao entrar no passo 4: garante que a lista tem pelo menos 1 passageiro
@@ -787,10 +827,32 @@ export function VendaWizard(props: Props) {
         }
       }
 
-      // Campos extras obrigatórios
-      const tp = props.tiposProduto.find((t) => t.id === p.tipo_produto_id)
-      if (tp) {
-        for (const v of tp.campos) {
+      // Campos extras obrigatórios. Linha de pacote (única operadora)
+      // agrega vários produtos — valida os obrigatórios de CADA item incluso
+      // usando a chave composta `campoId::itemId` (o mesmo campo pode
+      // existir em dois produtos do pacote com valores independentes).
+      const pacoteDaLinha = p.origem_pacote_id
+        ? props.pacotes.find(
+            (pk) => pk.id === p.origem_pacote_id && pk.tipo_pacote === "unica_operadora",
+          )
+        : null
+      if (pacoteDaLinha) {
+        for (const item of pacoteDaLinha.itens) {
+          const tpItem = props.tiposProduto.find((t) => t.id === item.tipo_produto_id)
+          for (const v of tpItem?.campos ?? []) {
+            if (!v.obrigatorio) continue
+            const chave = `${v.campo_id}::${item.id}`
+            const valor = p.valores_extras[chave]
+            if (!valor || (typeof valor === "string" && valor.trim() === "")) {
+              const campo = props.camposExtra.find((c) => c.id === v.campo_id)
+              e[`produto_${i}_extra_${chave}`] =
+                `${campo?.nome ?? "Campo"} (${tpItem?.nome ?? "produto"}) obrigatório.`
+            }
+          }
+        }
+      } else {
+        const tp = props.tiposProduto.find((t) => t.id === p.tipo_produto_id)
+        for (const v of tp?.campos ?? []) {
           if (!v.obrigatorio) continue
           const valor = p.valores_extras[v.campo_id]
           if (!valor || (typeof valor === "string" && valor.trim() === "")) {
@@ -1356,6 +1418,7 @@ export function VendaWizard(props: Props) {
               data: parc.data || null,
             }))
           : [],
+      origem_pacote_id: p.origem_pacote_id,
       }
     })
 
@@ -1531,6 +1594,7 @@ export function VendaWizard(props: Props) {
             camposExtra={props.camposExtra}
             fornecedores={props.fornecedores}
             cartoes={cartoesDaEmpresa}
+            pacotes={pacotesDaEmpresa}
             errors={errors}
             mostraComissao={props.podeTrocarAgente}
             comissaoPercentual={comissaoDoAgente}
@@ -1638,18 +1702,49 @@ export function VendaWizard(props: Props) {
             origem={origem}
             produtos={produtos.map((p) => {
               const tp = props.tiposProduto.find((t) => t.id === p.tipo_produto_id)
-              const camposDoTipo = tp?.campos ?? []
-              const camposExtras = camposDoTipo
-                .slice()
-                .sort((a, b) => a.ordem - b.ordem)
-                .map((tc) => {
-                  const campo = props.camposExtra.find((c) => c.id === tc.campo_id)
-                  return {
-                    nome: campo?.nome ?? "—",
-                    valor: p.valores_extras[tc.campo_id] ?? "",
-                  }
-                })
-                .filter((c) => c.valor !== "")
+              // Linha de pacote (única operadora): extras vivem em chaves
+              // compostas `campoId::itemId`, um conjunto por produto incluso.
+              const pacoteUnico = p.origem_pacote_id
+                ? props.pacotes.find(
+                    (pk) => pk.id === p.origem_pacote_id && pk.tipo_pacote === "unica_operadora",
+                  )
+                : null
+              // Pacote: em vez de uma lista achatada de campos com sufixo,
+              // agrupa os campos POR produto incluso — a revisão renderiza
+              // um bloco por produto (mais legível).
+              const gruposPacote = pacoteUnico
+                ? pacoteUnico.itens.map((item) => {
+                    const tpItem = props.tiposProduto.find((t) => t.id === item.tipo_produto_id)
+                    return {
+                      titulo: tpItem?.nome ?? "Produto",
+                      icone: tpItem?.icone ?? null,
+                      campos: (tpItem?.campos ?? [])
+                        .slice()
+                        .sort((a, b) => a.ordem - b.ordem)
+                        .map((tc) => {
+                          const campo = props.camposExtra.find((c) => c.id === tc.campo_id)
+                          return {
+                            nome: campo?.nome ?? "—",
+                            valor: p.valores_extras[`${tc.campo_id}::${item.id}`] ?? "",
+                          }
+                        })
+                        .filter((c) => c.valor !== ""),
+                    }
+                  })
+                : null
+              const camposExtras = pacoteUnico
+                ? []
+                : (tp?.campos ?? [])
+                    .slice()
+                    .sort((a, b) => a.ordem - b.ordem)
+                    .map((tc) => {
+                      const campo = props.camposExtra.find((c) => c.id === tc.campo_id)
+                      return {
+                        nome: campo?.nome ?? "—",
+                        valor: p.valores_extras[tc.campo_id] ?? "",
+                      }
+                    })
+                    .filter((c) => c.valor !== "")
               const fornecedorNome =
                 p.fornecedor_id === "outro"
                   ? p.fornecedor_outro_nome
@@ -1659,8 +1754,9 @@ export function VendaWizard(props: Props) {
                   ? props.cartoes.find((c) => c.id === p.pgto_cartao_id)?.nome ?? null
                   : null
               return {
-                tipoNome: tp?.nome ?? "—",
-                icone: tp?.icone ?? null,
+                tipoNome: pacoteUnico ? pacoteUnico.nome : tp?.nome ?? "—",
+                icone: pacoteUnico ? null : tp?.icone ?? null,
+                isPacote: !!pacoteUnico,
                 fornecedorNome,
                 dataEmissao: p.data_emissao_str || null,
                 dataInicioViagem: p.data_inicio_viagem_str || null,
@@ -1681,6 +1777,7 @@ export function VendaWizard(props: Props) {
                   ? parseValorComSoma(p.rav_comissionado_str)
                   : 0,
                 camposExtras,
+                gruposPacote,
                 pgtoForma: p.pgto_forma || null,
                 pgtoCartaoNome: cartaoNome,
                 pgtoValorTotal: parseValorComSoma(p.pgto_valor_total_str) || 0,
@@ -1758,7 +1855,9 @@ export function VendaWizard(props: Props) {
         const totalCobrado = cobrancaItens.reduce(
           (acc, it) => acc + (parseValorComSoma(it.valor_total_str) || 0), 0,
         )
-        const diff = totalCobrado - totalVenda
+        // Compara contra o total COBRÁVEL — produtos cliente→fornecedor
+        // ficam fora da cobrança e não podem gerar "diferença".
+        const diff = totalCobrado - totalVendaCobravel
         if (Math.abs(diff) < 0.01) return null
         const valor = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Math.abs(diff))
         const negativo = diff < 0
@@ -2462,6 +2561,7 @@ function Step2Produtos(props: {
   camposExtra: CampoExtra[]
   fornecedores: Fornecedor[]
   cartoes: Cartao[]
+  pacotes: PacoteOption[]
   errors: Record<string, string>
   /** Quando true (Admin/Gerente), exibe campos de "Tipo de comissão" e "Comissão do vendedor".
    *  Agentes não veem — comissão é calculada por regra administrativa no aprovo. */
@@ -2479,6 +2579,115 @@ function Step2Produtos(props: {
     setOpenId(novo.id)
   }
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  // ── Pacotes (templates de venda) ──────────────────────────────────────────
+  /** Bloco inline "Usar pacote" — mesmo padrão de "Adicionar produto": abre
+   *  um card com um seletor em vez de um dropdown/modal separado. */
+  const [pacoteSeletorAberto, setPacoteSeletorAberto] = useState(false)
+  const [pacoteSeletorId, setPacoteSeletorId] = useState("")
+  /** Quantidade de pacotes (padrão 1) — multiplica só o custo. */
+  const [pacoteSeletorQtd, setPacoteSeletorQtd] = useState(1)
+  /** Fornecedor escolhido por item ambíguo (item.id → fornecedor_id), pra
+   *  itens de pacotes multi_operadora com 2+ opções pré-cadastradas. */
+  const [escolhaFornecedorPorItem, setEscolhaFornecedorPorItem] = useState<
+    Record<string, string>
+  >({})
+
+  const pacoteEmEscolha = props.pacotes.find((p) => p.id === pacoteSeletorId) ?? null
+  const itensAmbiguosDoSeletor =
+    pacoteEmEscolha?.itens.filter((it) => it.fornecedores.length > 1) ?? []
+
+  function abrirSeletorPacote() {
+    setPacoteSeletorAberto(true)
+    setPacoteSeletorId("")
+    setPacoteSeletorQtd(1)
+    setEscolhaFornecedorPorItem({})
+  }
+
+  function fecharSeletorPacote() {
+    setPacoteSeletorAberto(false)
+    setPacoteSeletorId("")
+    setPacoteSeletorQtd(1)
+    setEscolhaFornecedorPorItem({})
+  }
+
+  function selecionarPacoteNoSeletor(id: string) {
+    setPacoteSeletorId(id)
+    const pacote = props.pacotes.find((p) => p.id === id)
+    const defaults: Record<string, string> = {}
+    for (const it of pacote?.itens.filter((i) => i.fornecedores.length > 1) ?? []) {
+      defaults[it.id] = it.fornecedores[0]?.fornecedor_id ?? ""
+    }
+    setEscolhaFornecedorPorItem(defaults)
+  }
+
+  /** Única operadora: o pacote tem UM custo fechado pra tudo, então vira UMA
+   *  linha na venda (um bloco só de valores/RAV/pagamento). Os campos
+   *  customizáveis de cada produto incluso são guardados em `valores_extras`
+   *  com chave composta `campoId::itemId` — o mesmo campo (ex: Identificador)
+   *  pode existir em dois produtos do pacote com valores diferentes, então a
+   *  chave só pelo campoId perderia um deles. */
+  function criarProdutosDePacoteUnico(pacote: PacoteOption, quantidade: number) {
+    const extras: Record<string, string> = {}
+    for (const item of pacote.itens) {
+      for (const [campoId, valor] of Object.entries(item.valores_extras)) {
+        if (valor) extras[`${campoId}::${item.id}`] = valor
+      }
+    }
+    const novo = novoProduto({
+      tipo_produto_id: pacote.tipo_produto_id ?? pacote.itens[0]?.tipo_produto_id ?? "",
+      fornecedor_id: pacote.fornecedor_id ?? "",
+      valor_custo_str: pacote.valor_custo_total
+        ? formatBRL(pacote.valor_custo_total * quantidade)
+        : "",
+      data_inicio_viagem_str: pacote.data_inicio_viagem,
+      data_fim_viagem_str: pacote.data_fim_viagem,
+      valores_extras: extras,
+      origem_pacote_id: pacote.id,
+      pacote_quantidade: quantidade,
+    })
+    props.setProdutos((s) => [...s, novo])
+    setOpenId(novo.id)
+  }
+
+  function criarProdutosDePacoteMulti(
+    pacote: PacoteOption,
+    escolhas: Record<string, string>,
+    quantidade: number,
+  ) {
+    const novos = pacote.itens.map((item) => {
+      const fornecedorEscolhido =
+        item.fornecedores.length === 1
+          ? item.fornecedores[0]!.fornecedor_id
+          : escolhas[item.id] ?? item.fornecedores[0]?.fornecedor_id ?? ""
+      const custoEscolhido =
+        item.fornecedores.find((f) => f.fornecedor_id === fornecedorEscolhido)
+          ?.valor_custo ?? 0
+      return novoProduto({
+        tipo_produto_id: item.tipo_produto_id,
+        fornecedor_id: fornecedorEscolhido,
+        valor_custo_str: formatBRL(custoEscolhido * quantidade),
+        data_inicio_viagem_str: pacote.data_inicio_viagem,
+        data_fim_viagem_str: pacote.data_fim_viagem,
+        valores_extras: item.valores_extras,
+        origem_pacote_id: pacote.id,
+        pacote_quantidade: quantidade,
+      })
+    })
+    props.setProdutos((s) => [...s, ...novos])
+    setOpenId(novos[novos.length - 1]?.id ?? null)
+  }
+
+  function confirmarAplicarPacoteDoSeletor() {
+    if (!pacoteEmEscolha) return
+    const qtd = Math.max(1, pacoteSeletorQtd)
+    if (pacoteEmEscolha.tipo_pacote === "unica_operadora") {
+      criarProdutosDePacoteUnico(pacoteEmEscolha, qtd)
+    } else {
+      criarProdutosDePacoteMulti(pacoteEmEscolha, escolhaFornecedorPorItem, qtd)
+    }
+    fecharSeletorPacote()
+  }
 
   function removerProduto(id: string) {
     props.setProdutos((s) => s.filter((p) => p.id !== id))
@@ -2678,8 +2887,25 @@ function Step2Produtos(props: {
 
   return (
     <div className="space-y-3">
+      {props.produtos.length === 0 && !pacoteSeletorAberto && (
+        <EmptyProdutosState
+          onAdicionarProduto={adicionarProduto}
+          temPacotes={props.pacotes.length > 0}
+          onUsarPacote={abrirSeletorPacote}
+        />
+      )}
+
       {props.produtos.map((p, i) => {
         const tp = props.tiposProduto.find((t) => t.id === p.tipo_produto_id)
+        // Linha originada de um pacote de única operadora: vira um bloco
+        // "Pacote" — visual âmbar, campos customizáveis agrupados por
+        // produto incluso, valores/RAV/pagamento do pacote inteiro.
+        const pacoteUnico =
+          (p.origem_pacote_id &&
+            props.pacotes.find(
+              (pk) => pk.id === p.origem_pacote_id && pk.tipo_pacote === "unica_operadora",
+            )) ||
+          null
         const camposDoTipo = tp
           ? tp.campos
               .slice()
@@ -2699,7 +2925,8 @@ function Step2Produtos(props: {
 
         // Texto do sumário quando fechado
         const summaryParts: string[] = []
-        if (tp) summaryParts.push(tp.nome)
+        if (pacoteUnico) summaryParts.push(pacoteUnico.nome)
+        else if (tp) summaryParts.push(tp.nome)
         if (venda > 0) summaryParts.push(formatBRL(venda))
         if (p.pgto_forma) {
           const formaLabel =
@@ -2724,11 +2951,16 @@ function Step2Produtos(props: {
         return (
           <div
             key={p.id}
-            className="overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]"
+            className={cn(
+              "overflow-hidden rounded-xl border",
+              pacoteUnico
+                ? "border-amber-500/25 bg-amber-500/[0.03]"
+                : "border-white/[0.06] bg-white/[0.02]",
+            )}
           >
             {/* ── Acordeão — cabeçalho ─────────────────────────────── */}
             <div
-              className={`flex items-center gap-1 px-4 py-3${isOpen ? " border-b border-white/[0.06]" : ""}`}
+              className={`flex items-center gap-1 px-4 py-3${isOpen ? (pacoteUnico ? " border-b border-amber-500/15" : " border-b border-white/[0.06]") : ""}`}
             >
               {/* Botão de toggle — ocupa o espaço livre */}
               <button
@@ -2742,33 +2974,41 @@ function Step2Produtos(props: {
 
                 {isOpen ? (
                   <span className="flex items-center gap-1.5 text-sm font-medium text-white/70">
-                    {tp?.icone && (
-                      <span className="relative block h-3.5 w-3.5 shrink-0">
-                        <Image
-                          src={`/icons/tipos-produto/${tp.icone}.png`}
-                          alt={tp.nome}
-                          fill
-                          className="object-contain"
-                          style={{ filter: "brightness(0) invert(1)", opacity: 0.5 }}
-                        />
-                      </span>
+                    {pacoteUnico ? (
+                      <Package className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+                    ) : (
+                      tp?.icone && (
+                        <span className="relative block h-3.5 w-3.5 shrink-0">
+                          <Image
+                            src={`/icons/tipos-produto/${tp.icone}.png`}
+                            alt={tp.nome}
+                            fill
+                            className="object-contain"
+                            style={{ filter: "brightness(0) invert(1)", opacity: 0.5 }}
+                          />
+                        </span>
+                      )
                     )}
-                    {tp?.nome ?? `Produto ${i + 1}`}
+                    {pacoteUnico ? pacoteUnico.nome : tp?.nome ?? `Produto ${i + 1}`}
                   </span>
                 ) : (
                   <>
                     <span className="flex min-w-0 flex-1 items-center gap-2 truncate">
                       <span className="flex shrink-0 items-center gap-1.5">
-                        {tp?.icone && (
-                          <div className="relative h-4 w-4 shrink-0">
-                            <Image
-                              src={`/icons/tipos-produto/${tp.icone}.png`}
-                              alt={tp.nome}
-                              fill
-                              className="object-contain"
-                              style={{ filter: "brightness(0) invert(1)", opacity: 0.65 }}
-                            />
-                          </div>
+                        {pacoteUnico ? (
+                          <Package className="h-4 w-4 shrink-0 text-amber-300" />
+                        ) : (
+                          tp?.icone && (
+                            <div className="relative h-4 w-4 shrink-0">
+                              <Image
+                                src={`/icons/tipos-produto/${tp.icone}.png`}
+                                alt={tp.nome}
+                                fill
+                                className="object-contain"
+                                style={{ filter: "brightness(0) invert(1)", opacity: 0.65 }}
+                              />
+                            </div>
+                          )
                         )}
                         <span className="text-[15px] font-semibold text-white">
                           {summaryParts[0] ?? `Produto ${i + 1}`}
@@ -2787,39 +3027,40 @@ function Step2Produtos(props: {
                 )}
               </button>
 
-              {/* Remover produto — com confirmação inline */}
-              {props.produtos.length > 1 && (
-                <div className="flex items-center gap-1.5">
-                  {confirmDeleteId === p.id ? (
-                    <>
-                      <span className="text-[11px] text-white/50">Remover?</span>
-                      <button
-                        type="button"
-                        onClick={() => removerProduto(p.id)}
-                        className="rounded border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-[11px] font-medium text-rose-300 hover:bg-rose-500/20"
-                      >
-                        Sim
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDeleteId(null)}
-                        className="rounded border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[11px] font-medium text-white/55 hover:bg-white/[0.08]"
-                      >
-                        Não
-                      </button>
-                    </>
-                  ) : (
+              {/* Remover produto — com confirmação inline. Pode zerar a lista
+                  (ex: usuário clicou "Adicionar produto" sem querer e na
+                  verdade só ia usar um pacote) — o Passo 2 volta pra tela
+                  de escolha nesse caso. */}
+              <div className="flex items-center gap-1.5">
+                {confirmDeleteId === p.id ? (
+                  <>
+                    <span className="text-[11px] text-white/50">Remover?</span>
                     <button
                       type="button"
-                      onClick={() => setConfirmDeleteId(p.id)}
-                      className="rounded p-1.5 text-rose-400/50 hover:text-rose-300"
-                      aria-label="Remover produto"
+                      onClick={() => removerProduto(p.id)}
+                      className="rounded border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-[11px] font-medium text-rose-300 hover:bg-rose-500/20"
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      Sim
                     </button>
-                  )}
-                </div>
-              )}
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(null)}
+                      className="rounded border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[11px] font-medium text-white/55 hover:bg-white/[0.08]"
+                    >
+                      Não
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteId(p.id)}
+                    className="rounded p-1.5 text-rose-400/50 hover:text-rose-300"
+                    aria-label="Remover produto"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* ── Acordeão — conteúdo (animado) ───────────────────── */}
@@ -2830,10 +3071,119 @@ function Step2Produtos(props: {
             <div className="p-5">
 
             {/* ══════════════════════════════════════════════════════════
+                SEÇÃO 1 (variante pacote): dados do pacote + campos
+                customizáveis de CADA produto incluso, agrupados. O agente
+                completa aqui o que não foi pré-preenchido no cadastro.
+                ══════════════════════════════════════════════════════════ */}
+            {pacoteUnico ? (
+              <div className="space-y-4">
+                  {/* Quantidade de pacotes — multiplica só o custo (custo =
+                      qtd × custo unitário cadastrado no pacote). */}
+                  <Field
+                    label="Quantidade de pacotes"
+                    hint={
+                      pacoteUnico.valor_custo_total
+                        ? `Custo unitário: ${formatBRL(pacoteUnico.valor_custo_total)}`
+                        : undefined
+                    }
+                    className="max-w-[180px]"
+                  >
+                    <QtdStepper
+                      value={p.pacote_quantidade}
+                      onChange={(qtd) => {
+                        patch(p.id, () => ({ pacote_quantidade: qtd }))
+                        if (pacoteUnico.valor_custo_total) {
+                          patchValor(
+                            p.id,
+                            "valor_custo_str",
+                            (pacoteUnico.valor_custo_total * qtd)
+                              .toFixed(2)
+                              .replace(".", ","),
+                          )
+                        }
+                      }}
+                    />
+                  </Field>
+
+                  {pacoteUnico.itens.map((item, itemIdx) => {
+                    const tpItem = props.tiposProduto.find((t) => t.id === item.tipo_produto_id)
+                    const camposDoItem = (tpItem?.campos ?? [])
+                      .slice()
+                      .sort((a, b) => a.ordem - b.ordem)
+                      .map((v) => ({
+                        vinculo: v,
+                        campo: props.camposExtra.find((c) => c.id === v.campo_id),
+                      }))
+                      .filter((x) => x.campo)
+                    return (
+                      <div
+                        key={item.id ?? itemIdx}
+                        className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3"
+                      >
+                        <div className="mb-2.5 flex items-center gap-1.5">
+                          {tpItem?.icone && (
+                            <span className="relative block h-4 w-4 shrink-0">
+                              <Image
+                                src={`/icons/tipos-produto/${tpItem.icone}.png`}
+                                alt={tpItem.nome}
+                                fill
+                                className="object-contain"
+                                style={{ filter: "brightness(0) invert(1)", opacity: 0.65 }}
+                              />
+                            </span>
+                          )}
+                          <p className="text-sm font-medium text-white/85">
+                            {tpItem?.nome ?? "Produto"}
+                          </p>
+                          {item.descricao && (
+                            <p className="min-w-0 truncate text-xs text-white/40">
+                              — {item.descricao}
+                            </p>
+                          )}
+                        </div>
+                        {camposDoItem.length > 0 ? (
+                          <div className="grid grid-cols-12 gap-3">
+                            {camposDoItem.map(({ vinculo, campo }) => {
+                              if (!campo) return null
+                              // Chave composta: o mesmo campo pode existir em
+                              // outro produto do pacote com valor diferente.
+                              const chave = `${campo.id}::${item.id}`
+                              const val = p.valores_extras[chave] ?? ""
+                              return (
+                                <Field
+                                  key={chave}
+                                  label={`${campo.nome}${vinculo.obrigatorio ? " *" : ""}`}
+                                  error={props.errors[`produto_${i}_extra_${chave}`]}
+                                  className={colSpanCampoDinamico(campo.tipo_campo)}
+                                >
+                                  <CampoDinamicoInput
+                                    campo={campo}
+                                    value={val}
+                                    fornecedores={props.fornecedores}
+                                    onChange={(v) =>
+                                      patch(p.id, (prev) => ({
+                                        valores_extras: { ...prev.valores_extras, [chave]: v },
+                                      }))
+                                    }
+                                  />
+                                </Field>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-white/35">Sem campos adicionais.</p>
+                        )}
+                      </div>
+                    )
+                  })}
+              </div>
+            ) : (
+
+            /* ══════════════════════════════════════════════════════════
                 SEÇÃO 1: TIPO + DETALHES DO PRODUTO
                 Card com borda azul Nexus leve. Tipo está dentro porque é
                 ele quem define quais campos aparecem aqui.
-                ══════════════════════════════════════════════════════════ */}
+                ══════════════════════════════════════════════════════════ */
             <div className="rounded-lg border border-nexus-bright/15 bg-nexus-bright/[0.025] p-4">
               <div className="mb-3 flex items-center gap-2">
                 <span className="rounded-md border border-nexus-bright/30 bg-nexus-bright/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-nexus-bright">
@@ -2908,184 +3258,29 @@ function Step2Produtos(props: {
                 const val = p.valores_extras[campo.id] ?? ""
                 const err = props.errors[`produto_${i}_extra_${campo.id}`]
 
-                // Largura semântica por tipo de campo
-                //   numero / sim_nao  → 2/12 (compactos — stepper / Select)
-                //   valor             → 3/12 (campo monetário — R$ + número)
-                //   data              → 3/12 (largura tipo DD/MM/AAAA)
-                //   texto_curto       → 2/12 (códigos, IDs, localizadores)
-                //   texto (longo)     → 6/12 (descrições, observações)
-                //   dropdown / fornecedor → 4/12
-                const colSpan =
-                  campo.tipo_campo === "numero" || campo.tipo_campo === "sim_nao"
-                    ? "col-span-6 sm:col-span-2"
-                    : campo.tipo_campo === "valor" || campo.tipo_campo === "data"
-                      ? "col-span-6 sm:col-span-3"
-                      : campo.tipo_campo === "texto_curto"
-                        ? "col-span-6 sm:col-span-2"
-                        : campo.tipo_campo === "texto"
-                          ? "col-span-12 sm:col-span-6"
-                          : "col-span-12 sm:col-span-4"
-
                 return (
                   <Field
                     key={campo.id}
                     label={`${campo.nome}${vinculo.obrigatorio ? " *" : ""}`}
                     error={err}
-                    className={colSpan}
+                    className={colSpanCampoDinamico(campo.tipo_campo)}
                   >
-                    {campo.tipo_campo === "fornecedor" ? (
-                      <Select
-                        value={val || undefined}
-                        onValueChange={(v) =>
-                          patch(p.id, (prev) => ({
-                            valores_extras: { ...prev.valores_extras, [campo.id]: v },
-                          }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={campo.placeholder ?? "Selecione o fornecedor"} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {props.fornecedores.map((f) => (
-                            <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : campo.tipo_campo === "dropdown" ? (
-                      <Select
-                        value={val || undefined}
-                        onValueChange={(v) =>
-                          patch(p.id, (prev) => ({
-                            valores_extras: { ...prev.valores_extras, [campo.id]: v },
-                          }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={campo.placeholder ?? "Selecione"} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {/* Ordenamos alfabeticamente (pt-BR) no render —
-                              a ordem cadastrada no admin não vale aqui,
-                              o operador procura a opção pelo nome. */}
-                          {campo.opcoes
-                            .slice()
-                            .sort((a, b) =>
-                              a.valor.localeCompare(b.valor, "pt-BR", {
-                                sensitivity: "base",
-                              }),
-                            )
-                            .map((o) => (
-                              <SelectItem key={o.valor} value={o.valor}>
-                                {o.valor}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                    ) : campo.tipo_campo === "data" ? (
-                      <DateInput
-                        value={val}
-                        onChange={(iso) =>
-                          patch(p.id, (prev) => ({
-                            valores_extras: { ...prev.valores_extras, [campo.id]: iso },
-                          }))
-                        }
-                      />
-                    ) : campo.tipo_campo === "numero" ? (
-                      (() => {
-                        // Stepper compacto centralizado: −  N  +
-                        // Inteiro ≥ 0; persistido como string pra compat.
-                        const n = Math.max(0, parseInt(String(val), 10) || 0)
-                        const setN = (next: number) => {
-                          patch(p.id, (prev) => ({
-                            valores_extras: {
-                              ...prev.valores_extras,
-                              [campo.id]: String(Math.max(0, next)),
-                            },
-                          }))
-                        }
-                        return (
-                          // Visual consistente com o <Input> padrão do
-                          // shadcn (border-input + bg-background). Botões
-                          // − e + ficam INTERNOS ao container, dividindo
-                          // o input com bordas finas do mesmo tom.
-                          <div className="flex h-10 w-full items-stretch overflow-hidden rounded-md border border-input bg-background">
-                            <button
-                              type="button"
-                              onClick={() => setN(n - 1)}
-                              disabled={n <= 0}
-                              aria-label="Diminuir"
-                              className="flex w-8 shrink-0 items-center justify-center border-r border-input text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
-                            >
-                              <Minus className="h-3.5 w-3.5" />
-                            </button>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              value={val || "0"}
-                              onChange={(ev) => {
-                                const v = ev.target.value.replace(/[^\d]/g, "")
-                                patch(p.id, (prev) => ({
-                                  valores_extras: {
-                                    ...prev.valores_extras,
-                                    [campo.id]: v,
-                                  },
-                                }))
-                              }}
-                              onFocus={(ev) => ev.target.select()}
-                              className="min-w-0 flex-1 bg-transparent px-1 text-center text-sm tabular-nums text-white outline-none"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setN(n + 1)}
-                              aria-label="Aumentar"
-                              className="flex w-8 shrink-0 items-center justify-center border-l border-input text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white"
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        )
-                      })()
-                    ) : campo.tipo_campo === "sim_nao" ? (
-                      <Select
-                        value={val || undefined}
-                        onValueChange={(v) =>
-                          patch(p.id, (prev) => ({
-                            valores_extras: { ...prev.valores_extras, [campo.id]: v },
-                          }))
-                        }
-                      >
-                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="sim">Sim</SelectItem>
-                          <SelectItem value="nao">Não</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : campo.tipo_campo === "valor" ? (
-                      <CurrencyInput
-                        value={val}
-                        placeholder={campo.placeholder ?? "0,00"}
-                        onChange={(v) =>
-                          patch(p.id, (prev) => ({
-                            valores_extras: { ...prev.valores_extras, [campo.id]: v },
-                          }))
-                        }
-                      />
-                    ) : (
-                      <Input
-                        value={val}
-                        onChange={(ev) =>
-                          patch(p.id, (prev) => ({
-                            valores_extras: { ...prev.valores_extras, [campo.id]: ev.target.value },
-                          }))
-                        }
-                        placeholder={campo.placeholder ?? ""}
-                      />
-                    )}
+                    <CampoDinamicoInput
+                      campo={campo}
+                      value={val}
+                      fornecedores={props.fornecedores}
+                      onChange={(v) =>
+                        patch(p.id, (prev) => ({
+                          valores_extras: { ...prev.valores_extras, [campo.id]: v },
+                        }))
+                      }
+                    />
                   </Field>
                 )
               })}
               </div>
             </div>
+            )}
 
             {/* ══════════════════════════════════════════════════════════
                 SEÇÃO 2: IDENTIFICAÇÃO — fornecedor + datas (campos fixos)
@@ -3095,12 +3290,16 @@ function Step2Produtos(props: {
                 Identificação
               </p>
               <div className="grid grid-cols-12 gap-3">
-                {/* Linha 1: Fornecedor | Início da viagem | Fim da viagem */}
+                {/* Linha 1: Fornecedor | Início da viagem | Fim da viagem.
+                    Em linhas de pacote, fornecedor e datas vêm do cadastro
+                    do pacote e ficam bloqueados. */}
                 {(() => {
-                  const fornecedoresDoTipo = tp
-                    ? props.fornecedores.filter((f) => f.tipos_produto_ids.includes(tp.id))
-                    : []
-                  const semTipo = !tp
+                  const fornecedoresDoTipo = pacoteUnico
+                    ? props.fornecedores.filter((f) => f.id === p.fornecedor_id)
+                    : tp
+                      ? props.fornecedores.filter((f) => f.tipos_produto_ids.includes(tp.id))
+                      : []
+                  const semTipo = !tp && !pacoteUnico
                   return (
                     <Field
                       label="Fornecedor *"
@@ -3112,7 +3311,7 @@ function Step2Produtos(props: {
                         onValueChange={(v) =>
                           patch(p.id, () => ({ fornecedor_id: v, fornecedor_outro_nome: "" }))
                         }
-                        disabled={semTipo}
+                        disabled={semTipo || !!pacoteUnico}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder={semTipo ? "Selecione o tipo do produto" : "Selecione"} />
@@ -3123,7 +3322,7 @@ function Step2Produtos(props: {
                               {f.nome}
                             </SelectItem>
                           ))}
-                          <SelectItem value="outro">Outro…</SelectItem>
+                          {!pacoteUnico && <SelectItem value="outro">Outro…</SelectItem>}
                         </SelectContent>
                       </Select>
                     </Field>
@@ -3138,6 +3337,7 @@ function Step2Produtos(props: {
                 >
                   <DateInput
                     value={p.data_inicio_viagem_str}
+                    disabled={!!pacoteUnico}
                     onChange={(iso) =>
                       patch(p.id, (prev) => ({
                         data_inicio_viagem_str: iso,
@@ -3161,6 +3361,7 @@ function Step2Produtos(props: {
                   <DateInput
                     value={p.data_fim_viagem_str}
                     min={p.data_inicio_viagem_str || undefined}
+                    disabled={!!pacoteUnico}
                     onChange={(iso) =>
                       patch(p.id, () => ({ data_fim_viagem_str: iso }))
                     }
@@ -3725,15 +3926,136 @@ function Step2Produtos(props: {
         )
       })}
 
-      <Button
-        type="button"
-        variant="outline"
-        onClick={adicionarProduto}
-        className="border-white/10 bg-transparent text-white/80 hover:bg-white/[0.04] hover:text-white"
-      >
-        <Plus className="mr-2 h-4 w-4" />
-        Adicionar outro produto
-      </Button>
+      {props.produtos.length > 0 && !pacoteSeletorAberto && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={adicionarProduto}
+            className="border-white/10 bg-transparent text-white/80 hover:bg-white/[0.04] hover:text-white"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Adicionar outro produto
+          </Button>
+
+          {/* Só 1 pacote por venda — depois de aplicado, apenas produtos
+              avulsos podem ser adicionados. */}
+          {props.pacotes.length > 0 &&
+            !props.produtos.some((prod) => prod.origem_pacote_id) && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={abrirSeletorPacote}
+                className="border-amber-500/25 bg-amber-500/[0.08] text-amber-300 hover:border-amber-500/50 hover:bg-amber-500/15"
+              >
+                <Package className="mr-2 h-4 w-4" />
+                Usar pacote
+              </Button>
+            )}
+        </div>
+      )}
+
+      {/* Bloco inline "Usar pacote" — mesmo padrão do card de produto:
+          abre, mostra um seletor e (se precisar) os campos de resolução de
+          fornecedor, em vez de um dropdown/modal separado. */}
+      {pacoteSeletorAberto && (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <p className="flex items-center gap-2 text-sm font-medium text-white">
+              <Package className="h-4 w-4 text-amber-300" />
+              Usar pacote
+            </p>
+            <button
+              type="button"
+              onClick={fecharSeletorPacote}
+              aria-label="Fechar"
+              className="rounded p-1 text-white/40 hover:text-white/70"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-12 gap-3">
+            <Field label="Pacote" className="col-span-12 sm:col-span-9">
+              <Select value={pacoteSeletorId || undefined} onValueChange={selecionarPacoteNoSeletor}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o pacote" />
+                </SelectTrigger>
+                <SelectContent>
+                  {props.pacotes.map((pacote) => (
+                    <SelectItem key={pacote.id} value={pacote.id}>
+                      {pacote.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <Field label="Quantidade" className="col-span-12 sm:col-span-3">
+              <QtdStepper value={pacoteSeletorQtd} onChange={setPacoteSeletorQtd} />
+            </Field>
+          </div>
+
+          {itensAmbiguosDoSeletor.length > 0 && (
+            <div className="mt-4 space-y-3 border-t border-white/[0.06] pt-4">
+              <p className="text-[11px] uppercase tracking-wider text-white/45">
+                Esse pacote tem itens com mais de uma opção de fornecedor — escolha qual usar em cada um
+              </p>
+              {itensAmbiguosDoSeletor.map((item) => (
+                <Field
+                  key={item.id}
+                  label={
+                    item.descricao ||
+                    props.tiposProduto.find((t) => t.id === item.tipo_produto_id)?.nome ||
+                    "Item"
+                  }
+                >
+                  <Select
+                    value={escolhaFornecedorPorItem[item.id] ?? ""}
+                    onValueChange={(v) =>
+                      setEscolhaFornecedorPorItem((s) => ({ ...s, [item.id]: v }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o fornecedor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {item.fornecedores.map((f) => {
+                        const nome =
+                          props.fornecedores.find((x) => x.id === f.fornecedor_id)?.nome ??
+                          "Fornecedor"
+                        return (
+                          <SelectItem key={f.fornecedor_id} value={f.fornecedor_id}>
+                            {nome} — {formatBRL(f.valor_custo)}
+                          </SelectItem>
+                        )
+                      })}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-4 flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={fecharSeletorPacote}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={!pacoteSeletorId}
+              onClick={confirmarAplicarPacoteDoSeletor}
+              className="bg-amber-500 text-white hover:bg-amber-500/90"
+            >
+              Aplicar pacote
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -4601,6 +4923,8 @@ function ProdutosRevisao(props: {
   produtos: {
     tipoNome: string
     icone: string | null
+    /** Linha originada de pacote — usa o ícone de pacote no lugar do tipo. */
+    isPacote?: boolean
     fornecedorNome: string
     dataEmissao: string | null
     dataInicioViagem: string | null
@@ -4613,6 +4937,12 @@ function ProdutosRevisao(props: {
     ravExtraFornecedor: number
     ravComissionado: number
     camposExtras: { nome: string; valor: string }[]
+    /** Linhas de pacote: campos agrupados por produto incluso (substitui camposExtras). */
+    gruposPacote?: {
+      titulo: string
+      icone: string | null
+      campos: { nome: string; valor: string }[]
+    }[] | null
     pgtoForma: string | null
     pgtoCartaoNome: string | null
     pgtoValorTotal: number
@@ -4661,6 +4991,7 @@ function ProdutosRevisao(props: {
             const aberto = abertos[i] ?? false
             const temDetalhes =
               p.camposExtras.length > 0 ||
+              (p.gruposPacote?.length ?? 0) > 0 ||
               p.ravExtraCliente > 0 ||
               p.ravExtraFornecedor > 0 ||
               p.ravComissionado > 0 ||
@@ -4688,16 +5019,20 @@ function ProdutosRevisao(props: {
                   </td>
                   <td className="px-3 py-2 text-white/85">
                     <span className="flex items-center gap-1.5">
-                      {p.icone && (
-                        <span className="relative block h-3.5 w-3.5 shrink-0">
-                          <Image
-                            src={`/icons/tipos-produto/${p.icone}.png`}
-                            alt={p.tipoNome}
-                            fill
-                            className="object-contain"
-                            style={{ filter: "brightness(0) invert(1)", opacity: 0.5 }}
-                          />
-                        </span>
+                      {p.isPacote ? (
+                        <Package className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+                      ) : (
+                        p.icone && (
+                          <span className="relative block h-3.5 w-3.5 shrink-0">
+                            <Image
+                              src={`/icons/tipos-produto/${p.icone}.png`}
+                              alt={p.tipoNome}
+                              fill
+                              className="object-contain"
+                              style={{ filter: "brightness(0) invert(1)", opacity: 0.5 }}
+                            />
+                          </span>
+                        )
                       )}
                       {p.tipoNome}
                     </span>
@@ -4746,6 +5081,41 @@ function ProdutosRevisao(props: {
                           >
                             <span className="text-white/40">{c.nome}:</span>
                             <span className="text-white/85">{c.valor}</span>
+                          </div>
+                        ))}
+                        {/* Pacote: um bloco por produto incluso, ocupando a
+                            largura toda, com os campos daquele produto. */}
+                        {(p.gruposPacote ?? []).map((grupo, g) => (
+                          <div
+                            key={g}
+                            className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5 sm:col-span-2"
+                          >
+                            <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-white/50">
+                              {grupo.icone && (
+                                <span className="relative block h-3.5 w-3.5 shrink-0">
+                                  <Image
+                                    src={`/icons/tipos-produto/${grupo.icone}.png`}
+                                    alt={grupo.titulo}
+                                    fill
+                                    className="object-contain"
+                                    style={{ filter: "brightness(0) invert(1)", opacity: 0.6 }}
+                                  />
+                                </span>
+                              )}
+                              {grupo.titulo}
+                            </p>
+                            {grupo.campos.length > 0 ? (
+                              <div className="grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2">
+                                {grupo.campos.map((c, j) => (
+                                  <div key={j} className="flex items-baseline gap-2 text-[12px]">
+                                    <span className="text-white/40">{c.nome}:</span>
+                                    <span className="text-white/85">{c.valor}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-[12px] text-white/35">Sem detalhes adicionais.</p>
+                            )}
                           </div>
                         ))}
                         {p.ravExtraCliente > 0 && (
@@ -4979,6 +5349,8 @@ function Step6Revisao(props: {
   produtos: {
     tipoNome: string
     icone: string | null
+    /** Linha originada de pacote — usa o ícone de pacote no lugar do tipo. */
+    isPacote?: boolean
     fornecedorNome: string
     dataEmissao: string | null
     dataInicioViagem: string | null
@@ -4991,6 +5363,12 @@ function Step6Revisao(props: {
     ravExtraFornecedor: number
     ravComissionado: number
     camposExtras: { nome: string; valor: string }[]
+    /** Linhas de pacote: campos agrupados por produto incluso (substitui camposExtras). */
+    gruposPacote?: {
+      titulo: string
+      icone: string | null
+      campos: { nome: string; valor: string }[]
+    }[] | null
     pgtoForma: string | null
     pgtoCartaoNome: string | null
     pgtoValorTotal: number
@@ -5133,7 +5511,7 @@ function Step6Revisao(props: {
           </div>
         </Bloco>
 
-        <Bloco titulo={`Produtos (${props.produtos.length})`}>
+        <Bloco titulo={`Produtos/Pacotes (${props.produtos.length})`}>
           <ProdutosRevisao
             produtos={props.produtos}
             totalVenda={totalVenda}
@@ -5643,6 +6021,174 @@ function Stat({
     </div>
   )
 }
+
+/** Tela inicial do Passo 2 quando ainda não há nenhum produto — em vez de
+ *  já abrir um formulário de produto em branco, oferece a escolha entre
+ *  montar um produto do zero ou carregar um pacote pré-configurado. */
+function EmptyProdutosState({
+  onAdicionarProduto,
+  temPacotes,
+  onUsarPacote,
+}: {
+  onAdicionarProduto: () => void
+  temPacotes: boolean
+  onUsarPacote: () => void
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <EmptyStateCard
+        as="button"
+        onClick={onAdicionarProduto}
+        tone="bright"
+        icon={Plus}
+        title="Adicionar produto"
+        subtitle="Aéreo, hotel, seguro… um de cada vez"
+      />
+
+      {temPacotes ? (
+        <EmptyStateCard
+          as="button"
+          onClick={onUsarPacote}
+          tone="amber"
+          icon={Package}
+          title="Usar pacote"
+          subtitle="Carrega os produtos já pré-preenchidos"
+        />
+      ) : (
+        <EmptyStateCard
+          as="div"
+          tone="muted"
+          icon={Package}
+          title="Usar pacote"
+          subtitle="Nenhum pacote cadastrado ainda"
+        />
+      )}
+    </div>
+  )
+}
+
+/** Stepper numérico padrão da plataforma (− N +), mínimo 1. Mesmo visual do
+ *  stepper de campos dinâmicos tipo `numero`. */
+function QtdStepper({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number
+  onChange: (next: number) => void
+  disabled?: boolean
+}) {
+  const setN = (next: number) => onChange(Math.max(1, next))
+  return (
+    <div className="flex h-10 w-full items-stretch overflow-hidden rounded-md border border-input bg-background">
+      <button
+        type="button"
+        onClick={() => setN(value - 1)}
+        disabled={disabled || value <= 1}
+        aria-label="Diminuir"
+        className="flex w-8 shrink-0 items-center justify-center border-r border-input text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        <Minus className="h-3.5 w-3.5" />
+      </button>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={String(value)}
+        disabled={disabled}
+        onChange={(ev) => {
+          const n = parseInt(ev.target.value.replace(/[^\d]/g, ""), 10)
+          setN(Number.isFinite(n) ? n : 1)
+        }}
+        onFocus={(ev) => ev.target.select()}
+        className="min-w-0 flex-1 bg-transparent px-1 text-center text-sm tabular-nums text-white outline-none"
+      />
+      <button
+        type="button"
+        onClick={() => setN(value + 1)}
+        disabled={disabled}
+        aria-label="Aumentar"
+        className="flex w-8 shrink-0 items-center justify-center border-l border-input text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
+}
+
+type EmptyStateCardProps = {
+  as: "button" | "div"
+  tone: "bright" | "amber" | "muted"
+  icon: LucideIcon
+  title: string
+  subtitle: string
+}
+
+// forwardRef + spread de ...rest deixa o card reutilizável como botão simples
+// ou como trigger de outro componente Radix no futuro sem precisar reescrever.
+const EmptyStateCard = forwardRef<
+  HTMLButtonElement | HTMLDivElement,
+  EmptyStateCardProps & React.HTMLAttributes<HTMLButtonElement | HTMLDivElement>
+>(function EmptyStateCard({ as, tone, icon: Icon, title, subtitle, className: extraClassName, ...rest }, ref) {
+  const toneClass: Record<typeof tone, string> = {
+    bright:
+      "border-nexus-bright/25 hover:border-nexus-bright/50 hover:bg-nexus-bright/[0.05]",
+    amber: "border-amber-500/25 hover:border-amber-500/50 hover:bg-amber-500/[0.05]",
+    muted: "border-white/[0.12] opacity-50 cursor-default",
+  }
+  const iconWrapToneClass: Record<typeof tone, string> = {
+    bright: "border-nexus-bright/30 bg-nexus-bright/10 text-nexus-bright",
+    amber: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+    muted: "border-white/10 bg-white/[0.04] text-white/40",
+  }
+  const watermarkToneClass: Record<typeof tone, string> = {
+    bright: "text-nexus-bright",
+    amber: "text-amber-400",
+    muted: "text-white",
+  }
+
+  const content = (
+    <>
+      {/* Marca d'água: ícone grande e translúcido pra diferenciar os
+          cartões à distância, sem competir com o ícone/texto principal. */}
+      <Icon
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute -right-5 -bottom-6 h-28 w-28 opacity-[0.07]",
+          watermarkToneClass[tone],
+        )}
+      />
+      <span className={cn("relative z-10 flex h-12 w-12 items-center justify-center rounded-full border", iconWrapToneClass[tone])}>
+        <Icon className="h-5 w-5" />
+      </span>
+      <span className="relative z-10 text-sm font-medium text-white">{title}</span>
+      <span className="relative z-10 text-xs text-white/45">{subtitle}</span>
+    </>
+  )
+
+  const className = cn(
+    "relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-xl border border-dashed bg-white/[0.02] p-8 text-center transition-colors",
+    toneClass[tone],
+    extraClassName,
+  )
+
+  if (as === "div") {
+    return (
+      <div ref={ref as React.Ref<HTMLDivElement>} className={className} {...rest}>
+        {content}
+      </div>
+    )
+  }
+  return (
+    <button
+      type="button"
+      ref={ref as React.Ref<HTMLButtonElement>}
+      className={className}
+      {...(rest as React.ButtonHTMLAttributes<HTMLButtonElement>)}
+    >
+      {content}
+    </button>
+  )
+})
 
 function Field({
   label,

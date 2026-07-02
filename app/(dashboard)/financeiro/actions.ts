@@ -269,10 +269,12 @@ export async function getParcelaParaFatura(
     let camposExtras: string | null = null
     const extras = p.valores_extras ?? {}
     const partes: string[] = []
-    for (const [campoId, raw] of Object.entries(extras)) {
+    for (const [chave, raw] of Object.entries(extras)) {
       if (raw == null) continue
       const valor = String(raw).trim()
       if (!valor) continue
+      // Chave composta `campoId::itemId` em linhas de pacote.
+      const campoId = chave.split("::")[0]!
       const nome = campoNomeById.get(campoId) ?? campoId
       partes.push(`${nome}: ${valor}`)
     }
@@ -1012,10 +1014,12 @@ export async function getFaturaParaPDF(
         let camposExtras: string | null = null
         const extras = pr.valores_extras ?? {}
         const partes: string[] = []
-        for (const [campoId, raw] of Object.entries(extras)) {
+        for (const [chave, raw] of Object.entries(extras)) {
           if (raw == null) continue
           const valor = String(raw).trim()
           if (!valor) continue
+          // Chave composta `campoId::itemId` em linhas de pacote.
+          const campoId = chave.split("::")[0]!
           partes.push(`${campoNomeById.get(campoId) ?? campoId}: ${valor}`)
         }
         if (partes.length > 0) camposExtras = partes.join(" · ")

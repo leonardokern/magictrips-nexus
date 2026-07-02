@@ -153,10 +153,12 @@ export async function getVendasParaExportar(
       const tipo = (p.tipo_produto_nome ?? "").trim()
       const extras = p.valores_extras ?? {}
       const valores: string[] = []
-      for (const [campoId, raw] of Object.entries(extras)) {
+      for (const [chave, raw] of Object.entries(extras)) {
         if (raw == null) continue
         let txt = String(raw).trim()
         if (!txt) continue
+        // Chave composta `campoId::itemId` em linhas de pacote.
+        const campoId = chave.split("::")[0]!
         // Resolve UUID → nome se o campo é do tipo fornecedor.
         if (campoFornecedorIds.has(campoId) && fornecedorNomeById.has(txt)) {
           txt = fornecedorNomeById.get(txt) ?? txt

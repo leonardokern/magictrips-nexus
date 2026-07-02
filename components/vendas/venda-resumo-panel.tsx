@@ -2,7 +2,7 @@
 
 import { type ReactNode, useState } from "react"
 import Image from "next/image"
-import { CheckCircle, AlertTriangle, ChevronDown, ExternalLink, FileDown, Paperclip, Pencil } from "lucide-react"
+import { CheckCircle, AlertTriangle, ChevronDown, ExternalLink, FileDown, Package, Paperclip, Pencil } from "lucide-react"
 import { toast } from "sonner"
 import { formatBRL } from "@/lib/utils/sum-parser"
 import { COBRANCA_TIPO_LABEL, PGTO_FORMA_LABEL } from "@/lib/schemas/venda"
@@ -71,6 +71,7 @@ function ProdutoRow({ p }: { p: Produto }) {
 
   const temDetalhes =
     p.camposExtras.length > 0 ||
+    (p.gruposPacote?.length ?? 0) > 0 ||
     !!p.fornecedorNome ||
     !!p.localizador ||
     !!p.localizadorFornecedor ||
@@ -102,18 +103,22 @@ function ProdutoRow({ p }: { p: Produto }) {
               />
             )}
             {!temDetalhes && <span className="h-3.5 w-3.5 shrink-0" />}
-            {p.icone && (
-              <span className="relative block h-3.5 w-3.5 shrink-0">
-                <Image
-                  src={`/icons/tipos-produto/${p.icone}.png`}
-                  alt={p.tipoNome}
-                  fill
-                  className="object-contain"
-                  style={{ filter: "brightness(0) invert(1)", opacity: 0.5 }}
-                />
-              </span>
+            {p.isPacote ? (
+              <Package className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+            ) : (
+              p.icone && (
+                <span className="relative block h-3.5 w-3.5 shrink-0">
+                  <Image
+                    src={`/icons/tipos-produto/${p.icone}.png`}
+                    alt={p.tipoNome}
+                    fill
+                    className="object-contain"
+                    style={{ filter: "brightness(0) invert(1)", opacity: 0.5 }}
+                  />
+                </span>
+              )
             )}
-            {p.tipoNome}
+            {p.isPacote ? p.pacoteNome ?? p.tipoNome : p.tipoNome}
             {p.destino && (
               <span className="ml-1 text-[11px] text-white/40">
                 · {p.destino}
@@ -166,6 +171,39 @@ function ProdutoRow({ p }: { p: Produto }) {
                 {/* Campos personalizados do tipo de produto */}
                 {p.camposExtras.map((ce) => (
                   <MiniStat key={ce.nome} label={ce.nome} value={ce.valor} />
+                ))}
+
+                {/* Pacote: um bloco por produto incluso, ocupando a largura
+                    toda, com os campos daquele produto. */}
+                {(p.gruposPacote ?? []).map((grupo, g) => (
+                  <div
+                    key={g}
+                    className="col-span-2 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 sm:col-span-3 lg:col-span-4"
+                  >
+                    <p className="mb-2 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-widest text-white/45">
+                      {grupo.icone && (
+                        <span className="relative block h-3.5 w-3.5 shrink-0">
+                          <Image
+                            src={`/icons/tipos-produto/${grupo.icone}.png`}
+                            alt={grupo.titulo}
+                            fill
+                            className="object-contain"
+                            style={{ filter: "brightness(0) invert(1)", opacity: 0.55 }}
+                          />
+                        </span>
+                      )}
+                      {grupo.titulo}
+                    </p>
+                    {grupo.campos.length > 0 ? (
+                      <div className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3 lg:grid-cols-4">
+                        {grupo.campos.map((ce) => (
+                          <MiniStat key={ce.nome} label={ce.nome} value={ce.valor} />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[12px] text-white/35">Sem detalhes adicionais.</p>
+                    )}
+                  </div>
                 ))}
 
                 {/* Destino */}

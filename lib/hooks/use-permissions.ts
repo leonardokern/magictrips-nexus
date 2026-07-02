@@ -10,6 +10,7 @@ export type Modulo =
   | "fornecedores"
   | "agenda"
   | "tipos_produto"
+  | "pacotes"
   | "usuarios"
   | "perfis"
   | "comissoes"

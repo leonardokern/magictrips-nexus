@@ -207,9 +207,16 @@ export async function buildRelatorioTipoProduto(
     const ravExtraCliente = Number(p.rav_extra_cliente ?? 0)
     const ravExtraFornecedor = Number(p.rav_extra_fornecedor ?? 0)
     const extras = p.valores_extras ?? {}
+    // Normaliza chaves compostas `campoId::itemId` (linhas geradas por
+    // pacote) — no relatório colunar, usa o primeiro valor de cada campo.
+    const extrasPorCampo: Record<string, unknown> = {}
+    for (const [chave, val] of Object.entries(extras)) {
+      const campoId = chave.split("::")[0]!
+      if (!(campoId in extrasPorCampo)) extrasPorCampo[campoId] = val
+    }
     const valoresCampos: Record<string, string> = {}
     for (const c of campos) {
-      valoresCampos[c.id] = resolverValor(c.id, extras[c.id])
+      valoresCampos[c.id] = resolverValor(c.id, extrasPorCampo[c.id])
     }
     return {
       vendaId: venda?.id ?? "",

@@ -37,7 +37,8 @@ const SELECT_LISTA = `
   empresa:empresas(nome, slug),
   cliente:clientes(nome),
   agente:usuarios!vendas_usuario_id_fkey(nome),
-  produtos:venda_produtos(valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, rav_comissionado)
+  produtos:venda_produtos(valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, rav_comissionado),
+  cobranca:cobranca_cliente(itens:cobranca_cliente_itens(valor_total, taxa_cobranca))
 ` as const
 
 type SearchParams = { page?: string; q?: string }
@@ -246,6 +247,7 @@ export default async function VendasPage({
   function calcular<
     T extends {
       produtos: unknown
+      cobranca?: unknown
       comissao_percentual?: number | null
       desfluxo_percentual?: number | null
       desfluxo_aplicado?: boolean | null
@@ -253,8 +255,11 @@ export default async function VendasPage({
   >(v: T) {
     // RAV total = base + extra cliente + extra fornecedor.
     // Comissão = RAV efetivo × % do agente (regra unificada com wizard/PDF).
-    // Desfluxo: quando aplicado, custo sobe e RAV/comissão caem (sobreposição
-    // contábil — valor_custo no banco não muda).
+    // Deduções contábeis (custo "virtual" que reduz RAV/comissão):
+    //   - Desfluxo aplicado: custo sobe %, RAV cai.
+    //   - Taxa de cobrança: soma de (valor_item × taxa%) — paga à
+    //     plataforma (PagSeguro/Cielo/faturado), sai do bolso da agência.
+    // O valor_custo no banco não muda em nenhum dos casos.
     type ProdRow = {
       valor_venda: number
       valor_custo: number | null
@@ -263,6 +268,9 @@ export default async function VendasPage({
       rav_extra_fornecedor: number | null
       rav_comissionado: number | null
     }
+    type CobrItem = { valor_total: number | string | null; taxa_cobranca: number | string | null }
+    // Supabase pode retornar 1:1 tanto como objeto quanto como array (1-el).
+    type CobrBloco = { itens: CobrItem[] | null }
     const prods = (v.produtos as ProdRow[] | null) ?? []
     const total = prods.reduce((a, p) => a + Number(p.valor_venda ?? 0), 0)
     // RAV total = soma de `rav` (Venda − Custo). Os 3 extras são DECOMPOSIÇÃO
@@ -275,7 +283,16 @@ export default async function VendasPage({
     const desfluxoPctAtivo =
       (v.desfluxo_aplicado ?? true) ? Number(v.desfluxo_percentual ?? 0) : 0
     const desfluxoCustoExtra = (custoBase * desfluxoPctAtivo) / 100
-    const ravTotal = ravBruto - desfluxoCustoExtra
+    // cobranca vem 1:1 — Supabase pode retornar objeto único OU array com
+    // um bloco. Normaliza pra sempre pegar `itens[]`.
+    const cobrRaw = v.cobranca as CobrBloco | CobrBloco[] | null
+    const cobrBloco = Array.isArray(cobrRaw) ? cobrRaw[0] : cobrRaw
+    const totalTaxasCobranca = (cobrBloco?.itens ?? []).reduce(
+      (a, it) =>
+        a + (Number(it.valor_total ?? 0) * Number(it.taxa_cobranca ?? 0)) / 100,
+      0,
+    )
+    const ravTotal = ravBruto - desfluxoCustoExtra - totalTaxasCobranca
     const pctComissao = Number(v.comissao_percentual ?? 0)
     const comissao = (ravTotal * pctComissao) / 100
     return { total, ravTotal, comissao }
