@@ -1628,7 +1628,7 @@ export async function getVendaParaEditar(
         .maybeSingle(),
       supabase
         .from("venda_produtos")
-        .select("tipo_produto_id, fornecedor_id, fornecedor_nome, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, rav_comissionado, comissao_vendedor, valores_extras, data_emissao, pgto_modo, pgto_forma, pgto_cartao_id, pgto_valor_total, pgto_entrada, pgto_num_parcelas, pgto_valor_parcela, pgto_data_debito, pgto_primeira_parcela_extra, pgto_parcelas_detalhe, data_inicio_viagem, data_fim_viagem")
+        .select("tipo_produto_id, fornecedor_id, fornecedor_nome, valor_venda, valor_custo, rav, rav_extra_cliente, rav_extra_fornecedor, rav_comissionado, comissao_vendedor, valores_extras, origem_pacote_id, data_emissao, pgto_modo, pgto_forma, pgto_cartao_id, pgto_valor_total, pgto_entrada, pgto_num_parcelas, pgto_valor_parcela, pgto_data_debito, pgto_primeira_parcela_extra, pgto_parcelas_detalhe, data_inicio_viagem, data_fim_viagem")
         .eq("venda_id", id)
         .order("ordem"),
       supabase
@@ -1702,6 +1702,9 @@ export async function getVendaParaEditar(
       ),
       comissao_vendedor_str:    numStr(p.comissao_vendedor),
       valores_extras:           (p.valores_extras as Record<string, string> | null) ?? {},
+      // Vínculo com o pacote de origem — sem isso o wizard não reconstrói a
+      // linha como pacote na edição (rende como produto solto).
+      origem_pacote_id:         (p as { origem_pacote_id: string | null }).origem_pacote_id ?? null,
       data_emissao_str:         p.data_emissao ?? "",
       data_inicio_viagem_str:   p.data_inicio_viagem ?? "",
       data_fim_viagem_str:      p.data_fim_viagem ?? "",

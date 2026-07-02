@@ -127,6 +127,10 @@ export const vendaProdutoSchema = z.object({
    *  prevista, alimentando o controle de contas a pagar. Default [] = sem
    *  parcelamento detalhado. */
   pgto_parcelas_detalhe: z.array(parcelaDetalheSchema).default([]),
+  /** Pacote (template) que originou esta linha, quando aplicada via "Usar
+   *  pacote" no Passo 2. Rastreabilidade + agrupamento na revisão. Sem isso,
+   *  o zod descartaria o campo e a RPC nunca receberia o vínculo. */
+  origem_pacote_id: z.string().uuid().nullable().optional(),
 })
 
 export type VendaProdutoInput = z.infer<typeof vendaProdutoSchema>
